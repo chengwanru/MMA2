@@ -1,4 +1,4 @@
-# MMA: Multimodal Memory Agent
+# <img src="assets/mma_logo.png" alt="logo" width="30"/> MMA: Multimodal Memory Agent
 
 This is the official repository for the paper:
 
@@ -10,8 +10,7 @@ This is the official repository for the paper:
 >
 > ### [Paper](https://arxiv.org/abs/xxxx.xxxxx) | [HF Paper]()
 
-> [!NOTE]
-> _⚠️ **Repository Structure**: This repo contains the **MMA Agent framework** (based on MIRIX) and the **MMA-Bench evaluation toolkit**._
+> [!NOTE] > _⚠️ **Repository Structure**: This repo contains the **MMA Agent framework** (based on MIRIX) and the **MMA-Bench evaluation toolkit**._
 
 ## 📖 Introduction
 
@@ -138,6 +137,7 @@ python run_instance.py \
 
 ```text
 .
+├── assets/                 # Images for README (Logo)
 ├── MMA/                    # [Agent Framework] Core implementation
 │   ├── MMA/                # Source code for the Agent (Memory, Confidence)
 │   ├── configs/            # Configuration YAMLs for different backends
@@ -176,4 +176,7 @@ If you find our work useful, please cite:
 ## License
 
 This project is licensed under the [Apache 2.0 License](LICENSE).
-````
+
+```
+
+```
