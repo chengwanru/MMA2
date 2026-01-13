@@ -42,8 +42,6 @@ pip install -r MMA/requirements.txt        # For the Agent (RAG, VectorDB)
 pip install -r MMA-Bench/requirements.txt  # For Benchmark Gen & Eval (OpenAI, DashScope)
 ```
 
-````
-
 ### 2. User Configuration (🔑 Input Required)
 
 You must configure API keys and data paths before running experiments.
