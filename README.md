@@ -4,7 +4,7 @@ This is the official repository for the paper:
 
 > **MMA: Multimodal Memory Agent**
 >
-> Yihao Lu\*, Wanru Cheng\*, Zeyu Zhang\*†, Hao Tang‡
+> Yihao Lu\*, Wanru Cheng\*, [Zeyu Zhang](https://steve-zeyu-zhang.github.io/)\*†, Hao Tang‡
 >
 > \*Equal contribution. †Project lead. ‡Corresponding author.
 >
