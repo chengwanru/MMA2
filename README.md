@@ -178,6 +178,3 @@ If you find our work useful, please cite:
 
 This project is licensed under the [Apache 2.0 License](LICENSE).
 
-```
-
-```
