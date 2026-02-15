@@ -6,3 +6,6 @@ __pycache__/
 *.log
 *.DS_Store
 venv/
+docs/
+MMA/MMA/models/qwen3_vl/README.md
+MMA/MMA/speculative_memory/README.md
