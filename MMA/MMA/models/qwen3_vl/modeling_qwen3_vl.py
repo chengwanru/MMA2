@@ -39,7 +39,17 @@ from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS, dynamic_rope_u
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, PreTrainedModel
 from transformers.processing_utils import Unpack
 from transformers.utils import TransformersKwargs, auto_docstring, can_return_tuple, torch_compilable_check
-from transformers.utils.generic import check_model_inputs, is_flash_attention_requested, maybe_autocast
+try:
+    from transformers.utils.generic import check_model_inputs, is_flash_attention_requested, maybe_autocast
+except ImportError:
+    def check_model_inputs(f):
+        return f
+    def is_flash_attention_requested(config):
+        return getattr(config, "_attn_implementation", None) == "flash_attention_2"
+    from torch.amp import autocast
+    from contextlib import nullcontext
+    def maybe_autocast(device_type="cuda", enabled=True):
+        return autocast(device_type=device_type, enabled=enabled) if enabled else nullcontext()
 from .configuration_qwen3_vl import Qwen3VLConfig, Qwen3VLTextConfig, Qwen3VLVisionConfig
 
 
