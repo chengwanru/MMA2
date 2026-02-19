@@ -15,7 +15,7 @@
 
 import math
 
-import numpy as np
+import numpy as np  # type: ignore[import-untyped]
 import torch
 
 from transformers.feature_extraction_utils import BatchFeature

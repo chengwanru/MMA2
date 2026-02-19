@@ -66,20 +66,41 @@ def get_memory_kv_from_target_model(
             "get_memory_kv_from_target_model: model returned past_key_values=None. Set use_cache=True."
         )
 
-    if hasattr(past_key_values, "key_cache") and hasattr(past_key_values, "value_cache"):
+    # Support multiple cache formats across transformers versions:
+    # 1) New Cache API: .layers[i].keys / .layers[i].values (DynamicCache as Cache with DynamicLayer)
+    # 2) Older DynamicCache: .key_cache / .value_cache lists
+    # 3) Legacy: .to_legacy_cache() returning list of (K, V) tuples
+    if hasattr(past_key_values, "layers") and getattr(past_key_values, "layers", None):
+        layers = past_key_values.layers
+        memory_kv = []
+        for layer in layers:
+            if hasattr(layer, "keys") and hasattr(layer, "values") and layer.keys is not None and layer.values is not None:
+                memory_kv.append((layer.keys, layer.values))
+            else:
+                break
+        if len(memory_kv) != len(layers):
+            memory_kv = []
+    else:
+        memory_kv = []
+
+    if not memory_kv and hasattr(past_key_values, "key_cache") and hasattr(past_key_values, "value_cache"):
         key_cache = past_key_values.key_cache
         value_cache = past_key_values.value_cache
         num_layers = len(key_cache)
         memory_kv = [(key_cache[i], value_cache[i]) for i in range(num_layers)]
-    else:
+
+    if not memory_kv:
         try:
             legacy = past_key_values.to_legacy_cache()
             memory_kv = [(legacy[i][0], legacy[i][1]) for i in range(len(legacy))]
-        except Exception as e:
-            raise RuntimeError(
-                "get_memory_kv_from_target_model: could not extract K/V from Cache. "
-                "Expected DynamicCache with .key_cache / .value_cache, or .to_legacy_cache()."
-            ) from e
+        except Exception:
+            pass
+
+    if not memory_kv:
+        raise RuntimeError(
+            "get_memory_kv_from_target_model: could not extract K/V from Cache. "
+            "Expected Cache with .layers[].keys/.values, or .key_cache/.value_cache, or .to_legacy_cache()."
+        )
 
     return memory_kv
 
