@@ -30,6 +30,9 @@ if __name__ == "__main__":
     _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     if _root not in sys.path:
         sys.path.insert(0, _root)
+    # Offline on GPU nodes: avoid network when MMA_OFFLINE or HF_HOME is set
+    if os.environ.get("MMA_OFFLINE") or os.environ.get("HF_HOME"):
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 import torch
 
