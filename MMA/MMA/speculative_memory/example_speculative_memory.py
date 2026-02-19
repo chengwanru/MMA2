@@ -12,12 +12,11 @@ Run from the repo root (e.g. MMA2) so that the `mma` package is importable.
 
   # Offline (e.g. GPU node with no network):
   export MMA_OFFLINE=1
-  # Point HuggingFace cache to where you downloaded (required if "couldn't find in cached files"):
-  #   - If you downloaded with default cache on login:  export HF_HOME=$HOME
-  #   - If you downloaded with cache on gdata:         export HF_HOME=/g/data/mv44/zz1230
-  # Or use local dirs (no hub cache needed):
-  # export MMA_DRAFT_MODEL_PATH=/path/to/Qwen3-VL-2B-Instruct
-  # export MMA_TARGET_MODEL_PATH=/path/to/Qwen3-VL-8B-Instruct
+  export HF_HOME=/g/data/mv44/zz1230
+  # (Script sets HF_HUB_CACHE=$HF_HOME/.cache/huggingface/hub if unset.)
+  # If still "couldn't find in cached files", set the hub cache explicitly:
+  # export HF_HUB_CACHE=/g/data/mv44/zz1230/.cache/huggingface/hub
+  # Or use snapshot dirs: MMA_DRAFT_MODEL_PATH=.../snapshots/<hash> (and TARGET)
   python MMA/MMA/speculative_memory/example_speculative_memory.py
 """
 
@@ -34,6 +33,11 @@ if __name__ == "__main__":
     # Offline on GPU nodes: avoid network when MMA_OFFLINE or HF_HOME is set
     if os.environ.get("MMA_OFFLINE") or os.environ.get("HF_HOME"):
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    # HuggingFace hub uses HF_HUB_CACHE for the hub dir; set from HF_HOME if needed
+    if os.environ.get("HF_HOME") and not os.environ.get("HF_HUB_CACHE"):
+        os.environ["HF_HUB_CACHE"] = os.path.join(
+            os.environ["HF_HOME"], ".cache", "huggingface", "hub"
+        )
 
 import torch
 
