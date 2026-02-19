@@ -10,11 +10,12 @@ Run from the repo root (e.g. MMA2) so that the `mma` package is importable.
   # Option B: cd into MMA and run as module (if MMA is the package root for mma)
   cd MMA && python -m MMA.speculative_memory.example_speculative_memory
 
-  # Offline (e.g. GPU node with no network): use cached models and optional local paths
-  # 1) Point HuggingFace to your cache (must match where you downloaded on login node):
-  export HF_HOME=/g/data/mv44/zz1230
-  export TRANSFORMERS_OFFLINE=1
-  # 2) Optional: override model paths with local dirs (avoids any hub lookup):
+  # Offline (e.g. GPU node with no network):
+  export MMA_OFFLINE=1
+  # Point HuggingFace cache to where you downloaded (required if "couldn't find in cached files"):
+  #   - If you downloaded with default cache on login:  export HF_HOME=$HOME
+  #   - If you downloaded with cache on gdata:         export HF_HOME=/g/data/mv44/zz1230
+  # Or use local dirs (no hub cache needed):
   # export MMA_DRAFT_MODEL_PATH=/path/to/Qwen3-VL-2B-Instruct
   # export MMA_TARGET_MODEL_PATH=/path/to/Qwen3-VL-8B-Instruct
   python MMA/MMA/speculative_memory/example_speculative_memory.py
@@ -60,6 +61,9 @@ def main() -> None:
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Device: {device}")
+    if os.environ.get("MMA_OFFLINE") or os.environ.get("TRANSFORMERS_OFFLINE"):
+        hf_home = os.environ.get("HF_HOME", os.environ.get("HF_HUB_CACHE", "(default ~/.cache/huggingface)"))
+        print(f"Offline: using HF cache from HF_HOME={hf_home}")
 
     # 1) Load draft model + processor (shared tokenizer)
     print("Loading draft model ...")
@@ -68,11 +72,17 @@ def main() -> None:
 
     # 2) Load target model with our local Qwen3-VL (has memory_past_key_values in forward).
     print("Loading target model ...")
-    target_model = Qwen3VLForConditionalGeneration.from_pretrained(
-        config.target_model_name_or_path,
+    _local_only = os.environ.get("TRANSFORMERS_OFFLINE", "") == "1" or os.environ.get("MMA_OFFLINE", "") == "1"
+    target_kw = dict(
         torch_dtype=config.torch_dtype or torch.float16 if device == "cuda" else torch.float32,
         device_map=device,
         trust_remote_code=True,
+    )
+    if _local_only:
+        target_kw["local_files_only"] = True
+    target_model = Qwen3VLForConditionalGeneration.from_pretrained(
+        config.target_model_name_or_path,
+        **target_kw,
     )
     target_model.eval()
 

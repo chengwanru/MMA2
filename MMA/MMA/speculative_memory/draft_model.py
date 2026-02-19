@@ -5,6 +5,7 @@ Generates candidate tokens autoregressively; at each step adds a token-level
 memory bias to logits before sampling. Uses HuggingFace generate() + LogitsProcessor.
 """
 
+import os
 from dataclasses import dataclass
 from typing import Any, List, Optional, Union
 
@@ -193,12 +194,17 @@ def load_draft_model(
         raise ImportError("Draft model requires transformers. Install with: pip install 'transformers>=4.57.0'")
 
     model_id = config.draft_model_name_or_path
-    # Qwen3-VL is ImageTextToText; use AutoModelForImageTextToText so it loads the right class
-    model = AutoModelForImageTextToText.from_pretrained(
-        model_id,
+    local_only = os.environ.get("TRANSFORMERS_OFFLINE", "") == "1" or os.environ.get("MMA_OFFLINE", "") == "1"
+    load_kw = dict(
         torch_dtype=config.torch_dtype or "auto",
         device_map=device_map or config.device or "auto",
         trust_remote_code=True,
     )
-    processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+    if local_only:
+        load_kw["local_files_only"] = True
+    # Qwen3-VL is ImageTextToText; use AutoModelForImageTextToText so it loads the right class
+    model = AutoModelForImageTextToText.from_pretrained(model_id, **load_kw)
+    processor = AutoProcessor.from_pretrained(
+        model_id, trust_remote_code=True, local_files_only=local_only
+    )
     return model, processor
