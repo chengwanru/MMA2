@@ -43,8 +43,14 @@ class MemoryBiasLogitsProcessor:
         input_ids: torch.LongTensor,
         scores: torch.FloatTensor,
     ) -> torch.FloatTensor:
-        # scores: (batch, vocab_size)
+        # scores: (batch, vocab_size); model vocab may be padded (e.g. 151936) vs tokenizer (151643)
         bias = self.bias.to(device=scores.device, dtype=scores.dtype)
+        vocab_size = scores.size(-1)
+        if bias.size(0) != vocab_size:
+            if bias.size(0) < vocab_size:
+                bias = torch.nn.functional.pad(bias, (0, vocab_size - bias.size(0)), value=0.0)
+            else:
+                bias = bias[:vocab_size]
         return scores + bias
 
 
