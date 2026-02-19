@@ -9,6 +9,15 @@ Run from the repo root (e.g. MMA2) so that the `mma` package is importable.
 
   # Option B: cd into MMA and run as module (if MMA is the package root for mma)
   cd MMA && python -m MMA.speculative_memory.example_speculative_memory
+
+  # Offline (e.g. GPU node with no network): use cached models and optional local paths
+  # 1) Point HuggingFace to your cache (must match where you downloaded on login node):
+  export HF_HOME=/g/data/mv44/zz1230
+  export TRANSFORMERS_OFFLINE=1
+  # 2) Optional: override model paths with local dirs (avoids any hub lookup):
+  # export MMA_DRAFT_MODEL_PATH=/path/to/Qwen3-VL-2B-Instruct
+  # export MMA_TARGET_MODEL_PATH=/path/to/Qwen3-VL-8B-Instruct
+  python MMA/MMA/speculative_memory/example_speculative_memory.py
 """
 
 from __future__ import annotations
@@ -33,10 +42,14 @@ from mma.models.qwen3_vl import Qwen3VLForConditionalGeneration
 
 
 def main() -> None:
+    # Model paths: use env for offline/local on GPU nodes, else HuggingFace IDs.
+    draft_path = os.environ.get("MMA_DRAFT_MODEL_PATH", "Qwen/Qwen3-VL-2B-Instruct")
+    target_path = os.environ.get("MMA_TARGET_MODEL_PATH", "Qwen/Qwen3-VL-8B-Instruct")
+
     # Config: Qwen3-VL draft + target (same tokenizer); target must use our local class for memory KV.
     config = SpeculativeMemoryConfig(
-        draft_model_name_or_path="Qwen/Qwen3-VL-2B-Instruct",
-        target_model_name_or_path="Qwen/Qwen3-VL-8B-Instruct",
+        draft_model_name_or_path=draft_path,
+        target_model_name_or_path=target_path,
         max_draft_steps=3,
         max_new_tokens=20,
         do_sample=False,
