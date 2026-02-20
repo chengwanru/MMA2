@@ -523,6 +523,7 @@ class AgentWrapper():
         # Define allowed memory models
         ALLOWED_MEMORY_MODELS = ['gemini-2.0-flash', 'gemini-2.5-flash-preview-04-17', 'gemini-2.5-flash']
 
+        _skip_memory_agent_update = False
         # Validate the model
         if new_model not in ALLOWED_MEMORY_MODELS:
             # warnings.warn(f'Invalid memory model. Only {", ".join(ALLOWED_MEMORY_MODELS)} are supported.')
@@ -537,12 +538,16 @@ class AgentWrapper():
                     context_window=128000,
                 )
             elif new_model == "qwen3-vl-speculative":
+                # Use same config for consistency, but do NOT assign to memory agents below:
+                # only chat_agent should use speculative_memory to avoid loading draft+target
+                # twice on a single GPU (would OOM on 32GB).
                 llm_config = LLMConfig(
                     model=new_model,
                     model_endpoint_type="speculative_memory",
                     context_window=8192,
                     max_tokens=256,
                 )
+                _skip_memory_agent_update = True
             else:
                 raise ValueError(f"Invalid memory model: {new_model}")
         
@@ -566,23 +571,25 @@ class AgentWrapper():
                     }
                 }
 
-        # Update only the memory-related agents (all agents except chat_agent)
-        memory_agent_names = [
-            'episodic_memory_agent',
-            'procedural_memory_agent',
-            'knowledge_vault_agent',
-            'meta_memory_agent',
-            'semantic_memory_agent',
-            'core_memory_agent',
-            'resource_memory_agent'
-        ]
-        for agent_state in self.client.list_agents():
-            if agent_state.name in memory_agent_names:
-                self.client.server.agent_manager.update_llm_config(
-                    agent_id=agent_state.id,
-                    llm_config=llm_config,
-                    actor=self.client.user
-                )
+        # Update only the memory-related agents (all agents except chat_agent).
+        # Skip for qwen3-vl-speculative so only chat_agent uses it (avoids loading draft+target per agent -> OOM on 32GB).
+        if not _skip_memory_agent_update:
+            memory_agent_names = [
+                'episodic_memory_agent',
+                'procedural_memory_agent',
+                'knowledge_vault_agent',
+                'meta_memory_agent',
+                'semantic_memory_agent',
+                'core_memory_agent',
+                'resource_memory_agent'
+            ]
+            for agent_state in self.client.list_agents():
+                if agent_state.name in memory_agent_names:
+                    self.client.server.agent_manager.update_llm_config(
+                        agent_id=agent_state.id,
+                        llm_config=llm_config,
+                        actor=self.client.user
+                    )
         self.memory_model_name = new_model
         return {
             'success': True,
