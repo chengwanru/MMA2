@@ -125,6 +125,7 @@ class AnthropicClient(LLMClientBase):
         tools: Optional[List[dict]] = None,
         force_tool_call: Optional[str] = None,
         existing_file_uris: Optional[List[str]] = None,
+        retrieved_memories: Optional[dict] = None,
     ) -> dict:
         # TODO: This needs to get cleaned up. The logic here is pretty confusing.
         # TODO: I really want to get rid of prefixing, it's a recipe for disaster code maintenance wise

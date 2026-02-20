@@ -332,6 +332,7 @@ class Agent(BaseAgent):
         get_input_data_for_debugging: bool = False,
         existing_file_uris: Optional[List[str]] = None,
         second_try: bool = False,
+        retrieved_memories: Optional[dict] = None,
     ) -> ChatCompletionResponse:
         """Get response from LLM API with robust retry mechanism."""
         log_telemetry(self.logger, "_get_ai_reply start")
@@ -383,6 +384,7 @@ class Agent(BaseAgent):
                         force_tool_call=force_tool_call,
                         get_input_data_for_debugging=get_input_data_for_debugging,
                         existing_file_uris=existing_file_uris,
+                        retrieved_memories=retrieved_memories,
                     )
 
                     if get_input_data_for_debugging:
@@ -1142,6 +1144,8 @@ class Agent(BaseAgent):
         else:
             retrieved_memories["key_words"] = key_words
 
+        memory_items_list: List[dict] = []
+
         # search_method = 'bm25'
         search_method = 'embedding' # Specifically for LOCOMO evaluation
 
@@ -1207,6 +1211,17 @@ class Agent(BaseAgent):
                 
             relevant_episodic_memory = most_relevant_episodic_memory_str.strip()
             retrieved_memories['episodic'] = [recent_episodic_memory, relevant_episodic_memory]
+            seen_ep = set()
+            for event in most_relevant_episodic_memory + current_episodic_memory:
+                eid = getattr(event, "id", None)
+                if eid is not None and eid in seen_ep:
+                    continue
+                if eid is not None:
+                    seen_ep.add(eid)
+                content = (event.summary or "") + (" " + (event.details or "") if getattr(event, "details", None) else "")
+                if content.strip():
+                    conf = getattr(event, "confidence", None) or (event.metadata_.get("confidence") if hasattr(event, "metadata_") and isinstance(event.metadata_, dict) else None)
+                    memory_items_list.append({"content": content.strip()[:2000], "confidence": float(conf) if conf is not None else 0.8})
 
         # Retrieve resource memory
         if self.agent_state.name == 'resource_memory_agent' or 'resource' not in retrieved_memories:
@@ -1226,6 +1241,11 @@ class Agent(BaseAgent):
                 
             resource_memory = resource_memory.strip()
             retrieved_memories['resource'] = resource_memory
+            for res in current_resource_memory:
+                content = (getattr(res, "title", "") or "") + " " + (getattr(res, "summary", "") or "")
+                if content.strip():
+                    conf = getattr(res, "confidence", None) or (getattr(res, "metadata_", None) or {}).get("confidence") if isinstance(getattr(res, "metadata_", None), dict) else None
+                    memory_items_list.append({"content": content.strip()[:2000], "confidence": float(conf) if conf is not None else 0.8})
 
         # Retrieve procedural memory
         if self.agent_state.name == 'procedural_memory_agent' or 'procedural' not in retrieved_memories:
@@ -1246,7 +1266,12 @@ class Agent(BaseAgent):
                         
             procedural_memory = procedural_memory.strip()
             retrieved_memories['procedural'] = procedural_memory
-        
+            for proc in current_procedural_memory:
+                content = getattr(proc, "summary", "") or ""
+                if content.strip():
+                    conf = getattr(proc, "confidence", None) or (getattr(proc, "metadata_", None) or {}).get("confidence") if isinstance(getattr(proc, "metadata_", None), dict) else None
+                    memory_items_list.append({"content": content.strip()[:2000], "confidence": float(conf) if conf is not None else 0.8})
+
         # Retrieve semantic memory
         if self.agent_state.name == 'semantic_memory_agent' or 'semantic' not in retrieved_memories:
             current_semantic_memory = self.semantic_memory_manager.list_semantic_items(agent_state=self.agent_state, query=key_words, embedded_text=embedded_text, search_field="details", search_method=search_method,limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM, timezone_str=timezone_str)
@@ -1265,6 +1290,13 @@ class Agent(BaseAgent):
                         
             semantic_memory = semantic_memory.strip()
             retrieved_memories['semantic'] = semantic_memory
+            for item in current_semantic_memory:
+                content = (getattr(item, "name", "") or "") + " " + (getattr(item, "summary", "") or "")
+                if content.strip():
+                    conf = getattr(item, "confidence", None) or (getattr(item, "metadata_", None) or {}).get("confidence") if isinstance(getattr(item, "metadata_", None), dict) else None
+                    memory_items_list.append({"content": content.strip()[:2000], "confidence": float(conf) if conf is not None else 0.8})
+
+        retrieved_memories["memory_items"] = memory_items_list
 
         # Build the complete system prompt
         memory_system_prompt = self.build_system_prompt(
@@ -1400,6 +1432,7 @@ These keywords have been used to retrieve relevant memories from the database.
                 step_count=step_count,
                 put_inner_thoughts_first=put_inner_thoughts_first,
                 existing_file_uris=existing_file_uris,
+                retrieved_memories=retrieved_memories,
             )
 
             # Step 3: check if LLM wanted to call a function

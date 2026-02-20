@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from mma.errors import LLMError
 from mma.schemas.llm_config import LLMConfig
@@ -34,11 +34,16 @@ class LLMClientBase:
         force_tool_call: Optional[str] = None,
         get_input_data_for_debugging: bool = False,
         existing_file_uris: Optional[List[str]] = None,
+        retrieved_memories: Optional[dict] = None,
     ) -> ChatCompletionResponse:
         """
         Issues a request to the downstream model endpoint and parses response.
         """
-        request_data = self.build_request_data(messages, self.llm_config, tools, force_tool_call, existing_file_uris=existing_file_uris)
+        request_data = self.build_request_data(
+            messages, self.llm_config, tools, force_tool_call,
+            existing_file_uris=existing_file_uris,
+            retrieved_memories=retrieved_memories,
+        )
 
         if get_input_data_for_debugging:
             return request_data
@@ -60,6 +65,7 @@ class LLMClientBase:
         tools: Optional[List[dict]] = None,
         force_tool_call: Optional[str] = None,
         existing_file_uris: Optional[List[str]] = None,
+        retrieved_memories: Optional[dict] = None,
     ) -> dict:
         """
         Constructs a request object in the expected data format for this client.

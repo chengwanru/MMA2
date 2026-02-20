@@ -47,5 +47,12 @@ class LLMClient:
                     llm_config=llm_config,
                     put_inner_thoughts_first=put_inner_thoughts_first,
                 )
+            case "speculative_memory":
+                from mma.llm_api.speculative_memory_client import SpeculativeMemoryClient
+
+                return SpeculativeMemoryClient(
+                    llm_config=llm_config,
+                    put_inner_thoughts_first=put_inner_thoughts_first,
+                )
             case _:
                 return None 

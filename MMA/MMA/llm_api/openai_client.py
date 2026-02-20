@@ -77,6 +77,7 @@ class OpenAIClient(LLMClientBase):
         tools: Optional[List[dict]] = None,  # Keep as dict for now as per base class
         force_tool_call: Optional[str] = None,
         existing_file_uris: Optional[List[str]] = None,
+        retrieved_memories: Optional[dict] = None,
     ) -> dict:
         """
         Constructs a request object in the expected data format for the OpenAI API.

@@ -46,6 +46,7 @@ class GoogleAIClient(LLMClientBase):
         tools: List[dict],
         force_tool_call: Optional[str] = None,
         existing_file_uris: Optional[List[str]] = None,
+        retrieved_memories: Optional[dict] = None,
     ) -> dict:
         """
         Constructs a request object in the expected data format for this client.

@@ -15,6 +15,8 @@ class CohereClient(LLMClientBase):
         llm_config: LLMConfig,
         tools: Optional[List[dict]] = None,
         force_tool_call: Optional[str] = None,
+        existing_file_uris: Optional[List[str]] = None,
+        retrieved_memories: Optional[dict] = None,
     ) -> dict:
         # TODO: Implement cohere-specific request building
         raise NotImplementedError("CohereClient not yet implemented - use fallback")
