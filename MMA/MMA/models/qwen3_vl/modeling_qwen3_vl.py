@@ -884,6 +884,9 @@ class Qwen3VLTextModel(Qwen3VLPreTrainedModel):
             The deepstack visual embeddings. The shape is (num_layers, visual_seqlen, embed_dim).
             The feature is extracted from the different visual encoder layers, and fed to the decoder
             hidden states. It's from the paper DeepStack(https://arxiv.org/abs/2406.04334).
+        memory_past_key_values (`list[tuple(torch.Tensor, torch.Tensor)]`, *optional*):
+            Per-layer (key, value) tensors for memory tokens to be concatenated with context K/V
+            in attention. Each tensor shape (batch, num_heads, memory_len, head_dim).
         """
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
@@ -1243,6 +1246,9 @@ class Qwen3VLModel(Qwen3VLPreTrainedModel):
             The temporal, height and width of feature shape of each image in LLM.
         video_grid_thw (`torch.LongTensor` of shape `(num_videos, 3)`, *optional*):
             The temporal, height and width of feature shape of each video in LLM.
+        memory_past_key_values (`list[tuple(torch.Tensor, torch.Tensor)]`, *optional*):
+            Per-layer (key, value) tensors for memory tokens to be concatenated with context K/V
+            in attention. Each tensor shape (batch, num_heads, memory_len, head_dim).
         """
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
