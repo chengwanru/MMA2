@@ -536,11 +536,17 @@ class AgentWrapper():
                     model_wrapper=None,
                     context_window=128000,
                 )
+            elif new_model == "qwen3-vl-speculative":
+                llm_config = LLMConfig(
+                    model=new_model,
+                    model_endpoint_type="speculative_memory",
+                    context_window=8192,
+                    max_tokens=256,
+                )
             else:
                 raise ValueError(f"Invalid memory model: {new_model}")
         
         else:
-            
             # All allowed memory models are Gemini models
             llm_config = LLMConfig(
                 model_endpoint_type="google_ai",
@@ -548,7 +554,6 @@ class AgentWrapper():
                 model=new_model,
                 context_window=100000
             )
-            
             # Check for API key availability
             if not self.is_gemini_client_initialized():
                 return {
@@ -560,28 +565,25 @@ class AgentWrapper():
                         'required_keys': ['GEMINI_API_KEY']
                     }
                 }
-        
+
         # Update only the memory-related agents (all agents except chat_agent)
         memory_agent_names = [
             'episodic_memory_agent',
-            'procedural_memory_agent', 
+            'procedural_memory_agent',
             'knowledge_vault_agent',
             'meta_memory_agent',
             'semantic_memory_agent',
             'core_memory_agent',
             'resource_memory_agent'
         ]
-        
         for agent_state in self.client.list_agents():
             if agent_state.name in memory_agent_names:
                 self.client.server.agent_manager.update_llm_config(
-                    agent_id=agent_state.id, 
-                    llm_config=llm_config, 
+                    agent_id=agent_state.id,
+                    llm_config=llm_config,
                     actor=self.client.user
                 )
-
         self.memory_model_name = new_model
-        
         return {
             'success': True,
             'message': f'Memory model set to {new_model} successfully.',
