@@ -923,7 +923,26 @@ class Qwen3VLTextModel(Qwen3VLPreTrainedModel):
         )
         if memory_past_key_values is not None:
             memory_len = memory_past_key_values[0][0].size(2)
-            attention_mask = F.pad(attention_mask, (0, memory_len), value=0.0)
+            if attention_mask is not None:
+                attention_mask = F.pad(attention_mask, (0, memory_len), value=0.0)
+            else:
+                # create_causal_mask can return None (e.g. flash attention); build mask for context + memory
+                past_seen = past_key_values.get_seq_length() if past_key_values is not None else 0
+                batch_size, query_len, _ = inputs_embeds.shape
+                context_len = past_seen + query_len
+                total_kv = context_len + memory_len
+                dtype = inputs_embeds.dtype
+                device = inputs_embeds.device
+                mask = torch.zeros(
+                    (batch_size, 1, query_len, total_kv),
+                    dtype=dtype,
+                    device=device,
+                )
+                for q in range(query_len):
+                    # causal: mask out (past_seen + q + 1) to (context_len - 1)
+                    if past_seen + q + 1 < context_len:
+                        mask[:, 0, q, past_seen + q + 1 : context_len] = torch.finfo(dtype).min
+                attention_mask = mask
 
         hidden_states = inputs_embeds
 
