@@ -171,4 +171,4 @@ class SpeculativeMemoryClient(LLMClientBase):
         )
 
     def handle_llm_error(self, e: Exception) -> Exception:
-        return LLMError(f"Speculative memory client error: {str(e)}") from e
+        return LLMError(f"Speculative memory client error: {str(e)}")
