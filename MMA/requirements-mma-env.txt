@@ -1,5 +1,5 @@
 # Install in mma conda env: pip install -r MMA/requirements-mma-env.txt
-# Excludes: PyQt6 (needs qmake), ffmpeg (use system/conda)
+# Excludes: PyQt6 (needs qmake), ffmpeg (use system/conda), llama_* (install separately to avoid resolution-too-deep)
 # Fixes: dotenv -> python-dotenv
 
 pytz
@@ -28,8 +28,6 @@ Markdown
 rapidfuzz
 rank-bm25
 psutil
-llama_index
-llama-index-embeddings-google-genai
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 SpeechRecognition

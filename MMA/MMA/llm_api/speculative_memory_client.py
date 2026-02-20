@@ -125,7 +125,7 @@ class SpeculativeMemoryClient(LLMClientBase):
 
         tokenizer = self._tokenizer
         if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
-            prompt_ids = tokenizer.apply_chat_template(
+            out = tokenizer.apply_chat_template(
                 chat,
                 tokenize=True,
                 add_generation_prompt=True,
@@ -133,8 +133,11 @@ class SpeculativeMemoryClient(LLMClientBase):
             )
         else:
             text = "\n".join(f"{c['role']}: {c['content']}" for c in chat) + "\nassistant: "
-            prompt_ids = tokenizer(text, return_tensors="pt", add_special_tokens=True).input_ids
-
+            out = tokenizer(text, return_tensors="pt", add_special_tokens=True)
+        # BatchEncoding / dict from tokenizer: get raw tensor for .dim() / .to(device)
+        prompt_ids = out.get("input_ids", out) if hasattr(out, "get") else getattr(out, "input_ids", out)
+        if hasattr(prompt_ids, "input_ids"):
+            prompt_ids = prompt_ids.input_ids
         device = next(self._target_model.parameters()).device
         prompt_ids = prompt_ids.to(device)
         if prompt_ids.dim() == 1:
