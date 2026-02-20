@@ -1,0 +1,4 @@
+# Agent config for full pipeline test: Agent + speculative_memory (Qwen3-VL draft+target, memory K/V).
+# Requires GPU, MMA_OFFLINE=1, HF_HOME (or MMA_DRAFT_MODEL_PATH / MMA_TARGET_MODEL_PATH).
+agent_name: mma
+model_name: qwen3-vl-speculative

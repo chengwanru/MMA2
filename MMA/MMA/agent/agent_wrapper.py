@@ -474,6 +474,13 @@ class AgentWrapper():
                     model_wrapper=None,
                     context_window=128000,
                 )
+            elif model_name == "qwen3-vl-speculative":
+                llm_config = LLMConfig(
+                    model=model_name,
+                    model_endpoint_type="speculative_memory",
+                    context_window=8192,
+                    max_tokens=256,
+                )
             else:
                 # Fallback to default_config for unsupported models
                 llm_config = LLMConfig.default_config(model_name)
@@ -818,20 +825,27 @@ class AgentWrapper():
                 return "ERROR"
             
             try:
-
-                # Check if the message has tool_call attribute
-                if not hasattr(response.messages[-3], 'tool_call'):
-                    return "ERROR"
-                
-                tool_call = response.messages[-3].tool_call
-                
-                parsed_args = parse_json(tool_call.arguments)
-                
-                if 'message' not in parsed_args:
-                    return "ERROR"
-                    
-                response_text = parsed_args['message']
-                
+                response_text = None
+                # Prefer reply from send_message tool_call (standard flow)
+                if len(response.messages) >= 3 and hasattr(response.messages[-3], 'tool_call') and response.messages[-3].tool_call is not None:
+                    tool_call = response.messages[-3].tool_call
+                    parsed_args = parse_json(tool_call.arguments)
+                    if 'message' in parsed_args:
+                        response_text = parsed_args['message']
+                # Fallback: direct assistant content (e.g. speculative_memory returns text only, no tool_call)
+                if response_text is None:
+                    for msg in reversed(response.messages):
+                        if getattr(msg, 'role', None) == 'assistant' and getattr(msg, 'content', None):
+                            if isinstance(msg.content, str):
+                                response_text = msg.content
+                                break
+                            if isinstance(msg.content, list) and len(msg.content) > 0:
+                                part = msg.content[0]
+                                if getattr(part, 'text', None):
+                                    response_text = part.text
+                                    break
+                    if response_text is None:
+                        return "ERROR"
             except (AttributeError, KeyError, IndexError, json.JSONDecodeError) as e:
                 return "ERROR"
             
