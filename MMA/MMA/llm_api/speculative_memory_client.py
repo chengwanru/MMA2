@@ -64,11 +64,16 @@ class SpeculativeMemoryClient(LLMClientBase):
     def _ensure_models(self) -> None:
         if self._target_model is not None:
             return
+        import torch
         from mma.speculative_memory import SpeculativeMemoryConfig, load_draft_model
         from mma.models.qwen3_vl import Qwen3VLForConditionalGeneration
 
         draft_path = os.environ.get("MMA_DRAFT_MODEL_PATH", "Qwen/Qwen3-VL-2B-Instruct")
         target_path = os.environ.get("MMA_TARGET_MODEL_PATH", "Qwen/Qwen3-VL-8B-Instruct")
+        # Single-GPU 32GB: draft(2B)+target(8B) can OOM. Use 2B for both when MMA_SPECULATIVE_LOW_MEMORY=1.
+        low_mem = os.environ.get("MMA_SPECULATIVE_LOW_MEMORY", "").strip().lower() in ("1", "true", "yes")
+        if low_mem:
+            target_path = draft_path
         self._config = SpeculativeMemoryConfig(
             draft_model_name_or_path=draft_path,
             target_model_name_or_path=target_path,
@@ -82,11 +87,20 @@ class SpeculativeMemoryClient(LLMClientBase):
         _local = os.environ.get("TRANSFORMERS_OFFLINE", "") == "1" or os.environ.get("MMA_OFFLINE", "") == "1"
         target_kw = dict(
             torch_dtype=self._config.torch_dtype or "float16",
-            device_map=device,
             trust_remote_code=True,
         )
         if _local:
             target_kw["local_files_only"] = True
+        # Optionally offload target to CPU when GPU is tight (MMA_SPECULATIVE_OFFLOAD_TARGET=1).
+        offload_target = os.environ.get("MMA_SPECULATIVE_OFFLOAD_TARGET", "").strip().lower() in ("1", "true", "yes")
+        if offload_target and torch.cuda.is_available():
+            # Leave ~10GiB for draft + activations; rest of target can go to CPU.
+            free_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            gpu_max = max(12, int(free_gb - 10))
+            target_kw["device_map"] = "auto"
+            target_kw["max_memory"] = {0: f"{gpu_max}GiB", "cpu": "20GiB"}
+        else:
+            target_kw["device_map"] = device
         self._target_model = Qwen3VLForConditionalGeneration.from_pretrained(
             self._config.target_model_name_or_path,
             **target_kw,

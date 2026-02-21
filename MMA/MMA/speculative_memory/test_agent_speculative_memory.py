@@ -4,6 +4,14 @@ End-to-end test: full Agent + speculative_memory (one user turn, one assistant r
 Uses AgentWrapper with config mma_speculative_memory.yaml (model_name=qwen3-vl-speculative),
 sends one message, and prints the assistant reply. Requires GPU, MMA_OFFLINE=1, HF_HOME.
 
+On a single 32GB GPU, draft(2B)+target(8B) may OOM. Use low-memory mode (2B as both draft and target):
+
+  export MMA_SPECULATIVE_LOW_MEMORY=1
+
+Optional: offload target to CPU to fit 8B on 32GB (slower):
+
+  export MMA_SPECULATIVE_OFFLOAD_TARGET=1
+
   cd MMA2
   export PYTHONPATH="${PYTHONPATH}:$(pwd)/MMA"
   export MMA_OFFLINE=1 HF_HOME=/path/to/hf
