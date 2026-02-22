@@ -240,6 +240,10 @@ class Message(BaseMessage):
 
         if self.role == MessageRole.assistant:
 
+            # Track last text segment so we can emit AssistantMessage when there is no tool_call
+            # (e.g. speculative_memory path returns plain text only).
+            last_text: Optional[str] = None
+
             # Handle reasoning
             if self.content:
                 # Check for ReACT-style COT inside of TextContent
@@ -255,6 +259,7 @@ class Message(BaseMessage):
                             sender_id=self.sender_id,
                         )
                     )
+                    last_text = self.content[0].text
                 # Otherwise, we may have a list of multiple types
                 else:
                     # TODO we can probably collapse these two cases into a single loop
@@ -272,6 +277,7 @@ class Message(BaseMessage):
                                     sender_id=self.sender_id,
                                 )
                             )
+                            last_text = content_part.text
                         elif isinstance(content_part, ReasoningContent):
                             # "native" COT
                             messages.append(
@@ -285,6 +291,7 @@ class Message(BaseMessage):
                                     otid=otid,
                                 )
                             )
+                            last_text = content_part.reasoning
                         elif isinstance(content_part, RedactedReasoningContent):
                             # "native" redacted/hidden COT
                             messages.append(
@@ -300,6 +307,21 @@ class Message(BaseMessage):
                             )
                         else:
                             warnings.warn(f"Unrecognized content part in assistant message: {content_part}")
+
+            # When assistant has only content (no tool_calls), emit one AssistantMessage with the
+            # last text segment so response has a proper assistant_message (e.g. speculative path).
+            if last_text is not None and self.tool_calls is None:
+                otid = Message.generate_otid_from_id(self.id, len(messages))
+                messages.append(
+                    AssistantMessage(
+                        id=self.id,
+                        date=self.created_at,
+                        content=last_text.strip() if isinstance(last_text, str) else last_text,
+                        name=self.name,
+                        otid=otid,
+                        sender_id=self.sender_id,
+                    )
+                )
 
             if self.tool_calls is not None:
                 # This is type FunctionCall
