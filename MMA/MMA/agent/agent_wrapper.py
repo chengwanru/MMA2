@@ -846,22 +846,36 @@ class AgentWrapper():
                     if 'message' in parsed_args:
                         response_text = parsed_args['message']
                 # Fallback: direct assistant content (e.g. speculative_memory returns text only, no tool_call)
+                # MMAResponse.messages are MMAMessage (message_type) not OpenAI-style (role); support both
                 if response_text is None:
                     for msg in reversed(response.messages):
-                        if getattr(msg, 'role', None) == 'assistant' and getattr(msg, 'content', None):
-                            if isinstance(msg.content, str):
-                                response_text = msg.content
+                        mt = getattr(msg, 'message_type', None)
+                        is_assistant = (
+                            getattr(msg, 'role', None) == 'assistant'
+                            or mt == 'assistant_message'
+                            or (getattr(mt, 'value', None) == 'assistant_message')
+                        )
+                        if not is_assistant or not getattr(msg, 'content', None):
+                            continue
+                        content = msg.content
+                        if isinstance(content, str):
+                            response_text = content
+                            break
+                        if isinstance(content, list) and len(content) > 0:
+                            part = content[0]
+                            if getattr(part, 'text', None):
+                                response_text = part.text
                                 break
-                            if isinstance(msg.content, list) and len(msg.content) > 0:
-                                part = msg.content[0]
-                                if getattr(part, 'text', None):
-                                    response_text = part.text
-                                    break
+                            # some content parts are dict-like with 'text' key
+                            if isinstance(part, dict) and part.get('text'):
+                                response_text = part['text']
+                                break
                     if response_text is None:
                         self.logger.warning(
-                            "could not extract assistant text from response.messages (len=%s); roles=%s",
+                            "could not extract assistant text from response.messages (len=%s); roles=%s message_types=%s",
                             len(response.messages),
                             [getattr(m, 'role', None) for m in response.messages],
+                            [getattr(m, 'message_type', None) for m in response.messages],
                         )
                         return "ERROR"
             except (AttributeError, KeyError, IndexError, json.JSONDecodeError) as e:
