@@ -3,6 +3,9 @@ from typing import Optional
 from mma.llm_api.llm_client_base import LLMClientBase
 from mma.schemas.llm_config import LLMConfig
 
+# Cache for speculative_memory client so retries/repeated calls reuse one instance (avoid reloading draft+target).
+_speculative_memory_client_cache: Optional[tuple] = None  # (cache_key, client)
+
 
 class LLMClient:
     """Factory class for creating LLM clients based on the model endpoint type."""
@@ -50,9 +53,17 @@ class LLMClient:
             case "speculative_memory":
                 from mma.llm_api.speculative_memory_client import SpeculativeMemoryClient
 
-                return SpeculativeMemoryClient(
+                global _speculative_memory_client_cache
+                cache_key = (llm_config.model_endpoint_type, llm_config.model or "")
+                if _speculative_memory_client_cache is not None:
+                    key, client = _speculative_memory_client_cache
+                    if key == cache_key:
+                        return client
+                client = SpeculativeMemoryClient(
                     llm_config=llm_config,
                     put_inner_thoughts_first=put_inner_thoughts_first,
                 )
+                _speculative_memory_client_cache = (cache_key, client)
+                return client
             case _:
                 return None 
