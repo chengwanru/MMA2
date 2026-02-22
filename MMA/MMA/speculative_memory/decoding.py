@@ -162,11 +162,43 @@ def generate_with_speculative_memory(
         )
         num_draft = draft_result.num_draft
         if num_draft == 0:
-            raise RuntimeError(
-                "Draft model produced 0 tokens for this round. "
-                "Check eos_token_id (draft may have emitted EOS immediately), "
-                "or draft max_new_tokens / memory_items. We raise so you can confirm memory is in use."
-            )
+            # Standard speculative fallback: draft produced 0 tokens (e.g. EOS immediately).
+            # Generate one token from target and continue (no raise). See also draft_model:
+            # min_new_tokens=1 and keeping first EOS as one draft token.
+            with torch.no_grad():
+                target_forward_kwargs = {
+                    "input_ids": current_ids,
+                    "attention_mask": torch.ones_like(current_ids, dtype=torch.long, device=device),
+                    "memory_past_key_values": memory_kv,
+                    "use_cache": False,
+                    "logits_to_keep": 1,
+                }
+                if pixel_values is not None:
+                    target_forward_kwargs["pixel_values"] = pixel_values.to(device)
+                if image_grid_thw is not None:
+                    target_forward_kwargs["image_grid_thw"] = image_grid_thw.to(device)
+                if pixel_values_videos is not None:
+                    target_forward_kwargs["pixel_values_videos"] = pixel_values_videos.to(device)
+                if video_grid_thw is not None:
+                    target_forward_kwargs["video_grid_thw"] = video_grid_thw.to(device)
+                target_outputs = target_model(**target_forward_kwargs)
+            logits = target_outputs.logits
+            if logits.dim() == 3:
+                logits = logits.squeeze(0)
+            last_logits = logits[-1:]
+            if config.do_sample:
+                probs = torch.softmax(last_logits.float(), dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1)
+            else:
+                next_token = last_logits.argmax(dim=-1, keepdim=True)
+            next_token = next_token.squeeze(-1).unsqueeze(0)
+            current_ids = torch.cat([current_ids, next_token], dim=1)
+            total_generated += 1
+            if eos_token_id is not None and next_token.item() == eos_token_id:
+                break
+            if total_generated >= max_new_tokens:
+                break
+            continue
 
         # Target forward: context + draft, with memory KV; get logits for verify + bonus
         full_ids = draft_result.full_output_ids

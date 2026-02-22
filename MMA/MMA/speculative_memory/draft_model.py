@@ -136,9 +136,11 @@ def generate_draft_tokens(
     )
     logits_processor_list = [logits_processor]
 
-    # Generation kwargs
+    # Generation kwargs. min_new_tokens=1 avoids 0 draft tokens when draft emits EOS
+    # immediately (e.g. long agent system prompt); we always get at least one token.
     gen_kwargs = {
         "max_new_tokens": config.max_draft_steps,
+        "min_new_tokens": 1,
         "do_sample": config.do_sample,
         "pad_token_id": pad_token_id,
         "eos_token_id": eos_token_id,
@@ -166,11 +168,15 @@ def generate_draft_tokens(
 
     # Draft tokens = the new part only
     draft_token_ids = output_ids[0, context_len:].tolist()
-    # Trim at first EOS if present
-    if eos_token_id is not None:
+    # Trim at first EOS if present, but keep at least one token so num_draft >= 1 when
+    # draft emitted EOS immediately (e.g. long agent prompt). Verify step will then
+    # get one position; target can accept or correct.
+    if eos_token_id is not None and draft_token_ids:
         try:
             idx = draft_token_ids.index(eos_token_id)
-            draft_token_ids = draft_token_ids[:idx]
+            if idx > 0:
+                draft_token_ids = draft_token_ids[:idx]
+            # else idx==0: keep [eos_token_id] so num_draft=1
         except ValueError:
             pass
 
