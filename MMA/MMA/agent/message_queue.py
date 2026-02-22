@@ -51,9 +51,10 @@ class MessageQueue:
                 **self.message_queue[message_uuid]['kwargs']
             )
         except Exception as e:
-            print(f"Error sending message: {e}")
-            print(traceback.format_exc())
-            print("agent_type: ", agent_type, "gets error. agent_id: ", agent_id, "ERROR")
+            print("\n" + "=" * 60 + "\nEXCEPTION IN send_message (see traceback below):\n" + "=" * 60, flush=True)
+            print(f"Error sending message: {e}", flush=True)
+            print(traceback.format_exc(), flush=True)
+            print("agent_type: ", agent_type, "gets error. agent_id: ", agent_id, "ERROR", flush=True)
             response = "ERROR"
 
         with self._message_queue_lock:

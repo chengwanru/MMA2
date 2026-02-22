@@ -827,12 +827,16 @@ class AgentWrapper():
 
             # Check if response is an error string
             if response == "ERROR":
+                self.logger.warning("send_message_in_queue returned ERROR (exception likely printed above)")
                 return "ERROR"
-            
             # Check if response has the expected structure
             if not hasattr(response, 'messages') or len(response.messages) < 2:
+                self.logger.warning(
+                    "send_message response missing .messages or len < 2: has_attr=%s len=%s",
+                    hasattr(response, 'messages'),
+                    len(getattr(response, 'messages', [])) if hasattr(response, 'messages') else 0,
+                )
                 return "ERROR"
-            
             try:
                 response_text = None
                 # Prefer reply from send_message tool_call (standard flow)
@@ -854,8 +858,14 @@ class AgentWrapper():
                                     response_text = part.text
                                     break
                     if response_text is None:
+                        self.logger.warning(
+                            "could not extract assistant text from response.messages (len=%s); roles=%s",
+                            len(response.messages),
+                            [getattr(m, 'role', None) for m in response.messages],
+                        )
                         return "ERROR"
             except (AttributeError, KeyError, IndexError, json.JSONDecodeError) as e:
+                self.logger.warning("exception extracting response text: %s", e, exc_info=True)
                 return "ERROR"
             
             # Add conversation to accumulator
