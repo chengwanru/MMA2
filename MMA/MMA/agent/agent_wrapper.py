@@ -870,6 +870,18 @@ class AgentWrapper():
                             if isinstance(part, dict) and part.get('text'):
                                 response_text = part['text']
                                 break
+                    # Fallback when pipeline returns only reasoning_message (e.g. speculative path)
+                    if response_text is None:
+                        for msg in reversed(response.messages):
+                            mt = getattr(msg, 'message_type', None)
+                            if mt == 'reasoning_message' or getattr(mt, 'value', None) == 'reasoning_message':
+                                r = getattr(msg, 'reasoning', None)
+                                if r and isinstance(r, str) and r.strip():
+                                    response_text = r.strip()
+                                    self.logger.info(
+                                        "using last reasoning_message.reasoning as response (no assistant_message)"
+                                    )
+                                    break
                     if response_text is None:
                         self.logger.warning(
                             "could not extract assistant text from response.messages (len=%s); roles=%s message_types=%s",
