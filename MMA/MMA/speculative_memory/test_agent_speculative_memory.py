@@ -54,9 +54,15 @@ def main() -> int:
     user_message = "What do I like to drink? Answer in one short sentence."
     print(f"User: {user_message}")
     print("Calling send_message (full agent pipeline) ...")
-    response = agent.send_message(message=user_message)
+    try:
+        response = agent.send_message(message=user_message)
+    except Exception as e:
+        print(f"FAIL: send_message raised: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
     if response == "ERROR":
-        print("FAIL: send_message returned ERROR")
+        print("FAIL: send_message returned ERROR (see traceback above for cause)")
         return 1
     print(f"Assistant: {response}")
     print("PASS: Agent + speculative_memory one turn completed.")
