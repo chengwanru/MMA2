@@ -9,3 +9,7 @@ venv/
 docs/
 MMA/MMA/models/qwen3_vl/README.md
 MMA/MMA/speculative_memory/README.md
+# OpenEQA / HM3D large data
+MMA/public_evaluations/data/scene_datasets/
+MMA/public_evaluations/data/frames/
+MMA/public_evaluations/data/open_eqa_data/*.tgz
