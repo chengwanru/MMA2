@@ -38,7 +38,7 @@ class AgentWrapper():
         if self.agent_name == 'gpt-long-context':
             self.model_name = model_name
             self.maximum_allowed_images = 250
-                        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
             self.context = []
 
             if load_agent_from is not None:
@@ -46,7 +46,7 @@ class AgentWrapper():
 
         elif self.agent_name == 'gemini-long-context':
             self.model_name = model_name if model_name is not None else "gemini-2.5-flash"
-                        self.api_key = os.getenv("GEMINI_API_KEY")
+            self.api_key = os.getenv("GEMINI_API_KEY")
             if not self.api_key:
                 raise ValueError("GEMINI_API_KEY environment variable is required for gemini-long-context agent")
             
