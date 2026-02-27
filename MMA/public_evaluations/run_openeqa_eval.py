@@ -37,6 +37,11 @@ Notes:
 - This script uses `public_evaluations/agent.AgentWrapper` with `agent_name='mma'`.
 - The exact behavior (whether it uses speculative_memory, what model, etc.)
   is controlled via the provided MMA config files.
+- When --baseline_config and --ours_config point to the **same** config file
+  (e.g. both mma_speculative_memory.yaml), the script runs a **local baseline**:
+  baseline = same model with MMA_SPECULATIVE_BASELINE=1 (no memory, 0 draft steps);
+  ours = same config with memory and speculative decoding. Use this on clusters
+  where the baseline config (e.g. mma_gpt4.yaml) cannot reach external APIs.
 """
 
 import argparse
@@ -111,6 +116,7 @@ def _run_variant(
     variant_name: str,
     config_path: str,
     samples: List[Dict[str, Any]],
+    use_speculative_baseline: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Run one variant (baseline or ours) over all samples.
@@ -119,9 +125,20 @@ def _run_variant(
         variant_name: "baseline" or "ours" (used only for logging/metadata).
         config_path:  MMA config file path for this variant.
         samples:      List of QA items.
+        use_speculative_baseline: If True, baseline runs with MMA_SPECULATIVE_BASELINE=1 (no memory, 0 draft).
     Returns:
         List of result dicts with predictions.
     """
+    try:
+        import mma.llm_api.llm_client as _llm_client_module
+        _llm_client_module._speculative_memory_client_cache = None
+    except Exception:
+        pass
+    if variant_name == "baseline" and use_speculative_baseline:
+        os.environ["MMA_SPECULATIVE_BASELINE"] = "1"
+    else:
+        os.environ.pop("MMA_SPECULATIVE_BASELINE", None)
+
     # Instantiate MMA agent via public_evaluations AgentWrapper
     agent = AgentWrapper(
         agent_name="mma",
@@ -175,11 +192,14 @@ def main() -> None:
 
     samples = _load_samples(args.input_file, args.limit)
 
+    use_speculative_baseline = os.path.abspath(args.baseline_config) == os.path.abspath(args.ours_config)
+
     # Run baseline
     baseline_results = _run_variant(
         variant_name="baseline",
         config_path=args.baseline_config,
         samples=samples,
+        use_speculative_baseline=use_speculative_baseline,
     )
 
     # Run ours (speculative + memory)
@@ -187,6 +207,7 @@ def main() -> None:
         variant_name="ours",
         config_path=args.ours_config,
         samples=samples,
+        use_speculative_baseline=use_speculative_baseline,
     )
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output_file)), exist_ok=True)

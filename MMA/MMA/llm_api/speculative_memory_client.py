@@ -81,6 +81,8 @@ class SpeculativeMemoryClient(LLMClientBase):
             max_new_tokens=self.llm_config.max_tokens or 256,
             do_sample=False,
         )
+        if os.environ.get("MMA_SPECULATIVE_BASELINE", "").strip() == "1":
+            self._config.max_draft_steps = 0
         device = "cuda"
         self._draft_model, self._draft_processor = load_draft_model(self._config, device_map=device)
         self._tokenizer = self._draft_processor.tokenizer
@@ -118,6 +120,8 @@ class SpeculativeMemoryClient(LLMClientBase):
     ) -> dict:
         chat = _messages_to_chat(messages)
         memory_items = (retrieved_memories or {}).get("memory_items") or []
+        if os.environ.get("MMA_SPECULATIVE_BASELINE", "").strip() == "1":
+            memory_items = []
         return {
             "messages": messages,
             "chat": chat,
