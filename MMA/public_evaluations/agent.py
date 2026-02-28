@@ -476,6 +476,7 @@ class AgentWrapper():
             else:
                 response = self.agent.send_message(
                     message=message,
+                    image_uris=image_uris,
                     memorizing=memorizing,
                     delete_after_upload=False,
                 )

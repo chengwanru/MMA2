@@ -120,7 +120,10 @@ class SpeculativeMemoryClient(LLMClientBase):
     ) -> dict:
         chat = _messages_to_chat(messages)
         memory_items = (retrieved_memories or {}).get("memory_items") or []
+        # Baseline: no memory. Speculative-only: no memory (to isolate effect of memory).
         if os.environ.get("MMA_SPECULATIVE_BASELINE", "").strip() == "1":
+            memory_items = []
+        elif os.environ.get("MMA_SPECULATIVE_NO_MEMORY", "").strip() == "1":
             memory_items = []
         return {
             "messages": messages,
