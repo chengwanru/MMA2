@@ -37,7 +37,11 @@ def _messages_to_chat(messages: List[Message]) -> List[Dict[str, str]]:
     role_map = {"system": "system", "user": "user", "assistant": "assistant"}
     out = []
     for m in messages:
-        role = getattr(m.role, "value", str(m.role)) if hasattr(m.role, "value") else str(m.role)
+        role = (
+            getattr(m.role, "value", str(m.role))
+            if hasattr(m.role, "value")
+            else str(m.role)
+        )
         role = role_map.get(role.lower(), role)
         text = _message_to_text(m)
         if role and text:
@@ -59,7 +63,11 @@ def _messages_to_vl_content_parts(
     image_paths: List[str] = []
 
     for m in messages:
-        role = getattr(m.role, "value", str(m.role)) if hasattr(m.role, "value") else str(m.role)
+        role = (
+            getattr(m.role, "value", str(m.role))
+            if hasattr(m.role, "value")
+            else str(m.role)
+        )
         role = role_map.get(role.lower(), role)
         if not role or not m.content:
             continue
@@ -76,7 +84,9 @@ def _messages_to_vl_content_parts(
             elif isinstance(c, ImageContent):
                 try:
                     meta = file_manager.get_file_metadata_by_id(c.image_id)
-                    path = getattr(meta, "file_path", None) or getattr(meta, "source_url", None)
+                    path = getattr(meta, "file_path", None) or getattr(
+                        meta, "source_url", None
+                    )
                     if path and os.path.isfile(path):
                         content_parts.append(("image", path))
                         image_paths.append(path)
@@ -98,7 +108,11 @@ class SpeculativeMemoryClient(LLMClientBase):
         put_inner_thoughts_first: Optional[bool] = True,
         use_tool_naming: bool = True,
     ):
-        super().__init__(llm_config=llm_config, put_inner_thoughts_first=put_inner_thoughts_first, use_tool_naming=use_tool_naming)
+        super().__init__(
+            llm_config=llm_config,
+            put_inner_thoughts_first=put_inner_thoughts_first,
+            use_tool_naming=use_tool_naming,
+        )
         self._draft_model = None
         self._draft_processor = None
         self._target_model = None
@@ -113,9 +127,15 @@ class SpeculativeMemoryClient(LLMClientBase):
         from mma.models.qwen3_vl import Qwen3VLForConditionalGeneration
 
         draft_path = os.environ.get("MMA_DRAFT_MODEL_PATH", "Qwen/Qwen3-VL-2B-Instruct")
-        target_path = os.environ.get("MMA_TARGET_MODEL_PATH", "Qwen/Qwen3-VL-8B-Instruct")
+        target_path = os.environ.get(
+            "MMA_TARGET_MODEL_PATH", "Qwen/Qwen3-VL-8B-Instruct"
+        )
         # Single-GPU 32GB: draft(2B)+target(8B) can OOM. Use 2B for both when MMA_SPECULATIVE_LOW_MEMORY=1.
-        low_mem = os.environ.get("MMA_SPECULATIVE_LOW_MEMORY", "").strip().lower() in ("1", "true", "yes")
+        low_mem = os.environ.get("MMA_SPECULATIVE_LOW_MEMORY", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
         if low_mem:
             target_path = draft_path
         self._config = SpeculativeMemoryConfig(
@@ -128,9 +148,14 @@ class SpeculativeMemoryClient(LLMClientBase):
         if os.environ.get("MMA_SPECULATIVE_BASELINE", "").strip() == "1":
             self._config.max_draft_steps = 0
         device = "cuda"
-        self._draft_model, self._draft_processor = load_draft_model(self._config, device_map=device)
+        self._draft_model, self._draft_processor = load_draft_model(
+            self._config, device_map=device
+        )
         self._tokenizer = self._draft_processor.tokenizer
-        _local = os.environ.get("TRANSFORMERS_OFFLINE", "") == "1" or os.environ.get("MMA_OFFLINE", "") == "1"
+        _local = (
+            os.environ.get("TRANSFORMERS_OFFLINE", "") == "1"
+            or os.environ.get("MMA_OFFLINE", "") == "1"
+        )
         target_kw = dict(
             torch_dtype=self._config.torch_dtype or "float16",
             trust_remote_code=True,
@@ -138,7 +163,9 @@ class SpeculativeMemoryClient(LLMClientBase):
         if _local:
             target_kw["local_files_only"] = True
         # Optionally offload target to CPU when GPU is tight (MMA_SPECULATIVE_OFFLOAD_TARGET=1).
-        offload_target = os.environ.get("MMA_SPECULATIVE_OFFLOAD_TARGET", "").strip().lower() in ("1", "true", "yes")
+        offload_target = os.environ.get(
+            "MMA_SPECULATIVE_OFFLOAD_TARGET", ""
+        ).strip().lower() in ("1", "true", "yes")
         if offload_target and torch.cuda.is_available():
             # Leave ~10GiB for draft + activations; rest of target can go to CPU.
             free_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
@@ -164,48 +191,67 @@ class SpeculativeMemoryClient(LLMClientBase):
     ) -> dict:
         chat = _messages_to_chat(messages)
         memory_items = (retrieved_memories or {}).get("memory_items") or []
-        # Baseline: no memory. Speculative-only: no memory (to isolate effect of memory).
+        local_rag = os.environ.get("MMA_SPECULATIVE_LOCAL_RAG", "").strip() == "1"
+
+        # Baseline modes: control memory and draft independently.
         if os.environ.get("MMA_SPECULATIVE_BASELINE", "").strip() == "1":
+            # baseline1: no draft, no memory — bare target model.
             memory_items = []
+            local_rag = False
+        elif local_rag:
+            # baseline4 (Local RAG): inject memory as plain text into system prompt;
+            # target model runs standard AR generation (no KV injection, no logit bias).
+            memory_text_parts = [
+                f"- {item['content'].strip()} (confidence: {item.get('confidence', 0.8):.2f})"
+                for item in memory_items
+                if item.get("content", "").strip()
+            ]
+            if memory_text_parts:
+                memory_context = "Memory context:\n" + "\n".join(memory_text_parts)
+                if chat and chat[0]["role"] == "system":
+                    chat[0]["content"] = memory_context + "\n\n" + chat[0]["content"]
+                else:
+                    chat.insert(0, {"role": "system", "content": memory_context})
+            memory_items = []  # clear: no KV / logit-bias injection in this mode
         elif os.environ.get("MMA_SPECULATIVE_NO_MEMORY", "").strip() == "1":
+            # baseline2: speculative decoding only, no memory.
             memory_items = []
-        vl_content_parts, image_paths = _messages_to_vl_content_parts(messages, self.file_manager)
+
+        vl_content_parts, image_paths = _messages_to_vl_content_parts(
+            messages, self.file_manager
+        )
         return {
             "messages": messages,
             "chat": chat,
             "memory_items": memory_items,
+            "local_rag": local_rag,
             "max_new_tokens": llm_config.max_tokens or 256,
             "vl_content_parts": vl_content_parts,
             "image_paths": image_paths,
         }
 
-    def request(self, request_data: dict) -> dict:
+    def _tokenize_chat(
+        self,
+        chat: List[Dict[str, str]],
+        vl_content_parts: List[Tuple[str, str]],
+        image_paths: List[str],
+        device: Any,
+    ) -> Tuple[Any, Optional[Any], Optional[Any]]:
+        """Tokenize chat (text-only or multimodal) and return (prompt_ids, pixel_values, image_grid_thw)."""
         import torch
-        from mma.speculative_memory import generate_with_speculative_memory
-
-        self._ensure_models()
-        chat = request_data["chat"]
-        memory_items = request_data.get("memory_items") or []
-        max_new_tokens = request_data.get("max_new_tokens") or 256
-        vl_content_parts = request_data.get("vl_content_parts") or []
-        image_paths = request_data.get("image_paths") or []
-
-        if not chat and not vl_content_parts:
-            return {"generated_text": ""}
 
         tokenizer = self._tokenizer
         processor = self._draft_processor
-        device = next(self._target_model.parameters()).device
-
         pixel_values = None
         image_grid_thw = None
 
         if image_paths and vl_content_parts and hasattr(processor, "image_token"):
-            # Multimodal: build text segments with image tokens and run processor(images=..., text=...)
             try:
                 from PIL import Image as PILImage
             except ImportError:
-                raise ImportError("PIL is required for multimodal speculative_memory. pip install Pillow")
+                raise ImportError(
+                    "PIL is required for multimodal speculative_memory. pip install Pillow"
+                )
             image_token = getattr(processor, "image_token", "<|image_pad|>")
             text_parts: List[str] = []
             images_list: List[Any] = []
@@ -217,53 +263,95 @@ class SpeculativeMemoryClient(LLMClientBase):
                     img = PILImage.open(value).convert("RGB")
                     images_list.append(img)
             if not text_parts:
-                return {"generated_text": ""}
-            # Add assistant generation prompt
+                return None, None, None
             text_parts.append("\nassistant:")
-            out = processor(
-                text=text_parts,
-                images=images_list,
-                return_tensors="pt",
-            )
-            prompt_ids = out.get("input_ids")
-            if prompt_ids is None:
-                prompt_ids = out["input_ids"] if isinstance(out, dict) else getattr(out, "input_ids", None)
+            out = processor(text=text_parts, images=images_list, return_tensors="pt")
+            prompt_ids = out.get("input_ids") or getattr(out, "input_ids", None)
             if hasattr(prompt_ids, "input_ids"):
                 prompt_ids = prompt_ids.input_ids
             pixel_values = out.get("pixel_values")
             image_grid_thw = out.get("image_grid_thw")
         else:
-            # Text-only path
             if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
                 out = tokenizer.apply_chat_template(
-                    chat,
-                    tokenize=True,
-                    add_generation_prompt=True,
-                    return_tensors="pt",
+                    chat, tokenize=True, add_generation_prompt=True, return_tensors="pt"
                 )
             else:
-                text = "\n".join(f"{c['role']}: {c['content']}" for c in chat) + "\nassistant: "
+                text = (
+                    "\n".join(f"{c['role']}: {c['content']}" for c in chat)
+                    + "\nassistant: "
+                )
                 out = tokenizer(text, return_tensors="pt", add_special_tokens=True)
-
-            prompt_ids = out.get("input_ids", out) if hasattr(out, "get") else getattr(out, "input_ids", out)
+            prompt_ids = (
+                out.get("input_ids", out)
+                if hasattr(out, "get")
+                else getattr(out, "input_ids", out)
+            )
             if hasattr(prompt_ids, "input_ids"):
                 prompt_ids = prompt_ids.input_ids
 
         prompt_ids = prompt_ids.to(device)
         if prompt_ids.dim() == 1:
             prompt_ids = prompt_ids.unsqueeze(0)
+        return prompt_ids, pixel_values, image_grid_thw
 
-        output_ids = generate_with_speculative_memory(
-            prompt_ids,
-            memory_items=memory_items,
-            draft_model=self._draft_model,
-            target_model=self._target_model,
-            tokenizer=tokenizer,
-            config=self._config,
-            max_new_tokens=max_new_tokens,
-            pixel_values=pixel_values,
-            image_grid_thw=image_grid_thw,
+    def request(self, request_data: dict) -> dict:
+        import torch
+        from mma.speculative_memory import generate_with_speculative_memory
+
+        self._ensure_models()
+        chat = request_data["chat"]
+        memory_items = request_data.get("memory_items") or []
+        local_rag = request_data.get("local_rag", False)
+        max_new_tokens = request_data.get("max_new_tokens") or 256
+        vl_content_parts = request_data.get("vl_content_parts") or []
+        image_paths = request_data.get("image_paths") or []
+
+        if not chat and not vl_content_parts:
+            return {"generated_text": ""}
+
+        tokenizer = self._tokenizer
+        device = next(self._target_model.parameters()).device
+
+        prompt_ids, pixel_values, image_grid_thw = self._tokenize_chat(
+            chat, vl_content_parts, image_paths, device
         )
+        if prompt_ids is None:
+            return {"generated_text": ""}
+
+        if local_rag:
+            # baseline4: Standard RAG — target model only, memory already in prompt text.
+            # No draft, no KV injection, no logit bias. Pure autoregressive generation.
+            with torch.no_grad():
+                gen_kwargs: dict = {
+                    "input_ids": prompt_ids,
+                    "attention_mask": torch.ones_like(
+                        prompt_ids, dtype=torch.long, device=device
+                    ),
+                    "max_new_tokens": max_new_tokens,
+                    "do_sample": False,
+                    "pad_token_id": tokenizer.pad_token_id or tokenizer.eos_token_id,
+                    "eos_token_id": tokenizer.eos_token_id,
+                }
+                if pixel_values is not None:
+                    gen_kwargs["pixel_values"] = pixel_values.to(device)
+                if image_grid_thw is not None:
+                    gen_kwargs["image_grid_thw"] = image_grid_thw.to(device)
+                output_ids = self._target_model.generate(**gen_kwargs)
+        else:
+            # MMA2 / Baseline1 / Baseline2: speculative decoding path.
+            output_ids = generate_with_speculative_memory(
+                prompt_ids,
+                memory_items=memory_items,
+                draft_model=self._draft_model,
+                target_model=self._target_model,
+                tokenizer=tokenizer,
+                config=self._config,
+                max_new_tokens=max_new_tokens,
+                pixel_values=pixel_values,
+                image_grid_thw=image_grid_thw,
+            )
+
         prompt_len = prompt_ids.size(1)
         new_ids = output_ids[0, prompt_len:]
         generated_text = tokenizer.decode(new_ids, skip_special_tokens=True)
