@@ -43,7 +43,10 @@ _upload_dir = None
 def get_upload_dir():
     global _upload_dir
     if _upload_dir is None:
-        _upload_dir = os.path.join(tempfile.gettempdir(), "embodiedbench_mma_uploads")
+        _upload_dir = os.environ.get(
+            "EMBODIEDBENCH_UPLOAD_DIR",
+            os.path.join(tempfile.gettempdir(), "embodiedbench_mma_uploads"),
+        )
         os.makedirs(_upload_dir, exist_ok=True)
     return _upload_dir
 

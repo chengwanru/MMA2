@@ -770,6 +770,17 @@ class AgentWrapper():
 
         else:
 
+            # For non-GEMINI (e.g. speculative_memory): include current-turn images in the user message
+            if image_uris:
+                if isinstance(message, str):
+                    message = [{"type": "text", "text": message}]
+                elif isinstance(message, list):
+                    message = list(message)
+                else:
+                    message = [{"type": "text", "text": str(message)}]
+                for u in image_uris:
+                    message.append({"type": "file_uri", "file_uri": u})
+
             # Only get recent images for chat context if user has enabled this feature
             if self.include_recent_screenshots:
 
@@ -788,7 +799,7 @@ class AgentWrapper():
                     })
 
                     for idx, (timestamp, file_ref) in enumerate(most_recent_images):
-                        
+
                         if hasattr(file_ref, 'uri'):
                             extra_messages.append({
                                 'type': 'text',
@@ -797,6 +808,15 @@ class AgentWrapper():
                             extra_messages.append({
                                 'type': 'google_cloud_file_uri',
                                 'google_cloud_file_uri': file_ref.uri
+                            })
+                        elif isinstance(file_ref, str) and os.path.isfile(file_ref):
+                            extra_messages.append({
+                                'type': 'text',
+                                'text': f"Timestamp: {timestamp} Image Index {idx}:"
+                            })
+                            extra_messages.append({
+                                'type': 'file_uri',
+                                'file_uri': file_ref
                             })
                         else:
                             raise NotImplementedError("Local file paths are not supported for chat context")
@@ -949,6 +969,11 @@ class AgentWrapper():
                     status['missing_keys'].append('ANTHROPIC_API_KEY')
             else:
                 status['available_keys'].append('ANTHROPIC_API_KEY')
+
+        elif self.model_name == "qwen3-vl-speculative":
+            # Baseline and MMA2 (speculative_memory): local Qwen only, no external API
+            status['model_requirements']['current_model'] = self.model_name
+            status['model_requirements']['required_keys'] = []
         
         # Update the internal missing_api_keys list to match what we found
         self.missing_api_keys = status['missing_keys'].copy()

@@ -139,6 +139,7 @@ def get_required_api_keys_for_model(model_endpoint_type: str) -> List[str]:
         "groq": ["GROQ_API_KEY"],
         "together": ["TOGETHER_API_KEY"],
         "bedrock": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"],
+        "speculative_memory": [],  # Local Qwen draft+target, no external API
     }
     return api_key_mapping.get(model_endpoint_type, [])
 
