@@ -44,9 +44,7 @@ def get_memory_kv_from_target_model(
     if batch_size != 1:
         raise ValueError("get_memory_kv_from_target_model expects batch_size=1.")
 
-    attention_mask = torch.ones(
-        batch_size, memory_len, dtype=torch.long, device=device
-    )
+    attention_mask = torch.ones(batch_size, memory_len, dtype=torch.long, device=device)
 
     kwargs = {
         "input_ids": memory_input_ids,
@@ -74,7 +72,12 @@ def get_memory_kv_from_target_model(
         layers = past_key_values.layers
         memory_kv = []
         for layer in layers:
-            if hasattr(layer, "keys") and hasattr(layer, "values") and layer.keys is not None and layer.values is not None:
+            if (
+                hasattr(layer, "keys")
+                and hasattr(layer, "values")
+                and layer.keys is not None
+                and layer.values is not None
+            ):
                 memory_kv.append((layer.keys, layer.values))
             else:
                 break
@@ -83,7 +86,11 @@ def get_memory_kv_from_target_model(
     else:
         memory_kv = []
 
-    if not memory_kv and hasattr(past_key_values, "key_cache") and hasattr(past_key_values, "value_cache"):
+    if (
+        not memory_kv
+        and hasattr(past_key_values, "key_cache")
+        and hasattr(past_key_values, "value_cache")
+    ):
         key_cache = past_key_values.key_cache
         value_cache = past_key_values.value_cache
         num_layers = len(key_cache)
@@ -103,6 +110,42 @@ def get_memory_kv_from_target_model(
         )
 
     return memory_kv
+
+
+def apply_confidence_weights_to_memory_kv(
+    memory_kv: List[Tuple[torch.Tensor, torch.Tensor]],
+    confidence_weights: torch.Tensor,
+) -> List[Tuple[torch.Tensor, torch.Tensor]]:
+    """
+    Scale V (value) tensors in memory KV by per-token confidence weights.
+
+    For each memory token position i, the value vector is multiplied by
+    confidence_weights[0, i].  High-confidence tokens contribute more to the
+    attention output; low-confidence tokens are proportionally suppressed.
+    K (key) tensors are intentionally left unscaled so the attention
+    distribution is preserved and only the output magnitude is modulated.
+
+    Args:
+        memory_kv: List of (K, V) per layer; V shape (1, num_heads, memory_len, head_dim).
+        confidence_weights: (1, memory_len) float tensor with per-token weights in [0, 1].
+
+    Returns:
+        New list of (K, V) with V scaled, same shapes as input.
+    """
+    if confidence_weights is None or memory_kv is None:
+        return memory_kv
+
+    # Reshape to broadcast over heads and head_dim: (1, 1, memory_len, 1)
+    conf = confidence_weights.unsqueeze(1).unsqueeze(-1).float()
+
+    weighted_kv: List[Tuple[torch.Tensor, torch.Tensor]] = []
+    for k, v in memory_kv:
+        # Move conf to the same device as v (memory KV may be on a different device)
+        conf_device = conf.to(v.device)
+        v_dtype = v.dtype
+        v_weighted = (v.float() * conf_device).to(v_dtype)
+        weighted_kv.append((k, v_weighted))
+    return weighted_kv
 
 
 def concat_memory_kv(

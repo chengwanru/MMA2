@@ -10,7 +10,10 @@ import torch
 
 from mma.speculative_memory.config import SpeculativeMemoryConfig
 from mma.speculative_memory.draft_model import generate_draft_tokens, DraftResult
-from mma.speculative_memory.kv_extension import get_memory_kv_from_target_model
+from mma.speculative_memory.kv_extension import (
+    apply_confidence_weights_to_memory_kv,
+    get_memory_kv_from_target_model,
+)
 from mma.speculative_memory.memory_bias import _get_content_and_confidence
 from mma.speculative_memory.verify import verify_draft_tokens, AcceptRejectResult
 
@@ -26,29 +29,35 @@ def _memory_items_to_input_ids(
     *,
     top_k: Optional[int] = None,
     max_memory_tokens: Optional[int] = 512,
-) -> Optional[torch.Tensor]:
+) -> tuple:
     """
     Tokenize memory items into a single sequence (1, memory_len) for target's memory forward.
 
+    Also builds a per-token confidence weight tensor so that tokens from high-confidence
+    memory items receive higher weight during KV injection.
+
     Concatenates tokenized content of each item (no extra separator). If no content or
-    all empty, returns None. Caller should then use memory_past_key_values=None.
+    all empty, returns (None, None). Caller should then use memory_past_key_values=None.
 
     Args:
         memory_items: List of items with content/text and optional confidence.
         tokenizer: HuggingFace tokenizer.
-        device: Device for the returned tensor.
+        device: Device for the returned tensors.
         top_k: If set, only use first top_k items.
         max_memory_tokens: Cap total length; if exceeded, truncate. None = no cap.
 
     Returns:
-        (1, memory_len) LongTensor on device, or None if no tokens.
+        Tuple of:
+          - (1, memory_len) LongTensor on device, or None if no tokens.
+          - (1, memory_len) FloatTensor of per-token confidence weights, or None if no tokens.
     """
     items = memory_items
     if top_k is not None and top_k > 0:
         items = items[:top_k]
     all_ids: List[int] = []
+    all_conf: List[float] = []
     for item in items:
-        content, _ = _get_content_and_confidence(item)
+        content, confidence = _get_content_and_confidence(item)
         if not content:
             continue
         try:
@@ -56,11 +65,16 @@ def _memory_items_to_input_ids(
         except Exception:
             ids = []
         all_ids.extend(ids)
+        # Each token in this memory item inherits the item's confidence score
+        all_conf.extend([float(confidence)] * len(ids))
     if not all_ids:
-        return None
+        return None, None
     if max_memory_tokens is not None and len(all_ids) > max_memory_tokens:
         all_ids = all_ids[:max_memory_tokens]
-    return torch.tensor([all_ids], dtype=torch.long, device=device)
+        all_conf = all_conf[:max_memory_tokens]
+    token_ids = torch.tensor([all_ids], dtype=torch.long, device=device)
+    conf_weights = torch.tensor([all_conf], dtype=torch.float32, device=device)
+    return token_ids, conf_weights
 
 
 def generate_with_speculative_memory(
@@ -119,7 +133,7 @@ def generate_with_speculative_memory(
 
     # Stage 1: precompute memory K/V for target (once per call; reuse every round)
     memory_kv: Optional[List[tuple]] = None
-    memory_input_ids = _memory_items_to_input_ids(
+    memory_input_ids, memory_conf_weights = _memory_items_to_input_ids(
         memory_items,
         tokenizer,
         device,
@@ -135,6 +149,13 @@ def generate_with_speculative_memory(
             device=device,
             use_cache=True,
         )
+        # Confidence-weighted KV injection: scale V tensors by per-token confidence weights.
+        # High-confidence memories contribute more to the target's attention output;
+        # low-confidence memories are proportionally suppressed.
+        if memory_conf_weights is not None:
+            memory_kv = apply_confidence_weights_to_memory_kv(
+                memory_kv, memory_conf_weights
+            )
 
     total_generated = 0
     gen_kwargs: dict = {}
@@ -168,7 +189,9 @@ def generate_with_speculative_memory(
             with torch.no_grad():
                 target_forward_kwargs = {
                     "input_ids": current_ids,
-                    "attention_mask": torch.ones_like(current_ids, dtype=torch.long, device=device),
+                    "attention_mask": torch.ones_like(
+                        current_ids, dtype=torch.long, device=device
+                    ),
                     "memory_past_key_values": memory_kv,
                     "use_cache": False,
                     "logits_to_keep": 1,
@@ -178,7 +201,9 @@ def generate_with_speculative_memory(
                 if image_grid_thw is not None:
                     target_forward_kwargs["image_grid_thw"] = image_grid_thw.to(device)
                 if pixel_values_videos is not None:
-                    target_forward_kwargs["pixel_values_videos"] = pixel_values_videos.to(device)
+                    target_forward_kwargs["pixel_values_videos"] = (
+                        pixel_values_videos.to(device)
+                    )
                 if video_grid_thw is not None:
                     target_forward_kwargs["video_grid_thw"] = video_grid_thw.to(device)
                 target_outputs = target_model(**target_forward_kwargs)
@@ -221,7 +246,9 @@ def generate_with_speculative_memory(
         with torch.no_grad():
             target_forward_kwargs = {
                 "input_ids": full_ids,
-                "attention_mask": torch.ones_like(full_ids, dtype=torch.long, device=device),
+                "attention_mask": torch.ones_like(
+                    full_ids, dtype=torch.long, device=device
+                ),
                 "memory_past_key_values": memory_kv,
                 "use_cache": False,
                 "logits_to_keep": logits_to_keep,
@@ -231,7 +258,9 @@ def generate_with_speculative_memory(
             if image_grid_thw is not None:
                 target_forward_kwargs["image_grid_thw"] = image_grid_thw.to(device)
             if pixel_values_videos is not None:
-                target_forward_kwargs["pixel_values_videos"] = pixel_values_videos.to(device)
+                target_forward_kwargs["pixel_values_videos"] = pixel_values_videos.to(
+                    device
+                )
             if video_grid_thw is not None:
                 target_forward_kwargs["video_grid_thw"] = video_grid_thw.to(device)
             target_outputs = target_model(**target_forward_kwargs)
@@ -271,9 +300,14 @@ def generate_with_speculative_memory(
             total_generated += num_accepted
 
         # One token from target: correction at first rejected position, or bonus when all accepted
-        if rejected_at is not None and accept_result.target_logits_per_position is not None:
+        if (
+            rejected_at is not None
+            and accept_result.target_logits_per_position is not None
+        ):
             # Use logits at rejected position to sample the correction token
-            one_logits = accept_result.target_logits_per_position[rejected_at : rejected_at + 1]
+            one_logits = accept_result.target_logits_per_position[
+                rejected_at : rejected_at + 1
+            ]
         else:
             one_logits = last_position_logits
         if one_logits.dim() == 1:
