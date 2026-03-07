@@ -112,40 +112,40 @@ def get_memory_kv_from_target_model(
     return memory_kv
 
 
-def apply_confidence_weights_to_memory_kv(
-    memory_kv: List[Tuple[torch.Tensor, torch.Tensor]],
+def build_memory_attention_bias(
     confidence_weights: torch.Tensor,
-) -> List[Tuple[torch.Tensor, torch.Tensor]]:
+) -> torch.Tensor:
     """
-    Scale V (value) tensors in memory KV by per-token confidence weights.
+    Build an additive attention-logit bias for memory token positions.
 
-    For each memory token position i, the value vector is multiplied by
-    confidence_weights[0, i].  High-confidence tokens contribute more to the
-    attention output; low-confidence tokens are proportionally suppressed.
-    K (key) tensors are intentionally left unscaled so the attention
-    distribution is preserved and only the output magnitude is modulated.
+    Produces ``log(confidence)`` for each memory token, to be added to the
+    attention logits before softmax.  This is more principled than V-scaling:
+    it controls *how much the model attends to* each memory token, rather than
+    what value it retrieves after attending.
+
+    Maths:
+        softmax(QK^T/√d + log(c_j))  ∝  softmax(QK^T/√d) * c_j
+        → confidence=1.0 → log(1)=0   → no change
+        → confidence=0.5 → log(0.5)≈-0.69 → attention prob halved
+        → confidence≈0  → log(ε)≈-20  → token is soft-masked out
+
+    References: ALiBi (Press et al., 2022), prefix-LM attention masking.
 
     Args:
-        memory_kv: List of (K, V) per layer; V shape (1, num_heads, memory_len, head_dim).
-        confidence_weights: (1, memory_len) float tensor with per-token weights in [0, 1].
+        confidence_weights: ``(1, memory_len)`` float tensor with per-token
+            confidence values in ``[0, 1]``.
 
     Returns:
-        New list of (K, V) with V scaled, same shapes as input.
+        ``(1, 1, 1, memory_len)`` float tensor ready to broadcast over
+        ``(batch, heads, query_len, memory_len)`` in the additive mask.
     """
-    if confidence_weights is None or memory_kv is None:
-        return memory_kv
-
-    # Reshape to broadcast over heads and head_dim: (1, 1, memory_len, 1)
-    conf = confidence_weights.unsqueeze(1).unsqueeze(-1).float()
-
-    weighted_kv: List[Tuple[torch.Tensor, torch.Tensor]] = []
-    for k, v in memory_kv:
-        # Move conf to the same device as v (memory KV may be on a different device)
-        conf_device = conf.to(v.device)
-        v_dtype = v.dtype
-        v_weighted = (v.float() * conf_device).to(v_dtype)
-        weighted_kv.append((k, v_weighted))
-    return weighted_kv
+    if confidence_weights is None:
+        return None
+    # Clamp to [1e-9, 1] to avoid log(0)=-inf which would hard-mask the token.
+    # Use 1e-9 ≈ -20.7 as a very deep soft-mask instead of -inf.
+    clamped = confidence_weights.clamp(min=1e-9, max=1.0).float()
+    bias = torch.log(clamped)  # (1, memory_len)
+    return bias.unsqueeze(1).unsqueeze(1)  # (1, 1, 1, memory_len)
 
 
 def concat_memory_kv(

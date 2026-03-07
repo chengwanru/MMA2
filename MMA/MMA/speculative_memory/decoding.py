@@ -11,7 +11,7 @@ import torch
 from mma.speculative_memory.config import SpeculativeMemoryConfig
 from mma.speculative_memory.draft_model import generate_draft_tokens, DraftResult
 from mma.speculative_memory.kv_extension import (
-    apply_confidence_weights_to_memory_kv,
+    build_memory_attention_bias,
     get_memory_kv_from_target_model,
 )
 from mma.speculative_memory.memory_bias import _get_content_and_confidence
@@ -149,13 +149,14 @@ def generate_with_speculative_memory(
             device=device,
             use_cache=True,
         )
-        # Confidence-weighted KV injection: scale V tensors by per-token confidence weights.
-        # High-confidence memories contribute more to the target's attention output;
-        # low-confidence memories are proportionally suppressed.
-        if memory_conf_weights is not None:
-            memory_kv = apply_confidence_weights_to_memory_kv(
-                memory_kv, memory_conf_weights
-            )
+
+    # Confidence-weighted attention logit bias: add log(confidence) to the attention
+    # mask for memory positions.  High-confidence → bias≈0 (attend freely);
+    # low-confidence → large negative bias (soft-masked out).
+    # Shape: (1, 1, 1, memory_len) — broadcast over (batch, heads, query_len, memory_len).
+    memory_attention_bias: Optional[torch.Tensor] = None
+    if memory_conf_weights is not None:
+        memory_attention_bias = build_memory_attention_bias(memory_conf_weights)
 
     total_generated = 0
     gen_kwargs: dict = {}
@@ -193,6 +194,7 @@ def generate_with_speculative_memory(
                         current_ids, dtype=torch.long, device=device
                     ),
                     "memory_past_key_values": memory_kv,
+                    "memory_attention_bias": memory_attention_bias,
                     "use_cache": False,
                     "logits_to_keep": 1,
                 }
@@ -250,6 +252,7 @@ def generate_with_speculative_memory(
                     full_ids, dtype=torch.long, device=device
                 ),
                 "memory_past_key_values": memory_kv,
+                "memory_attention_bias": memory_attention_bias,
                 "use_cache": False,
                 "logits_to_keep": logits_to_keep,
             }

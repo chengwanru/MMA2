@@ -1,128 +1,102 @@
 """
-Unit tests for Confidence-Weighted KV Injection.
+Unit tests for Confidence-Weighted Attention Logit Bias injection.
 
-Tests apply_confidence_weights_to_memory_kv and the confidence weight extraction
-in _memory_items_to_input_ids.  CPU-only — no GPU required.
+Tests build_memory_attention_bias (kv_extension) and the confidence weight
+extraction in _memory_items_to_input_ids (decoding).  CPU-only — no GPU required.
 
 Run:
     cd MMA2
-    python -m pytest MMA/MMA/speculative_memory/test_confidence_weighted_kv.py -v
+    /scratch/mv44/zz1230/envs/mma/bin/pytest \
+        MMA/MMA/speculative_memory/test_confidence_weighted_kv.py -v
 """
 
+import math
 import pytest
 import torch
 
 
 # ---------------------------------------------------------------------------
-# Tests for apply_confidence_weights_to_memory_kv
+# Tests for build_memory_attention_bias
 # ---------------------------------------------------------------------------
 
 
-def _make_kv(num_layers: int, num_heads: int, memory_len: int, head_dim: int):
-    """Create a dummy memory_kv list with all-ones K and V tensors."""
-    return [
-        (
-            torch.ones(1, num_heads, memory_len, head_dim),
-            torch.ones(1, num_heads, memory_len, head_dim),
+def test_bias_shape():
+    """Output must be (1, 1, 1, memory_len) for broadcast over (batch, heads, query, mem)."""
+    from mma.speculative_memory.kv_extension import build_memory_attention_bias
+
+    memory_len = 5
+    conf = torch.ones(1, memory_len)
+    bias = build_memory_attention_bias(conf)
+    assert bias is not None
+    assert bias.shape == (1, 1, 1, memory_len), (
+        f"Expected (1,1,1,{memory_len}), got {bias.shape}"
+    )
+
+
+def test_bias_full_confidence_is_zero():
+    """confidence=1.0 → log(1)=0 → no change to attention logits."""
+    from mma.speculative_memory.kv_extension import build_memory_attention_bias
+
+    conf = torch.ones(1, 4)
+    bias = build_memory_attention_bias(conf)
+    assert torch.allclose(bias, torch.zeros_like(bias)), (
+        "Full confidence should give zero bias"
+    )
+
+
+def test_bias_half_confidence():
+    """confidence=0.5 → log(0.5) ≈ -0.693."""
+    from mma.speculative_memory.kv_extension import build_memory_attention_bias
+
+    conf = torch.full((1, 3), 0.5)
+    bias = build_memory_attention_bias(conf)
+    expected = math.log(0.5)
+    assert bias.shape == (1, 1, 1, 3)
+    assert torch.allclose(bias, torch.full_like(bias, expected), atol=1e-5)
+
+
+def test_bias_zero_confidence_clamped_not_neginf():
+    """confidence=0.0 must be clamped to 1e-9, not producing -inf (which would NaN the model)."""
+    from mma.speculative_memory.kv_extension import build_memory_attention_bias
+
+    conf = torch.zeros(1, 2)  # all-zero confidence
+    bias = build_memory_attention_bias(conf)
+    assert bias is not None
+    assert torch.all(torch.isfinite(bias)), (
+        "Bias must be finite even for zero confidence"
+    )
+    # Should be log(1e-9) ≈ -20.7, not -inf
+    assert torch.all(bias < -15.0), (
+        "Zero confidence should give large negative bias (≈-20.7)"
+    )
+
+
+def test_bias_mixed_confidence_values():
+    """Per-token bias matches log(confidence) independently for each position."""
+    from mma.speculative_memory.kv_extension import build_memory_attention_bias
+
+    conf_vals = [1.0, 0.9, 0.5, 0.1]
+    conf = torch.tensor([conf_vals])
+    bias = build_memory_attention_bias(conf)  # (1,1,1,4)
+
+    for i, c in enumerate(conf_vals):
+        expected = math.log(max(c, 1e-9))
+        actual = bias[0, 0, 0, i].item()
+        assert abs(actual - expected) < 1e-5, (
+            f"Position {i}: expected {expected:.4f}, got {actual:.4f}"
         )
-        for _ in range(num_layers)
-    ]
 
 
-def test_uniform_confidence_leaves_values_unchanged():
-    """When all memory tokens have confidence=1.0, V tensors should be unchanged."""
-    from mma.speculative_memory.kv_extension import (
-        apply_confidence_weights_to_memory_kv,
-    )
+def test_bias_none_input_returns_none():
+    """None confidence weights → None bias (backward compatible)."""
+    from mma.speculative_memory.kv_extension import build_memory_attention_bias
 
-    memory_len = 4
-    kv = _make_kv(num_layers=2, num_heads=2, memory_len=memory_len, head_dim=8)
-    conf = torch.ones(1, memory_len)  # all ones
-
-    weighted = apply_confidence_weights_to_memory_kv(kv, conf)
-
-    for i, ((k_orig, v_orig), (k_w, v_w)) in enumerate(zip(kv, weighted)):
-        assert torch.allclose(v_orig, v_w), (
-            f"Layer {i}: V should be unchanged for conf=1.0"
-        )
-        assert torch.allclose(k_orig, k_w), f"Layer {i}: K should never be modified"
-
-
-def test_zero_confidence_zeros_values():
-    """Memory tokens with confidence=0.0 should contribute zero to V (attention output)."""
-    from mma.speculative_memory.kv_extension import (
-        apply_confidence_weights_to_memory_kv,
-    )
-
-    memory_len = 3
-    kv = _make_kv(num_layers=1, num_heads=4, memory_len=memory_len, head_dim=16)
-    conf = torch.zeros(1, memory_len)  # all zeros
-
-    weighted = apply_confidence_weights_to_memory_kv(kv, conf)
-
-    k_w, v_w = weighted[0]
-    assert torch.allclose(v_w, torch.zeros_like(v_w)), (
-        "V should be zero when confidence=0"
-    )
-    assert torch.allclose(k_w, kv[0][0]), "K should be unchanged"
-
-
-def test_partial_confidence_scales_proportionally():
-    """Half-confidence tokens should have V halved; high-confidence tokens unchanged."""
-    from mma.speculative_memory.kv_extension import (
-        apply_confidence_weights_to_memory_kv,
-    )
-
-    memory_len = 4
-    # conf: [1.0, 1.0, 0.5, 0.5] — first two tokens fully confident, last two halved
-    conf = torch.tensor([[1.0, 1.0, 0.5, 0.5]])
-    kv = _make_kv(num_layers=1, num_heads=2, memory_len=memory_len, head_dim=8)
-
-    weighted = apply_confidence_weights_to_memory_kv(kv, conf)
-    k_w, v_w = weighted[0]
-
-    # First two positions: V stays 1.0
-    assert torch.allclose(v_w[:, :, :2, :], torch.ones(1, 2, 2, 8))
-    # Last two positions: V becomes 0.5
-    assert torch.allclose(v_w[:, :, 2:, :], torch.full((1, 2, 2, 8), 0.5))
-    # K always unchanged
-    assert torch.allclose(k_w, kv[0][0])
-
-
-def test_none_inputs_passthrough():
-    """None inputs should return the original kv unchanged."""
-    from mma.speculative_memory.kv_extension import (
-        apply_confidence_weights_to_memory_kv,
-    )
-
-    kv = _make_kv(num_layers=2, num_heads=2, memory_len=4, head_dim=8)
-    result = apply_confidence_weights_to_memory_kv(kv, None)
-    assert result is kv
-
-
-def test_all_layers_weighted():
-    """All layers must be scaled, not just specific ones."""
-    from mma.speculative_memory.kv_extension import (
-        apply_confidence_weights_to_memory_kv,
-    )
-
-    num_layers = 5
-    memory_len = 3
-    conf = torch.tensor([[0.2, 0.8, 0.5]])
-    kv = _make_kv(
-        num_layers=num_layers, num_heads=4, memory_len=memory_len, head_dim=16
-    )
-
-    weighted = apply_confidence_weights_to_memory_kv(kv, conf)
-
-    assert len(weighted) == num_layers, "All layers should be returned"
-    expected_v = conf.unsqueeze(1).unsqueeze(-1).expand(1, 4, memory_len, 16)
-    for i, (k_w, v_w) in enumerate(weighted):
-        assert torch.allclose(v_w, expected_v.float()), f"Layer {i}: V scaling mismatch"
+    result = build_memory_attention_bias(None)
+    assert result is None
 
 
 # ---------------------------------------------------------------------------
-# Tests for _memory_items_to_input_ids confidence extraction
+# Tests for _memory_items_to_input_ids (confidence extraction, unchanged)
 # ---------------------------------------------------------------------------
 
 
@@ -130,7 +104,6 @@ class _DummyTokenizer:
     """Minimal tokenizer stub for testing."""
 
     def encode(self, text, add_special_tokens=False):
-        # Each word → one token id (based on hash, deterministic)
         return [abs(hash(w)) % 1000 for w in text.split()]
 
 
@@ -142,15 +115,12 @@ def test_memory_items_confidence_weights_shape():
         {"content": "User likes coffee", "confidence": 0.9},
         {"content": "User dislikes tea", "confidence": 0.4},
     ]
-    tokenizer = _DummyTokenizer()
-    device = torch.device("cpu")
-    token_ids, conf_weights = _memory_items_to_input_ids(items, tokenizer, device)
-
-    assert token_ids is not None and conf_weights is not None
-    assert token_ids.shape == conf_weights.shape, (
-        "token_ids and conf_weights must have same shape"
+    token_ids, conf_weights = _memory_items_to_input_ids(
+        items, _DummyTokenizer(), torch.device("cpu")
     )
-    assert token_ids.shape[0] == 1, "Batch dim should be 1"
+    assert token_ids is not None and conf_weights is not None
+    assert token_ids.shape == conf_weights.shape
+    assert token_ids.shape[0] == 1
 
 
 def test_memory_items_confidence_values_correct():
@@ -158,27 +128,26 @@ def test_memory_items_confidence_values_correct():
     from mma.speculative_memory.decoding import _memory_items_to_input_ids
 
     items = [
-        {"content": "high conf", "confidence": 0.95},  # 2 tokens → conf 0.95
-        {"content": "low", "confidence": 0.3},  # 1 token  → conf 0.30
+        {"content": "high conf", "confidence": 0.95},  # 2 tokens
+        {"content": "low", "confidence": 0.30},  # 1 token
     ]
-    tokenizer = _DummyTokenizer()
-    device = torch.device("cpu")
-    token_ids, conf_weights = _memory_items_to_input_ids(items, tokenizer, device)
-
+    _, conf_weights = _memory_items_to_input_ids(
+        items, _DummyTokenizer(), torch.device("cpu")
+    )
     w = conf_weights[0].tolist()
-    assert len(w) == 3, "3 tokens total"
-    assert abs(w[0] - 0.95) < 1e-5 and abs(w[1] - 0.95) < 1e-5, "First two tokens: 0.95"
-    assert abs(w[2] - 0.30) < 1e-5, "Third token: 0.30"
+    assert len(w) == 3
+    assert abs(w[0] - 0.95) < 1e-5 and abs(w[1] - 0.95) < 1e-5
+    assert abs(w[2] - 0.30) < 1e-5
 
 
 def test_empty_memory_items_returns_none():
-    """Empty memory list should return (None, None)."""
+    """Empty memory list → (None, None)."""
     from mma.speculative_memory.decoding import _memory_items_to_input_ids
 
-    token_ids, conf_weights = _memory_items_to_input_ids(
+    ids, weights = _memory_items_to_input_ids(
         [], _DummyTokenizer(), torch.device("cpu")
     )
-    assert token_ids is None and conf_weights is None
+    assert ids is None and weights is None
 
 
 if __name__ == "__main__":
