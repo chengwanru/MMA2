@@ -3,12 +3,171 @@ Target model: extended KV cache with memory K/V.
 
 Compute K/V for memory tokens (using target model) and concatenate
 with context K/V so that attention is over [context_len + memory_len].
-RoPE positions for memory tokens must be defined (e.g. virtual_after_context).
+
+RoPE Position Re-encoding (fixes KVLink-style misalignment):
+  Memory K tensors are precomputed at positions 0..N-1.  When injected into
+  a context of length L, the query at position L sees memory keys as if they
+  were at position 0 (wrong — position diff = L instead of 0..N).  The fix
+  un-rotates the original RoPE and re-applies it at the correct positions
+  context_len..context_len+N-1 each speculative round.
+
+  Math:  R(context_len + j) · R(-j)  = R(context_len)  ∀ j
+  (rotation matrices compose additively — the delta is constant across j)
+  Ref: KVLink (arXiv 2502.16002, Feb 2025)
 """
 
 from typing import Any, List, Optional, Tuple
 
 import torch
+
+
+# ---------------------------------------------------------------------------
+# Internal RoPE helpers
+# ---------------------------------------------------------------------------
+
+
+def _rotate_half(x: torch.Tensor) -> torch.Tensor:
+    """Rotate half the hidden dims (same as modeling_qwen3_vl.rotate_half)."""
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2 :]
+    return torch.cat((-x2, x1), dim=-1)
+
+
+def _apply_rope_to_k(
+    k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
+) -> torch.Tensor:
+    """
+    Apply rotary pos emb to a K tensor.
+
+    Args:
+        k:   (batch, num_kv_heads, seq_len, head_dim)
+        cos: (batch, seq_len, head_dim)  — will be unsqueezed to (batch,1,seq,head)
+        sin: same shape as cos
+    """
+    cos = cos.unsqueeze(1)  # (batch, 1, seq_len, head_dim)
+    sin = sin.unsqueeze(1)
+    return k * cos + _rotate_half(k) * sin
+
+
+def _inverse_rope_to_k(
+    k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
+) -> torch.Tensor:
+    """Remove (inverse) RoPE from K.  Equivalent to applying with -sin."""
+    return _apply_rope_to_k(k, cos, -sin)
+
+
+def _get_rope_cos_sin(
+    rotary_emb,
+    memory_len: int,
+    start_pos: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Compute RoPE cos/sin for positions [start_pos .. start_pos + memory_len - 1].
+
+    Args:
+        rotary_emb: the model's Qwen3VLTextRotaryEmbedding module
+        memory_len: number of memory tokens
+        start_pos:  first position ID (0 for old, context_len for new)
+        device / dtype: used to build dummy tensor and cast output
+
+    Returns:
+        (cos, sin) each of shape (1, memory_len, head_dim)
+    """
+    position_ids = torch.arange(
+        start_pos, start_pos + memory_len, device=device, dtype=torch.long
+    ).unsqueeze(0)  # (1, memory_len)
+
+    # rotary_emb(x, position_ids) — x is only used for dtype/device
+    dummy_x = torch.empty(0, device=device, dtype=dtype)
+    cos, sin = rotary_emb(dummy_x, position_ids)
+    return cos.to(dtype=dtype), sin.to(dtype=dtype)
+
+
+# ---------------------------------------------------------------------------
+# Public API: RoPE position re-encoding
+# ---------------------------------------------------------------------------
+
+
+def strip_rope_from_memory_keys(
+    memory_kv: List[Tuple[torch.Tensor, torch.Tensor]],
+    rotary_emb,
+    device: torch.device,
+) -> List[Tuple[torch.Tensor, torch.Tensor]]:
+    """
+    Remove RoPE from memory K tensors (they were encoded at positions 0..N-1).
+
+    Call this ONCE right after ``get_memory_kv_from_target_model``.  Store the
+    returned list as ``memory_kv_raw``; pass it to ``apply_rope_to_memory_keys``
+    before every target-model forward call (with the current context_len).
+
+    V tensors are passed through unchanged — only K carries RoPE.
+
+    Returns:
+        List of (K_raw, V) with K_raw having no positional rotation applied.
+    """
+    if not memory_kv:
+        return memory_kv
+
+    memory_len = memory_kv[0][0].size(2)  # (1, kv_heads, memory_len, head_dim)
+    k_dtype = memory_kv[0][0].dtype
+
+    cos_old, sin_old = _get_rope_cos_sin(
+        rotary_emb, memory_len, start_pos=0, device=device, dtype=torch.float32
+    )
+
+    raw_kv: List[Tuple[torch.Tensor, torch.Tensor]] = []
+    for k, v in memory_kv:
+        k_raw = _inverse_rope_to_k(
+            k.float(), cos_old.to(k.device), sin_old.to(k.device)
+        ).to(k_dtype)
+        raw_kv.append((k_raw, v))
+    return raw_kv
+
+
+def apply_rope_to_memory_keys(
+    memory_kv_raw: List[Tuple[torch.Tensor, torch.Tensor]],
+    context_len: int,
+    rotary_emb,
+    device: torch.device,
+) -> List[Tuple[torch.Tensor, torch.Tensor]]:
+    """
+    Re-apply RoPE to raw memory K tensors at positions [context_len .. context_len+N-1].
+
+    Call this EVERY speculative round (context_len grows as tokens are generated).
+    The cost is tiny: one rotation (no model forward, just a tensor multiply per layer).
+
+    Args:
+        memory_kv_raw: output of ``strip_rope_from_memory_keys``
+        context_len:   current sequence length before memory tokens (prompt + generated so far)
+        rotary_emb:    ``target_model.model.language_model.rotary_emb``
+        device:        device for position ID tensors
+
+    Returns:
+        List of (K_positioned, V) with K encoded at correct global positions.
+    """
+    if not memory_kv_raw:
+        return memory_kv_raw
+
+    memory_len = memory_kv_raw[0][0].size(2)
+    k_dtype = memory_kv_raw[0][0].dtype
+
+    cos_new, sin_new = _get_rope_cos_sin(
+        rotary_emb,
+        memory_len,
+        start_pos=context_len,
+        device=device,
+        dtype=torch.float32,
+    )
+
+    positioned_kv: List[Tuple[torch.Tensor, torch.Tensor]] = []
+    for k_raw, v in memory_kv_raw:
+        k = _apply_rope_to_k(
+            k_raw.float(), cos_new.to(k_raw.device), sin_new.to(k_raw.device)
+        ).to(k_dtype)
+        positioned_kv.append((k, v))
+    return positioned_kv
 
 
 def get_memory_kv_from_target_model(

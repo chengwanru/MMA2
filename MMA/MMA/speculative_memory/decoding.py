@@ -11,8 +11,10 @@ import torch
 from mma.speculative_memory.config import SpeculativeMemoryConfig
 from mma.speculative_memory.draft_model import generate_draft_tokens, DraftResult
 from mma.speculative_memory.kv_extension import (
+    apply_rope_to_memory_keys,
     build_memory_attention_bias,
     get_memory_kv_from_target_model,
+    strip_rope_from_memory_keys,
 )
 from mma.speculative_memory.memory_bias import _get_content_and_confidence
 from mma.speculative_memory.verify import verify_draft_tokens, AcceptRejectResult
@@ -132,7 +134,9 @@ def generate_with_speculative_memory(
         raise ValueError("generate_with_speculative_memory expects batch_size=1.")
 
     # Stage 1: precompute memory K/V for target (once per call; reuse every round)
-    memory_kv: Optional[List[tuple]] = None
+    # memory_kv_raw stores K tensors with RoPE *removed* so they can be re-encoded
+    # each round at the correct global positions (KVLink-style position re-encoding).
+    memory_kv_raw: Optional[List[tuple]] = None
     memory_input_ids, memory_conf_weights = _memory_items_to_input_ids(
         memory_items,
         tokenizer,
@@ -140,6 +144,11 @@ def generate_with_speculative_memory(
         top_k=config.memory_bias_top_k_memories,
         max_memory_tokens=512,
     )
+    # Extract the rotary embedding module once; used every round for position re-encoding.
+    # Access path: ForConditionalGeneration → model (Qwen3VLModel) → language_model
+    #              (Qwen3VLTextModel) → rotary_emb
+    rotary_emb = target_model.model.language_model.rotary_emb
+
     # Memory K/V: we run target on text-only memory tokens (no images). MMA memory content is
     # retrieved text; if your memory ever has image placeholders, this may need to change.
     if memory_input_ids is not None and memory_input_ids.size(1) > 0:
@@ -149,6 +158,9 @@ def generate_with_speculative_memory(
             device=device,
             use_cache=True,
         )
+        # Strip RoPE from memory K tensors once (they were encoded at positions 0..N-1).
+        # Re-encoding at the correct positions happens every round (see apply_rope_to_memory_keys).
+        memory_kv_raw = strip_rope_from_memory_keys(memory_kv, rotary_emb, device)
 
     # Confidence-weighted attention logit bias: add log(confidence) to the attention
     # mask for memory positions.  High-confidence → bias≈0 (attend freely);
@@ -188,12 +200,21 @@ def generate_with_speculative_memory(
             # Generate one token from target and continue (no raise). See also draft_model:
             # min_new_tokens=1 and keeping first EOS as one draft token.
             with torch.no_grad():
+                # Re-encode memory K at positions [context_len .. context_len+memory_len-1]
+                # so that the query at position context_len sees memory at the right distance.
+                memory_kv_positioned = (
+                    apply_rope_to_memory_keys(
+                        memory_kv_raw, context_len, rotary_emb, device
+                    )
+                    if memory_kv_raw is not None
+                    else None
+                )
                 target_forward_kwargs = {
                     "input_ids": current_ids,
                     "attention_mask": torch.ones_like(
                         current_ids, dtype=torch.long, device=device
                     ),
-                    "memory_past_key_values": memory_kv,
+                    "memory_past_key_values": memory_kv_positioned,
                     "memory_attention_bias": memory_attention_bias,
                     "use_cache": False,
                     "logits_to_keep": 1,
@@ -246,12 +267,22 @@ def generate_with_speculative_memory(
         # i.e. num_draft positions for verify, plus last for bonus token -> logits_to_keep = num_draft + 1
         logits_to_keep = num_draft + 1
         with torch.no_grad():
+            # Re-encode memory K at positions [context_len .. context_len+memory_len-1].
+            # Use context_len (before draft tokens) so memory position is consistent with
+            # the verification step that references the pre-draft context boundary.
+            memory_kv_positioned = (
+                apply_rope_to_memory_keys(
+                    memory_kv_raw, context_len, rotary_emb, device
+                )
+                if memory_kv_raw is not None
+                else None
+            )
             target_forward_kwargs = {
                 "input_ids": full_ids,
                 "attention_mask": torch.ones_like(
                     full_ids, dtype=torch.long, device=device
                 ),
-                "memory_past_key_values": memory_kv,
+                "memory_past_key_values": memory_kv_positioned,
                 "memory_attention_bias": memory_attention_bias,
                 "use_cache": False,
                 "logits_to_keep": logits_to_keep,
