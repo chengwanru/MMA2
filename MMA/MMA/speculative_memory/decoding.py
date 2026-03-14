@@ -24,6 +24,34 @@ from mma.speculative_memory.verify import verify_draft_tokens, AcceptRejectResul
 MemoryItem = Union[dict, object]
 
 
+def _get_rotary_emb(model: Any) -> Any:
+    """
+    Retrieve the rotary embedding module from a VL model, trying common attribute paths.
+
+    Qwen3VL : model.model.language_model.rotary_emb
+    Qwen2VL : model.model.model.rotary_emb  (language model is nested one level deeper)
+    Fallback : model.model.rotary_emb
+
+    Raises AttributeError with a helpful message if none of the paths work.
+    """
+    candidates = [
+        lambda m: m.model.language_model.rotary_emb,  # Qwen3VL
+        lambda m: m.model.model.rotary_emb,            # Qwen2VL
+        lambda m: m.model.rotary_emb,                  # flat
+    ]
+    for fn in candidates:
+        try:
+            return fn(model)
+        except AttributeError:
+            continue
+    raise AttributeError(
+        f"Cannot find rotary_emb on {type(model).__name__}. "
+        "Tried: model.model.language_model.rotary_emb, "
+        "model.model.model.rotary_emb, model.model.rotary_emb. "
+        "Please inspect the model's attribute tree and update _get_rotary_emb()."
+    )
+
+
 def _memory_items_to_input_ids(
     memory_items: List[MemoryItem],
     tokenizer: Any,
@@ -147,7 +175,7 @@ def generate_with_speculative_memory(
     # Extract the rotary embedding module once; used every round for position re-encoding.
     # Access path: ForConditionalGeneration → model (Qwen3VLModel) → language_model
     #              (Qwen3VLTextModel) → rotary_emb
-    rotary_emb = target_model.model.language_model.rotary_emb
+    rotary_emb = _get_rotary_emb(target_model)
 
     # Memory K/V: we run target on text-only memory tokens (no images). MMA memory content is
     # retrieved text; if your memory ever has image placeholders, this may need to change.

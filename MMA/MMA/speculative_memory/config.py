@@ -19,7 +19,7 @@ class SpeculativeMemoryConfig:
     target_model_name_or_path: str = "Qwen/Qwen2-VL-7B-Instruct"
 
     # Draft
-    max_draft_steps: int = 5  # max candidate tokens per draft phase
+    max_draft_steps: int = 3  # max candidate tokens per draft phase
     memory_bias_scale: float = (
         2.0  # scale for logits bias from memory (log-space additive)
     )
@@ -31,9 +31,9 @@ class SpeculativeMemoryConfig:
     accept_threshold: float = (
         0.1  # min P_target(draft_token) to accept (when strategy == "threshold")
     )
-    reject_strategy: Literal["threshold", "prob_diff"] = "threshold"
+    reject_strategy: Literal["threshold", "prob_diff"] = "prob_diff"
     prob_diff_threshold: float = (
-        0.2  # reject if |P_draft - P_target| > this (when strategy == "prob_diff")
+        0.3  # reject if |P_draft - P_target| > this (when strategy == "prob_diff")
     )
 
     # Generation
