@@ -29,6 +29,8 @@ import uuid
 
 # So we can import mma from MMA repo when run from public_evaluations/
 _here = os.path.dirname(os.path.abspath(__file__))
+
+
 if _here not in sys.path:
     sys.path.insert(0, os.path.join(_here, ".."))
 
@@ -54,18 +56,35 @@ def get_upload_dir():
 def get_agent():
     global _agent
     if _agent is None:
-        from mma.agent import AgentWrapper as mmaAgent
-        config_path = os.environ.get("MMA_CONFIG_PATH", os.path.join(_here, "..", "configs", "mma_speculative_memory.yaml"))
-        config_path = os.path.abspath(config_path)
-        _agent = mmaAgent(config_path)
-        try:
-            if hasattr(_agent, "update_core_memory_persona"):
-                _agent.update_core_memory_persona(
-                    "You are an embodied task planner. Reply with only a single JSON object containing "
-                    "executable_plan and related fields. No other text or markdown."
+        # Direct path: bypass AgentWrapper to avoid audio/google deps
+        from mma.llm_api.speculative_memory_client import SpeculativeMemoryClient
+
+        class _DirectAgent:
+            """Thin wrapper: SpeculativeMemoryClient with send_message interface."""
+            def __init__(self):
+                from mma.schemas.llm_config import LLMConfig
+                self._client = SpeculativeMemoryClient(
+                    llm_config=LLMConfig(
+                        model="speculative_memory",
+                        model_endpoint_type="speculative_memory",
+                        max_tokens=256,
+                        context_window=8192,
+                    )
                 )
-        except Exception:
-            pass
+
+            def send_message(self, message, image_uris=None, **kwargs):
+                image_uris = image_uris or []
+                valid = [p for p in image_uris if os.path.isfile(p)]
+                req = {
+                    "chat": [{"role": "user", "content": message}],
+                    "memory_items": [],
+                    "vl_content_parts": [("text", message)] + [("image", p) for p in valid],
+                    "image_paths": valid,
+                    "max_new_tokens": 256,
+                }
+                return self._client.request(req).get("generated_text", "")
+
+        _agent = _DirectAgent()
     return _agent
 
 
