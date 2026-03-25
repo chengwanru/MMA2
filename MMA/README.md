@@ -4,7 +4,7 @@ This directory contains the implementation of the **Multimodal Memory Agent (MMA
 
 ## 📂 Code Structure
 
-- **`mma/`**: The core package.
+- **`MMA/`**: The core package directory (capital **MMA**). Code imports **`mma`** (lowercase). On **Linux** (case-sensitive disk), run once from this directory: `bash scripts/ensure_mma_import_symlink.sh` to create `mma -> MMA` if needed. On default **macOS** disks, names are case-insensitive so `import mma` resolves to `MMA/` without a separate symlink.
   - `services/confidence_module.py`: **[Core Contribution]** Implements Source, Time, and Consensus scoring.
   - `agent/meta_memory_agent.py`: Orchestrates memory retrieval and updates.
 - **`public_evaluations/`**: Evaluation scripts.

@@ -1,0 +1,18 @@
+--- a/MMA/mma/llm_api/speculative_memory_client.py
++++ b/MMA/mma/llm_api/speculative_memory_client.py
+@@ -264,10 +264,19 @@ def _tokenize_chat(
+         **kwargs,
+     )
+-    prompt_ids = out.get("input_ids") or getattr(out, "input_ids", None)
+-    pixel_values = out.get("pixel_values") or getattr(out, "pixel_values", None)
+-    image_grid_thw = out.get("image_grid_thw") or getattr(out, "image_grid_thw", None)
++    # Do not use `tensor or getattr(...)` — multi-element tensors raise
++    # RuntimeError: Boolean value of Tensor with more than one value is ambiguous.
++    def _field(name: str):
++        v = out.get(name) if hasattr(out, "get") else None
++        return v if v is not None else getattr(out, name, None)
++
++    prompt_ids = _field("input_ids")
++    pixel_values = _field("pixel_values")
++    image_grid_thw = _field("image_grid_thw")
+ 

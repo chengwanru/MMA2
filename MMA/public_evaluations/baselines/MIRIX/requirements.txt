@@ -21,7 +21,7 @@ jinja2
 humps
 colorama
 anthropic
-httpx_sse
+httpx-sse
 Markdown
 rapidfuzz
 rank-bm25

@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import traceback
 import uuid
 
 # So we can import mma from MMA repo when run from public_evaluations/
@@ -33,6 +34,16 @@ _here = os.path.dirname(os.path.abspath(__file__))
 
 if _here not in sys.path:
     sys.path.insert(0, os.path.join(_here, ".."))
+
+# Patch transformers.configuration_utils so "from ...configuration_utils import PreTrainedConfig" works
+# (some deps expect it there; newer transformers may export it only from the top level)
+try:
+    import transformers.configuration_utils as _conf_utils
+    if not hasattr(_conf_utils, "PreTrainedConfig"):
+        from transformers import PreTrainedConfig
+        _conf_utils.PreTrainedConfig = PreTrainedConfig
+except Exception:
+    pass
 
 from embodiedbench_utils import extract_json_from_response
 
@@ -67,7 +78,7 @@ def get_agent():
                     llm_config=LLMConfig(
                         model="speculative_memory",
                         model_endpoint_type="speculative_memory",
-                        max_tokens=256,
+                        max_tokens=768,
                         context_window=8192,
                     )
                 )
@@ -80,7 +91,9 @@ def get_agent():
                     "memory_items": [],
                     "vl_content_parts": [("text", message)] + [("image", p) for p in valid],
                     "image_paths": valid,
-                    "max_new_tokens": 256,
+                    "max_new_tokens": int(
+                        os.environ.get("EMBODIEDBENCH_MAX_NEW_TOKENS", "768")
+                    ),
                 }
                 return self._client.request(req).get("generated_text", "")
 
@@ -114,11 +127,23 @@ def create_app():
             image.save(image_path)
             agent = get_agent()
             response_text = agent.send_message(message=sentence, image_uris=[image_path], memorizing=False)
-            if response_text in (None, "ERROR", ""):
+            # Avoid `response_text in (...)` if response is a tensor/array: rich compare / containment can
+            # trigger "Boolean value of Tensor with more than one value is ambiguous".
+            if response_text is None:
+                return jsonify({"error": "MMA returned no valid response", "response": "{}"}), 500
+            if not isinstance(response_text, str):
+                return jsonify(
+                    {
+                        "error": f"MMA returned non-string reply ({type(response_text).__name__}); expected str",
+                        "response": "{}",
+                    }
+                ), 500
+            if response_text in ("ERROR", ""):
                 return jsonify({"error": "MMA returned no valid response", "response": "{}"}), 500
             extracted = extract_json_from_response(response_text)
             return jsonify({"response": extracted})
         except Exception as e:
+            traceback.print_exc()
             return jsonify({"error": str(e), "response": "{}"}), 500
         finally:
             if os.path.exists(image_path):
