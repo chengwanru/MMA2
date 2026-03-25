@@ -45,7 +45,11 @@ try:
 except Exception:
     pass
 
-from embodiedbench_utils import extract_json_from_response
+from embodiedbench_utils import (
+    extract_allowed_action_ids_from_prompt,
+    extract_json_from_response,
+    validate_executable_plan_json,
+)
 
 # Lazy init of Flask and MMA agent (avoid loading heavy deps on import)
 _app = None
@@ -101,6 +105,22 @@ def get_agent():
     return _agent
 
 
+
+def _repair_prompt(sentence: str, bad_response: str, reason: str) -> str:
+    return (
+        "Your previous planner output is invalid for EmbodiedBench.\n"
+        f"Reason: {reason}\n"
+        "Return ONLY valid JSON with keys: "
+        "reasoning_and_reflection (string), language_plan (list of strings), "
+        "executable_plan (non-empty list of objects).\n"
+        "Each executable_plan step MUST be: "
+        '{"action_id": <non-negative int>, "action_name": "<non-empty string>"}\n'
+        "No markdown, no explanation outside JSON.\n\n"
+        f"Original user instruction:\n{sentence}\n\n"
+        f"Your previous invalid output:\n{bad_response}"
+    )
+
+
 def create_app():
     global _app
     if _app is not None:
@@ -141,7 +161,41 @@ def create_app():
             if response_text in ("ERROR", ""):
                 return jsonify({"error": "MMA returned no valid response", "response": "{}"}), 500
             extracted = extract_json_from_response(response_text)
-            return jsonify({"response": extracted})
+            allowed_action_ids = extract_allowed_action_ids_from_prompt(sentence)
+            ok, reason = validate_executable_plan_json(
+                extracted,
+                allowed_action_ids=allowed_action_ids if allowed_action_ids else None,
+            )
+            if ok:
+                return jsonify({"response": extracted})
+
+            retry_sentence = _repair_prompt(sentence, response_text, reason)
+            retry_text = agent.send_message(
+                message=retry_sentence,
+                image_uris=[image_path],
+                memorizing=False,
+            )
+            if not isinstance(retry_text, str) or not retry_text.strip():
+                return jsonify(
+                    {
+                        "error": f"Invalid planner JSON and empty retry response: {reason}",
+                        "response": "{}",
+                    }
+                ), 500
+
+            extracted_retry = extract_json_from_response(retry_text)
+            ok_retry, reason_retry = validate_executable_plan_json(
+                extracted_retry,
+                allowed_action_ids=allowed_action_ids if allowed_action_ids else None,
+            )
+            if ok_retry:
+                return jsonify({"response": extracted_retry})
+            return jsonify(
+                {
+                    "error": f"Invalid planner JSON after retry: {reason_retry}",
+                    "response": "{}",
+                }
+            ), 500
         except Exception as e:
             traceback.print_exc()
             return jsonify({"error": str(e), "response": "{}"}), 500

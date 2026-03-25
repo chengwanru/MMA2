@@ -53,7 +53,6 @@ def main():
 
     missing = []
     for pkg in packages:
-        base = pkg.split("[")[0].strip()
         if pip_show(pkg):
             print("  [OK]  ", pkg)
         else:

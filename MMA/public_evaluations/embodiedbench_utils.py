@@ -323,3 +323,84 @@ def _to_int(value):
         if re.fullmatch(r"-?\d+", s):
             return int(s)
     return None
+
+
+def validate_executable_plan_json(
+    json_text: str,
+    allowed_action_ids: set[int] | None = None,
+) -> tuple[bool, str]:
+    """
+    Strict structural validation for EmbodiedBench planner output.
+    Returns (ok, reason).
+    """
+    try:
+        obj = json.loads(json_text)
+    except Exception as e:
+        return False, f"json_parse_error: {e}"
+
+    if not isinstance(obj, dict):
+        return False, "payload_not_dict"
+
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list):
+        return False, "executable_plan_not_list"
+
+    if len(plan) == 0:
+        return False, "empty_executable_plan"
+
+    for i, step in enumerate(plan):
+        if not isinstance(step, dict):
+            return False, f"step_{i}_not_dict"
+
+        if "action_id" not in step or "action_name" not in step:
+            return False, f"step_{i}_missing_action_id_or_name"
+
+        aid = step.get("action_id")
+        aname = step.get("action_name")
+
+        if not isinstance(aid, int):
+            return False, f"step_{i}_action_id_not_int"
+        if aid < 0:
+            return False, f"step_{i}_action_id_negative"
+        if allowed_action_ids is not None and aid not in allowed_action_ids:
+            return False, f"step_{i}_action_id_not_in_allowed_set:{aid}"
+
+        if not isinstance(aname, str):
+            return False, f"step_{i}_action_name_not_str"
+        if not aname.strip():
+            return False, f"step_{i}_action_name_empty"
+
+    return True, "ok"
+
+
+def extract_allowed_action_ids_from_prompt(prompt_text: str) -> set[int]:
+    """
+    Best-effort extraction of available action ids from EmbodiedBench prompt text.
+    Supports common formats like:
+      - "133: put down the object in hand"
+      - "action_id: 12"
+      - '{"action_id": 5, ...}'
+      - "[12] OpenObject"
+    """
+    if not isinstance(prompt_text, str) or not prompt_text.strip():
+        return set()
+
+    ids = set()
+
+    # 1) "123: action name"
+    for m in re.finditer(r'(?m)^\s*(\d{1,4})\s*:\s*[^\n]+$', prompt_text):
+        ids.add(int(m.group(1)))
+
+    # 2) "action_id: 12" / "action id = 12"
+    for m in re.finditer(r'(?i)action[_\s-]?id\s*[:=]\s*(-?\d+)', prompt_text):
+        ids.add(int(m.group(1)))
+
+    # 3) JSON snippets containing action_id
+    for m in re.finditer(r'"action_id"\s*:\s*(-?\d+)', prompt_text):
+        ids.add(int(m.group(1)))
+
+    # 4) "[12] SomeAction"
+    for m in re.finditer(r'(?m)\[\s*(-?\d+)\s*\]\s*[A-Za-z_]', prompt_text):
+        ids.add(int(m.group(1)))
+
+    return {x for x in ids if x >= 0}

@@ -26,16 +26,40 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from transformers import initialization as init
+from transformers import modeling_utils as init
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.generation import GenerationMixin
-from transformers.integrations import (
-    use_kernel_forward_from_hub,
-    use_kernel_func_from_hub,
-    use_kernelized_func,
-)
-from transformers.masking_utils import create_causal_mask
+try:
+    from transformers.integrations import (
+        use_kernel_forward_from_hub,
+        use_kernel_func_from_hub,
+        use_kernelized_func,
+    )
+except ImportError:
+    def use_kernel_forward_from_hub(_name):
+        def _decorator(fn):
+            return fn
+        return _decorator
+    def use_kernel_func_from_hub(_name):
+        def _decorator(fn):
+            return fn
+        return _decorator
+    def use_kernelized_func(_name):
+        def _decorator(fn):
+            return fn
+        return _decorator
+
+try:
+    from transformers.masking_utils import create_causal_mask
+except ImportError:
+    import torch
+    def create_causal_mask(query_dim, key_dim, device, dtype, **kwargs):
+        return torch.triu(
+            torch.full((query_dim, key_dim), torch.finfo(dtype).min, device=device, dtype=dtype),
+            diagonal=key_dim - query_dim + 1,
+        ).unsqueeze(0).unsqueeze(0)
+
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_layers import GradientCheckpointingLayer
 from transformers.modeling_outputs import (
@@ -741,7 +765,7 @@ class Qwen3VLPreTrainedModel(PreTrainedModel):
                 module.theta
                 ** (torch.arange(0, module.dim, 2, dtype=torch.float) / module.dim)
             )
-            init.copy_(module.inv_freq, inv_freq)
+            module.inv_freq.copy_(inv_freq)
 
 
 class Qwen3VLVisionModel(Qwen3VLPreTrainedModel):

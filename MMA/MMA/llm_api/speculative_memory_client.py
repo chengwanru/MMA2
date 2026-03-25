@@ -128,7 +128,7 @@ class SpeculativeMemoryClient(LLMClientBase):
 
         draft_path = os.environ.get("MMA_DRAFT_MODEL_PATH", "Qwen/Qwen3-VL-2B-Instruct")
         target_path = os.environ.get(
-            "MMA_TARGET_MODEL_PATH", "Qwen/Qwen2-VL-7B-Instruct"
+            "MMA_TARGET_MODEL_PATH", "Qwen/Qwen3-VL-8B-Instruct"
         )
         # Single-GPU 32GB: draft(2B)+target(8B) can OOM. Use 2B for both when MMA_SPECULATIVE_LOW_MEMORY=1.
         low_mem = os.environ.get("MMA_SPECULATIVE_LOW_MEMORY", "").strip().lower() in (
@@ -176,6 +176,7 @@ class SpeculativeMemoryClient(LLMClientBase):
             target_kw["device_map"] = device
         self._target_model = Qwen3VLForConditionalGeneration.from_pretrained(
             self._config.target_model_name_or_path,
+            ignore_mismatched_sizes=True,
             **target_kw,
         )
         self._target_model.eval()
@@ -265,8 +266,14 @@ class SpeculativeMemoryClient(LLMClientBase):
             if not text_parts:
                 return None, None, None
             text_parts.append("\nassistant:")
-            out = processor(text=text_parts, images=images_list, return_tensors="pt")
-            prompt_ids = out.get("input_ids") or getattr(out, "input_ids", None)
+            out = processor(text="".join(text_parts), images=images_list, return_tensors="pt")
+            def _field(name: str):
+                v = out.get(name) if hasattr(out, "get") else None
+                return v if v is not None else getattr(out, name, None)
+
+            prompt_ids = _field("input_ids")
+            pixel_values = _field("pixel_values")
+            image_grid_thw = _field("image_grid_thw")
             if hasattr(prompt_ids, "input_ids"):
                 prompt_ids = prompt_ids.input_ids
             pixel_values = out.get("pixel_values")

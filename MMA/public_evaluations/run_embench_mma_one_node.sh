@@ -17,7 +17,7 @@
 #
 # Overrides (examples):
 #   EXP_NAME=my_run DOWNSAMPLE=0.1 sbatch run_embench_mma_one_node.sh
-#   HF_HOME=\${SLURM_TMPDIR}/hf_cache   (default when SLURM_TMPDIR is set)
+#   HF_HOME=${SLURM_TMPDIR}/hf_cache   (default when SLURM_TMPDIR is set)
 # If your partition rejects GPU for this job, remove the #SBATCH --gres=gpu:1 line above.
 
 set -euo pipefail
