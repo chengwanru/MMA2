@@ -44,11 +44,7 @@ try:
 except Exception:
     pass
 
-from embodiedbench_utils import (
-    extract_json_from_response,
-    validate_executable_plan_json,
-    extract_allowed_action_ids_from_prompt,
-)
+from embodiedbench_utils import extract_json_from_response, validate_executable_plan_json
 
 # Lazy init of Flask and MMA agent (avoid loading heavy deps on import)
 _app = None
@@ -158,12 +154,7 @@ def create_app():
             if response_text in ("ERROR", ""):
                 return jsonify({"error": "MMA returned no valid response", "response": "{}"}), 500
             extracted = extract_json_from_response(response_text)
-            return jsonify({"response": extracted})
-            allowed_action_ids = extract_allowed_action_ids_from_prompt(sentence)
-            ok, reason = validate_executable_plan_json(
-                extracted,
-                allowed_action_ids=allowed_action_ids if allowed_action_ids else None,
-            )
+            ok, reason = validate_executable_plan_json(extracted)
             if not ok:
                 retry_sentence = _repair_prompt(sentence, response_text, reason)
                 retry_text = agent.send_message(
@@ -173,10 +164,7 @@ def create_app():
                 )
                 if isinstance(retry_text, str) and retry_text.strip():
                     extracted_retry = extract_json_from_response(retry_text)
-                    ok_retry, reason_retry = validate_executable_plan_json(
-                        extracted_retry,
-                        allowed_action_ids=allowed_action_ids if allowed_action_ids else None,
-                    )
+                    ok_retry, reason_retry = validate_executable_plan_json(extracted_retry)
                     if ok_retry:
                         return jsonify({"response": extracted_retry})
                     return jsonify({

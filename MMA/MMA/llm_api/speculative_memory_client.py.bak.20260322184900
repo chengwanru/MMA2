@@ -128,7 +128,7 @@ class SpeculativeMemoryClient(LLMClientBase):
 
         draft_path = os.environ.get("MMA_DRAFT_MODEL_PATH", "Qwen/Qwen3-VL-2B-Instruct")
         target_path = os.environ.get(
-            "MMA_TARGET_MODEL_PATH", "Qwen/Qwen3-VL-8B-Instruct"
+            "MMA_TARGET_MODEL_PATH", "Qwen/Qwen2-VL-7B-Instruct"
         )
         # Single-GPU 32GB: draft(2B)+target(8B) can OOM. Use 2B for both when MMA_SPECULATIVE_LOW_MEMORY=1.
         low_mem = os.environ.get("MMA_SPECULATIVE_LOW_MEMORY", "").strip().lower() in (

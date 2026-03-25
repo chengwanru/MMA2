@@ -16,7 +16,7 @@ class SpeculativeMemoryConfig:
 
     # Model IDs (HuggingFace or local path)
     draft_model_name_or_path: str = "Qwen/Qwen3-VL-2B-Instruct"
-    target_model_name_or_path: str = "Qwen/Qwen3-VL-8B-Instruct"
+    target_model_name_or_path: str = "Qwen/Qwen3-VL-7B-Instruct"
 
     # Draft
     max_draft_steps: int = 3  # max candidate tokens per draft phase

@@ -1,0 +1,169 @@
+"""
+Utilities for using MMA as EmbodiedBench's model backend.
+"""
+
+from __future__ import annotations
+
+import ast
+import json
+import re
+
+
+def extract_json_from_response(text: str) -> str:
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        raise TypeError(
+            f"extract_json_from_response expected str, got {type(text).__name__}"
+        )
+    if not text.strip():
+        return text
+
+    s = text.strip()
+
+    # 1) fenced code block
+    code_block = re.search(r"```(?:json)?\s*([\s\S]*?)```", s)
+    if code_block:
+        candidate = code_block.group(1).strip()
+        normalized = _normalize_json_candidate(candidate)
+        if normalized is not None:
+            return normalized
+
+    # 2) first balanced {...}
+    start = s.find("{")
+    if start != -1:
+        depth = 0
+        for i in range(start, len(s)):
+            if s[i] == "{":
+                depth += 1
+            elif s[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = s[start : i + 1]
+                    normalized = _normalize_json_candidate(candidate)
+                    if normalized is not None:
+                        return normalized
+                    break
+
+    # 3) whole text fallback
+    normalized = _normalize_json_candidate(s)
+    if normalized is not None:
+        return normalized
+
+    # Final fallback: always return valid JSON so EmbodiedBench parser won't crash.
+    return json.dumps(
+        {
+            "reasoning_and_reflection": "",
+            "language_plan": "",
+            "executable_plan": [],
+        },
+        ensure_ascii=True,
+    )
+
+
+def _normalize_json_candidate(candidate: str) -> str | None:
+    obj = _parse_loose_json(candidate)
+    if obj is None:
+        return None
+
+    normalized = _normalize_payload(obj)
+    if normalized is None:
+        return None
+
+    return json.dumps(normalized, ensure_ascii=True)
+
+
+def _parse_loose_json(s: str):
+    s = s.strip()
+
+    # strict JSON first
+    try:
+        return json.loads(s)
+    except Exception:
+        pass
+
+    # remove trailing commas before ] or }
+    s2 = re.sub(r",\s*([}\]])", r"\1", s)
+
+    # try strict JSON again
+    try:
+        return json.loads(s2)
+    except Exception:
+        pass
+
+    # python-literal style {'a':1} / [{'x':...}]
+    try:
+        return ast.literal_eval(s2)
+    except Exception:
+        return None
+
+
+def _normalize_payload(obj):
+    # bare plan list -> wrap
+    if isinstance(obj, list):
+        data = {"executable_plan": obj}
+    elif isinstance(obj, dict):
+        data = dict(obj)
+    else:
+        return None
+
+    # aliases for plan
+    plan = data.get("executable_plan")
+    if plan is None:
+        for alias in (
+            "plan", "action_plan", "actions", "steps", "next_actions", "executable_actions"
+        ):
+            if alias in data:
+                plan = data[alias]
+                break
+
+    # single-action object
+    if plan is None and ("action" in data or "act" in data):
+        step = {"action_name": str(data.get("action", data.get("act")))}
+        if "action_id" in data:
+            step["action_id"] = data["action_id"]
+        else:
+            step["action_id"] = -1
+        if "object" in data:
+            step["object"] = data["object"]
+        if "target" in data:
+            step["target"] = data["target"]
+        if "arguments" in data:
+            step["arguments"] = data["arguments"]
+        plan = [step]
+
+    # normalize plan container type
+    if plan is None:
+        plan = []
+    elif isinstance(plan, dict):
+        plan = [plan]
+    elif not isinstance(plan, list):
+        plan = [{"action_id": -1, "action_name": str(plan)}]
+
+    # normalize each action entry
+    norm_plan = []
+    for x in plan:
+        if isinstance(x, dict):
+            step = dict(x)
+            if "action_name" not in step:
+                if "action" in step:
+                    step["action_name"] = str(step["action"])
+                elif "name" in step:
+                    step["action_name"] = str(step["name"])
+                else:
+                    step["action_name"] = "noop"
+            if "action_id" not in step:
+                step["action_id"] = -1
+            norm_plan.append(step)
+        else:
+            norm_plan.append({"action_id": -1, "action_name": str(x)})
+
+    data["executable_plan"] = norm_plan
+
+    # ensure optional text fields exist (helps downstream robustness)
+    if "reasoning_and_reflection" not in data:
+        data["reasoning_and_reflection"] = ""
+    if "language_plan" not in data:
+        data["language_plan"] = ""
+
+    return data

@@ -1,0 +1,141 @@
+"""
+Utilities for using MMA as EmbodiedBench's model backend.
+
+- extract_json_from_response: extract the JSON string from MMA's free-form reply
+  so EmbodiedBench's json_to_action() can parse it.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+
+
+def extract_json_from_response(text: str) -> str:
+    """
+    Extract a JSON string from model output that may contain markdown or extra text.
+
+    EmbodiedBench expects the model to return JSON with key "executable_plan"
+    (and optionally "reasoning_and_reflection", "language_plan", etc.).
+    MMA may return that JSON wrapped in ```json ... ``` or with text before/after.
+
+    Returns:
+        Extracted JSON string (no outer whitespace). If no valid JSON is found,
+        returns the original text so callers can try fix_json / json_to_action anyway.
+    """
+    # Never use `if not text` on arbitrary objects: torch/numpy arrays raise
+    # "Boolean value of Tensor with more than one value is ambiguous".
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        raise TypeError(
+            f"extract_json_from_response expected str, got {type(text).__name__}"
+        )
+    if not text.strip():
+        return text
+
+    s = text.strip()
+
+    # 1. Try ```json ... ``` or ``` ... ```
+    code_block = re.search(r"```(?:json)?\s*([\s\S]*?)```", s)
+    if code_block:
+        candidate = code_block.group(1).strip()
+        normalized = _normalize_json_candidate(candidate)
+        if normalized is not None:
+            return normalized
+        if "executable_plan" in candidate:
+            return candidate
+
+    # 2. Find the outermost {...}
+    start = s.find("{")
+    if start == -1:
+        return s
+    depth = 0
+    for i in range(start, len(s)):
+        if s[i] == "{":
+            depth += 1
+        elif s[i] == "}":
+            depth -= 1
+            if depth == 0:
+                candidate = s[start : i + 1]
+                normalized = _normalize_json_candidate(candidate)
+                if normalized is not None:
+                    return normalized
+                break
+
+    # 3. Fallback: return original (EmbodiedBench may fix_json and retry)
+    return s
+
+
+def _is_valid_json(s: str) -> bool:
+    try:
+        json.loads(s)
+        return True
+    except json.JSONDecodeError:
+        return False
+
+
+def _normalize_json_candidate(candidate: str) -> str | None:
+    """
+    Normalize common planner JSON variants to a stable EmbodiedBench form.
+
+    Expected downstream key: executable_plan
+    """
+    try:
+        obj = json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
+
+    normalized = _normalize_payload(obj)
+    if normalized is None:
+        return None
+    return json.dumps(normalized, ensure_ascii=True)
+
+
+def _normalize_payload(obj):
+    # If model outputs a bare list of actions, wrap it.
+    if isinstance(obj, list):
+        return {"executable_plan": obj}
+
+    if not isinstance(obj, dict):
+        return None
+
+    data = dict(obj)
+
+    # Common alias keys observed in VLM outputs.
+    plan = data.get("executable_plan")
+    if plan is None:
+        for alias in (
+            "plan",
+            "action_plan",
+            "actions",
+            "steps",
+            "next_actions",
+            "executable_actions",
+        ):
+            if alias in data:
+                plan = data[alias]
+                break
+
+    # Single action dict -> one-step plan.
+    if plan is None and ("action" in data or "act" in data):
+        action = data.get("action", data.get("act"))
+        step = {"action": action}
+        if "object" in data:
+            step["object"] = data["object"]
+        if "target" in data:
+            step["target"] = data["target"]
+        if "arguments" in data:
+            step["arguments"] = data["arguments"]
+        plan = [step]
+
+    # Keep shape stable for downstream parser.
+    if plan is None:
+        plan = []
+    elif isinstance(plan, dict):
+        plan = [plan]
+    elif not isinstance(plan, list):
+        plan = [{"action": str(plan)}]
+
+    data["executable_plan"] = plan
+    return data
