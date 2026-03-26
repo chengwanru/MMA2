@@ -201,12 +201,12 @@ def create_app():
                 memorizing=False,
             )
             if not isinstance(retry_text, str) or not retry_text.strip():
-                return jsonify(
-                    {
-                        "error": f"Invalid planner JSON and empty retry response: {reason}",
-                        "response": "{}",
-                    }
-                ), 500
+                _trace_planner(
+                    f"=== retry_empty fallback_to_pass1 reason={reason}\n{extracted[:2000]}"
+                )
+                # Fallback to first-pass extracted instead of "{}" so EmbodiedBench
+                # can still attempt json_to_action and not hard-fail on missing key.
+                return jsonify({"response": extracted})
 
             extracted_retry = extract_json_from_response(retry_text)
             extracted_retry = remap_executable_plan_ids_from_prompt(extracted_retry, sentence)
@@ -217,12 +217,9 @@ def create_app():
             if ok_retry:
                 return jsonify({"response": extracted_retry})
             _trace_planner(f"=== validate_fail retry reason={reason_retry}\n{extracted_retry[:2000]}")
-            return jsonify(
-                {
-                    "error": f"Invalid planner JSON after retry: {reason_retry}",
-                    "response": "{}",
-                }
-            ), 500
+            # Last fallback: return best-effort JSON instead of "{}" to avoid
+            # planner_output_error spikes caused by missing executable_plan key.
+            return jsonify({"response": extracted_retry})
         except Exception as e:
             traceback.print_exc()
             return jsonify({"error": str(e), "response": "{}"}), 500
