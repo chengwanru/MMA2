@@ -325,6 +325,80 @@ def _to_int(value):
     return None
 
 
+def _collapse_alnum(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
+
+
+def remap_executable_plan_ids_from_prompt(json_text: str, prompt_text: str) -> str:
+    """
+    If the model picks a wrong action_id but the action_name matches a line in the
+    EmbodiedBench prompt (e.g. \"12: PickupObject\" or \"12: pick up ...\"), rewrite
+    action_id to the id from that line. Reduces planner_output_error when regex-based
+    allowlists would otherwise reject valid-looking plans.
+    """
+    if not prompt_text or not json_text or not json_text.strip():
+        return json_text
+    try:
+        obj = json.loads(json_text)
+    except json.JSONDecodeError:
+        return json_text
+    if not isinstance(obj, dict):
+        return json_text
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        return json_text
+
+    catalog: list[tuple[int, str]] = []
+    for m in re.finditer(r"(?m)^\s*(\d{1,4})\s*:\s*(.+?)\s*$", prompt_text):
+        catalog.append((int(m.group(1)), m.group(2).strip()))
+    if not catalog:
+        return json_text
+
+    valid_ids = {a for a, _ in catalog}
+
+    def pick_id(aname: str, current_id: int) -> int | None:
+        if current_id in valid_ids:
+            return None
+        na = _collapse_alnum(aname)
+        if not na:
+            return None
+        for aid, desc in catalog:
+            if na == _collapse_alnum(desc):
+                return aid
+        best: int | None = None
+        best_score = 0
+        for aid, desc in catalog:
+            nd = _collapse_alnum(desc)
+            if not nd:
+                continue
+            if na in nd or nd in na:
+                score = min(len(na), len(nd))
+                if score > best_score:
+                    best_score = score
+                    best = aid
+        return best
+
+    changed = False
+    for step in plan:
+        if not isinstance(step, dict):
+            continue
+        aname = step.get("action_name")
+        if not isinstance(aname, str):
+            continue
+        raw_aid = step.get("action_id")
+        cur = _to_int(raw_aid)
+        if cur is None:
+            cur = -1
+        new_id = pick_id(aname, cur)
+        if new_id is not None:
+            step["action_id"] = new_id
+            changed = True
+
+    if not changed:
+        return json_text
+    return json.dumps(obj, ensure_ascii=True)
+
+
 def validate_executable_plan_json(
     json_text: str,
     allowed_action_ids: set[int] | None = None,
@@ -332,6 +406,8 @@ def validate_executable_plan_json(
     """
     Strict structural validation for EmbodiedBench planner output.
     Returns (ok, reason).
+
+    Note: bool is a subclass of int in Python; reject bool action_id explicitly.
     """
     try:
         obj = json.loads(json_text)
@@ -355,10 +431,18 @@ def validate_executable_plan_json(
         if "action_id" not in step or "action_name" not in step:
             return False, f"step_{i}_missing_action_id_or_name"
 
-        aid = step.get("action_id")
+        raw_aid = step.get("action_id")
         aname = step.get("action_name")
 
-        if not isinstance(aid, int):
+        if isinstance(raw_aid, bool):
+            return False, f"step_{i}_action_id_bool"
+        if isinstance(raw_aid, float):
+            if raw_aid != int(raw_aid):
+                return False, f"step_{i}_action_id_not_int"
+            aid = int(raw_aid)
+        elif isinstance(raw_aid, int):
+            aid = raw_aid
+        else:
             return False, f"step_{i}_action_id_not_int"
         if aid < 0:
             return False, f"step_{i}_action_id_negative"

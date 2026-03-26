@@ -48,8 +48,28 @@ except Exception:
 from embodiedbench_utils import (
     extract_allowed_action_ids_from_prompt,
     extract_json_from_response,
+    remap_executable_plan_ids_from_prompt,
     validate_executable_plan_json,
 )
+
+
+def _trace_planner(msg: str) -> None:
+    path = os.environ.get("EMBODIEDBENCH_TRACE_LOG", "").strip()
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(msg.rstrip() + "\n")
+    except OSError:
+        pass
+
+
+def _enforce_action_allowlist() -> bool:
+    return os.environ.get("EMBODIEDBENCH_ENFORCE_ACTION_ALLOWLIST", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
 # Lazy init of Flask and MMA agent (avoid loading heavy deps on import)
 _app = None
@@ -161,14 +181,19 @@ def create_app():
             if response_text in ("ERROR", ""):
                 return jsonify({"error": "MMA returned no valid response", "response": "{}"}), 500
             extracted = extract_json_from_response(response_text)
-            allowed_action_ids = extract_allowed_action_ids_from_prompt(sentence)
-            ok, reason = validate_executable_plan_json(
-                extracted,
-                allowed_action_ids=allowed_action_ids if allowed_action_ids else None,
-            )
+            extracted = remap_executable_plan_ids_from_prompt(extracted, sentence)
+            # Regex-based allowlists often miss ids or over-restrict; EB still validates actions.
+            # Default: no id whitelist (set EMBODIEDBENCH_ENFORCE_ACTION_ALLOWLIST=1 to enable).
+            aids = None
+            if _enforce_action_allowlist():
+                got = extract_allowed_action_ids_from_prompt(sentence)
+                if got:
+                    aids = got
+            ok, reason = validate_executable_plan_json(extracted, allowed_action_ids=aids)
             if ok:
                 return jsonify({"response": extracted})
 
+            _trace_planner(f"=== validate_fail pass1 reason={reason}\n{extracted[:2000]}")
             retry_sentence = _repair_prompt(sentence, response_text, reason)
             retry_text = agent.send_message(
                 message=retry_sentence,
@@ -184,12 +209,14 @@ def create_app():
                 ), 500
 
             extracted_retry = extract_json_from_response(retry_text)
+            extracted_retry = remap_executable_plan_ids_from_prompt(extracted_retry, sentence)
             ok_retry, reason_retry = validate_executable_plan_json(
                 extracted_retry,
-                allowed_action_ids=allowed_action_ids if allowed_action_ids else None,
+                allowed_action_ids=aids,
             )
             if ok_retry:
                 return jsonify({"response": extracted_retry})
+            _trace_planner(f"=== validate_fail retry reason={reason_retry}\n{extracted_retry[:2000]}")
             return jsonify(
                 {
                     "error": f"Invalid planner JSON after retry: {reason_retry}",

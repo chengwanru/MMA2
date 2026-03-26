@@ -90,3 +90,25 @@ pip install -r requirements.txt
 ```
 
 然后再启动 server。
+
+---
+
+## 6. `summary.json` 里 `planner_output_error` 很高、`num_steps` 为 0
+
+**现象**：EmbodiedBench 能跑完 episode，但 `planner_output_error` 接近 planner 调用次数，且 `num_steps` 为 0。
+
+**常见原因**：自定义 MMA 服务端对 planner JSON 做了**过严校验**（例如用正则从 prompt 里抽 `allowed_action_ids`，抽得不全或与模型输出的 id 不一致），校验失败就返回 **HTTP 500 + `response: "{}"`**，客户端统计为 planner 错误且没有可执行步。
+
+**仓库内默认行为（推荐）**：
+
+- **默认关闭** action_id 白名单校验；EmbodiedBench 仍会在执行阶段校验动作是否合法。
+- 在返回前会根据 prompt 里形如 **`数字: 描述`** 的动作表，对 **`action_name` 与某一行描述能对上的步** 自动**纠正 `action_id`**（减少模型胡填 id 的情况）。
+
+**可选环境变量**：
+
+| 变量 | 作用 |
+|------|------|
+| `EMBODIEDBENCH_ENFORCE_ACTION_ALLOWLIST=1` | 重新开启「action_id 必须在正则抽到的集合里」的严格校验（一般仅在调试对比时用）。 |
+| `EMBODIEDBENCH_TRACE_LOG=/path/to/planner_trace.log` | 校验失败时把原因和截取后的 JSON 追加写入该文件，便于对照修复。 |
+
+修改后需**重启** `embodiedbench_server.py`（或重提 Slurm 作业）。
