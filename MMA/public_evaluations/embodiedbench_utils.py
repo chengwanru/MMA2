@@ -454,8 +454,11 @@ def validate_executable_plan_json(
 
         if not isinstance(aname, str):
             return False, f"step_{i}_action_name_not_str"
+        # When we are not enforcing a whitelist, we only require action_id
+        # to be structurally valid; some models may omit action_name.
         if not aname.strip():
-            return False, f"step_{i}_action_name_empty"
+            if allowed_action_ids is not None:
+                return False, f"step_{i}_action_name_empty"
 
     return True, "ok"
 
