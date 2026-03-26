@@ -71,6 +71,31 @@ def _enforce_action_allowlist() -> bool:
         "yes",
     )
 
+
+# Prepended to EmbodiedBench's planner prompt to reduce wrong-object picks and
+# "repeat find forever" loops. No lines like "12: foo" here (would confuse remap regex).
+_DEFAULT_PLANNER_HINT = """[EmbodiedBench / ALFRED planner — follow strictly]
+1) Return ONLY one JSON object with keys: reasoning_and_reflection (string), language_plan (array of strings), executable_plan (non-empty array of objects).
+2) Each executable_plan step MUST be exactly: {"action_id": <int>, "action_name": "<string>"} using pairs from the ACTION LIST in the user message below. Never invent action_id values that are not in that list.
+3) Use the RGB image: choose objects that are visible or realistically reachable. Do NOT target unrelated furniture or appliances unless the TASK explicitly names them or navigation truly requires them.
+4) Align with the TASK sentence: if it names an object class (e.g. ladle, mug, tomato), your early steps must pursue THAT class — not a random receptacle like Safe or an unrelated container.
+5) If a navigation or find-style step would likely fail, prefer a different legal action from the list (e.g. move / look / turn) instead of repeating the same failing step many times.
+6) Keep executable_plan reasonably short (about 3–12 steps). Do not output dozens of identical steps.
+7) No markdown code fences; JSON only."""
+
+
+def _augment_planner_sentence(sentence: str) -> str:
+    if os.environ.get("EMBODIEDBENCH_DISABLE_PLANNER_HINTS", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return sentence
+    extra = os.environ.get("EMBODIEDBENCH_PLANNER_HINT_TEXT", "").strip()
+    hint = extra if extra else _DEFAULT_PLANNER_HINT
+    return f"{hint}\n\n---\n\n{sentence}"
+
+
 # Lazy init of Flask and MMA agent (avoid loading heavy deps on import)
 _app = None
 _agent = None
@@ -135,6 +160,8 @@ def _repair_prompt(sentence: str, bad_response: str, reason: str) -> str:
         "executable_plan (non-empty list of objects).\n"
         "Each executable_plan step MUST be: "
         '{"action_id": <non-negative int>, "action_name": "<non-empty string>"}\n'
+        "Use action_id/action_name pairs ONLY from the ACTION LIST in the original prompt. "
+        "Match the TASK-named objects and the image; do not repeat a long chain of identical failing steps.\n"
         "No markdown, no explanation outside JSON.\n\n"
         f"Original user instruction:\n{sentence}\n\n"
         f"Your previous invalid output:\n{bad_response}"
@@ -166,7 +193,10 @@ def create_app():
         try:
             image.save(image_path)
             agent = get_agent()
-            response_text = agent.send_message(message=sentence, image_uris=[image_path], memorizing=False)
+            planner_message = _augment_planner_sentence(sentence)
+            response_text = agent.send_message(
+                message=planner_message, image_uris=[image_path], memorizing=False
+            )
             # Avoid `response_text in (...)` if response is a tensor/array: rich compare / containment can
             # trigger "Boolean value of Tensor with more than one value is ambiguous".
             if response_text is None:
