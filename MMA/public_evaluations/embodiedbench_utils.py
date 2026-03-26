@@ -444,9 +444,12 @@ def validate_executable_plan_json(
             aid = raw_aid
         else:
             return False, f"step_{i}_action_id_not_int"
+        # If we are not enforcing a whitelist, allow missing/unknown action_id (-1).
+        # EmbodiedBench downstream may still map by action_name.
         if aid < 0:
-            return False, f"step_{i}_action_id_negative"
-        if allowed_action_ids is not None and aid not in allowed_action_ids:
+            if allowed_action_ids is not None:
+                return False, f"step_{i}_action_id_negative"
+        elif allowed_action_ids is not None and aid not in allowed_action_ids:
             return False, f"step_{i}_action_id_not_in_allowed_set:{aid}"
 
         if not isinstance(aname, str):
