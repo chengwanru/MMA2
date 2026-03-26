@@ -15,8 +15,9 @@
 # Submit:   sbatch run_embench_mma_one_node.sh
 # Interactive allocation:  bash run_embench_mma_one_node.sh
 #
+# Default DOWNSAMPLE=0.01 (1% data, quick smoke). Full eval: DOWNSAMPLE=1 sbatch ...
 # Overrides (examples):
-#   EXP_NAME=my_run DOWNSAMPLE=0.1 sbatch run_embench_mma_one_node.sh
+#   EXP_NAME=my_run DOWNSAMPLE=0.05 sbatch run_embench_mma_one_node.sh
 #   HF_HOME=${SLURM_TMPDIR}/hf_cache   (default when SLURM_TMPDIR is set)
 # If your partition rejects GPU for this job, remove the #SBATCH --gres=gpu:1 line above.
 
@@ -28,7 +29,7 @@ EB_ROOT="${ROOT}/EmbodiedBench"
 PEV_DIR="${MMA_ROOT}/MMA/public_evaluations"
 PORT="${EMBODIEDBENCH_SERVER_PORT:-23333}"
 EXP_NAME="${EXP_NAME:-mma_adapter_v1_$(date +%m%d_%H%M%S)}"
-DOWNSAMPLE="${DOWNSAMPLE:-1}"
+DOWNSAMPLE="${DOWNSAMPLE:-0.01}"
 
 # Qwen3-VL paths (override in environment if needed)
 export MMA_DRAFT_MODEL_PATH="${MMA_DRAFT_MODEL_PATH:-Qwen/Qwen3-VL-2B-Instruct}"
