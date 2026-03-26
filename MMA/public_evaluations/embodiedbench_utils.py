@@ -399,6 +399,110 @@ def remap_executable_plan_ids_from_prompt(json_text: str, prompt_text: str) -> s
     return json.dumps(obj, ensure_ascii=True)
 
 
+def _extract_instruction(prompt_text: str) -> str:
+    if not isinstance(prompt_text, str):
+        return ""
+    m = re.search(r"(?mi)^\s*instruction\s*:\s*(.+?)\s*$", prompt_text)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"(?mi)^\s*task\s*:\s*(.+?)\s*$", prompt_text)
+    if m:
+        return m.group(1).strip()
+    return ""
+
+
+def _extract_action_catalog(prompt_text: str) -> dict[int, str]:
+    """
+    Parse EmbodiedBench prompt action table lines like:
+      64: find a Ladle
+    Returns {64: "find a Ladle", ...}
+    """
+    catalog: dict[int, str] = {}
+    if not isinstance(prompt_text, str) or not prompt_text.strip():
+        return catalog
+    for m in re.finditer(r"(?m)^\s*(\d{1,4})\s*:\s*(.+?)\s*$", prompt_text):
+        try:
+            aid = int(m.group(1))
+        except ValueError:
+            continue
+        catalog[aid] = m.group(2).strip()
+    return catalog
+
+
+def postprocess_executable_plan(json_text: str, prompt_text: str) -> str:
+    """
+    Best-effort cleanup to reduce invalid-action loops:
+    - Drop clearly unrelated early steps (e.g. \"Safe\") if not mentioned in instruction.
+    - Remove long runs of repeated action_id (keep at most 2 occurrences overall).
+    - Truncate plan to a small horizon (default 8).
+    """
+    if not isinstance(json_text, str) or not json_text.strip():
+        return json_text
+    try:
+        obj = json.loads(json_text)
+    except json.JSONDecodeError:
+        return json_text
+    if not isinstance(obj, dict):
+        return json_text
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        return json_text
+
+    instruction = _extract_instruction(prompt_text).lower()
+    catalog = _extract_action_catalog(prompt_text)
+
+    def desc_for(step: dict) -> str:
+        aid = step.get("action_id")
+        if isinstance(aid, int) and aid in catalog:
+            return catalog[aid].lower()
+        an = step.get("action_name")
+        if isinstance(an, str) and an.strip():
+            return an.strip().lower()
+        return ""
+
+    # 1) Drop obviously irrelevant early "safe" steps when task doesn't mention it.
+    if instruction and "safe" not in instruction:
+        new_plan: list = []
+        for idx, step in enumerate(plan):
+            if not isinstance(step, dict):
+                continue
+            d = desc_for(step)
+            if idx < 2 and "safe" in d:
+                continue
+            new_plan.append(step)
+        if new_plan:
+            plan = new_plan
+
+    # 2) Remove consecutive duplicates and cap per-id repeats.
+    cleaned: list[dict] = []
+    last_id: int | None = None
+    counts: dict[int, int] = {}
+    for step in plan:
+        if not isinstance(step, dict):
+            continue
+        aid_raw = step.get("action_id")
+        aid = aid_raw if isinstance(aid_raw, int) else None
+        if aid is not None:
+            if aid == last_id:
+                continue
+            counts[aid] = counts.get(aid, 0) + 1
+            if counts[aid] > 2:
+                continue
+            last_id = aid
+        cleaned.append(step)
+
+    if cleaned:
+        plan = cleaned
+
+    # 3) Truncate horizon.
+    max_len = 8
+    if len(plan) > max_len:
+        plan = plan[:max_len]
+
+    obj["executable_plan"] = plan
+    return json.dumps(obj, ensure_ascii=True)
+
+
 def validate_executable_plan_json(
     json_text: str,
     allowed_action_ids: set[int] | None = None,

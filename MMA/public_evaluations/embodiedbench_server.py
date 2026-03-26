@@ -48,6 +48,7 @@ except Exception:
 from embodiedbench_utils import (
     extract_allowed_action_ids_from_prompt,
     extract_json_from_response,
+    postprocess_executable_plan,
     remap_executable_plan_ids_from_prompt,
     validate_executable_plan_json,
 )
@@ -214,6 +215,7 @@ def create_app():
                 return jsonify({"error": "MMA returned no valid response", "response": "{}"}), 500
             extracted = extract_json_from_response(response_text)
             extracted = remap_executable_plan_ids_from_prompt(extracted, sentence)
+            extracted = postprocess_executable_plan(extracted, sentence)
             # Regex-based allowlists often miss ids or over-restrict; EB still validates actions.
             # Default: no id whitelist (set EMBODIEDBENCH_ENFORCE_ACTION_ALLOWLIST=1 to enable).
             aids = None
@@ -242,6 +244,7 @@ def create_app():
 
             extracted_retry = extract_json_from_response(retry_text)
             extracted_retry = remap_executable_plan_ids_from_prompt(extracted_retry, sentence)
+            extracted_retry = postprocess_executable_plan(extracted_retry, sentence)
             ok_retry, reason_retry = validate_executable_plan_json(
                 extracted_retry,
                 allowed_action_ids=aids,
