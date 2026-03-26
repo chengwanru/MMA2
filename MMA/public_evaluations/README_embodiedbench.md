@@ -117,11 +117,13 @@ pip install -r requirements.txt
 
 ## 7. 减少「选错物体 / 重复 find」类 invalid action（服务端规划提示）
 
-`embodiedbench_server.py` 会在转发给模型前**默认前置**一段英文规划规则（对齐 TASK、只用动作表里的 id、避免无关家具、少重复同一步）。
+`embodiedbench_server.py` 支持在转发给模型前前置英文规划规则（对齐 TASK、只用动作表里的 id、避免无关家具、少重复同一步）。
+
+> 注意：该提示默认**关闭**（某些任务会回归）。仅建议做 A/B 对照时显式开启。
 
 | 变量 | 作用 |
 |------|------|
-| `EMBODIEDBENCH_DISABLE_PLANNER_HINTS=1` | 关闭默认提示（对照实验用）。 |
+| `EMBODIEDBENCH_ENABLE_PLANNER_HINTS=1` | 显式开启规划提示（默认关闭）。 |
 | `EMBODIEDBENCH_PLANNER_HINT_TEXT='...'` | 自定义整段提示（覆盖默认；勿写 `数字: 描述` 行，以免干扰动作表解析）。 |
 
 改完后需**重启** server 或重提 Slurm。

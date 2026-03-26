@@ -85,7 +85,9 @@ _DEFAULT_PLANNER_HINT = """[EmbodiedBench / ALFRED planner — follow strictly]
 
 
 def _augment_planner_sentence(sentence: str) -> str:
-    if os.environ.get("EMBODIEDBENCH_DISABLE_PLANNER_HINTS", "").strip().lower() in (
+    # Default OFF: this hint improved some runs but regressed others.
+    # Enable explicitly for controlled A/B tests.
+    if os.environ.get("EMBODIEDBENCH_ENABLE_PLANNER_HINTS", "").strip().lower() not in (
         "1",
         "true",
         "yes",
