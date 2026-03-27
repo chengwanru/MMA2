@@ -197,6 +197,14 @@ def _remember_first_action(json_text: str, sentence: str) -> None:
     _last_first_action_by_instruction[key] = aid
 
 
+def _disable_loop_breaker() -> bool:
+    return os.environ.get("EMBODIEDBENCH_DISABLE_LOOP_BREAKER", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
 def get_agent():
     global _agent
     if _agent is None:
@@ -297,7 +305,8 @@ def create_app():
             extracted = extract_json_from_response(response_text)
             extracted = remap_executable_plan_ids_from_prompt(extracted, sentence)
             extracted = postprocess_executable_plan(extracted, sentence)
-            extracted = _avoid_previous_first_action(extracted, sentence)
+            if not _disable_loop_breaker():
+                extracted = _avoid_previous_first_action(extracted, sentence)
             # Regex-based allowlists often miss ids or over-restrict; EB still validates actions.
             # Default: no id whitelist (set EMBODIEDBENCH_ENFORCE_ACTION_ALLOWLIST=1 to enable).
             aids = None
@@ -307,7 +316,8 @@ def create_app():
                     aids = got
             ok, reason = validate_executable_plan_json(extracted, allowed_action_ids=aids)
             if ok:
-                _remember_first_action(extracted, sentence)
+                if not _disable_loop_breaker():
+                    _remember_first_action(extracted, sentence)
                 return jsonify({"response": extracted})
 
             _trace_planner(f"=== validate_fail pass1 reason={reason}\n{extracted[:2000]}")
@@ -328,13 +338,15 @@ def create_app():
             extracted_retry = extract_json_from_response(retry_text)
             extracted_retry = remap_executable_plan_ids_from_prompt(extracted_retry, sentence)
             extracted_retry = postprocess_executable_plan(extracted_retry, sentence)
-            extracted_retry = _avoid_previous_first_action(extracted_retry, sentence)
+            if not _disable_loop_breaker():
+                extracted_retry = _avoid_previous_first_action(extracted_retry, sentence)
             ok_retry, reason_retry = validate_executable_plan_json(
                 extracted_retry,
                 allowed_action_ids=aids,
             )
             if ok_retry:
-                _remember_first_action(extracted_retry, sentence)
+                if not _disable_loop_breaker():
+                    _remember_first_action(extracted_retry, sentence)
                 return jsonify({"response": extracted_retry})
             _trace_planner(f"=== validate_fail retry reason={reason_retry}\n{extracted_retry[:2000]}")
             # Last fallback: return best-effort JSON instead of "{}" to avoid
