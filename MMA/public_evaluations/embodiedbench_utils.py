@@ -408,6 +408,12 @@ def _extract_instruction(prompt_text: str) -> str:
     m = re.search(r"(?mi)^\s*task\s*:\s*(.+?)\s*$", prompt_text)
     if m:
         return m.group(1).strip()
+    m = re.search(r"(?mi)^\s*goal\s*:\s*(.+?)\s*$", prompt_text)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"(?is)\byour task is to\s+(.+?)(?:[\n\r]|$)", prompt_text)
+    if m:
+        return m.group(1).strip()
     return ""
 
 
@@ -460,15 +466,35 @@ def postprocess_executable_plan(json_text: str, prompt_text: str) -> str:
             return an.strip().lower()
         return ""
 
-    # 1) Drop obviously irrelevant early "safe" steps when task doesn't mention it.
-    if instruction and "safe" not in instruction:
+    # Infer likely task object from action catalog if possible.
+    primary_obj = ""
+    if instruction and catalog:
+        candidates: list[str] = []
+        for desc in catalog.values():
+            m = re.search(r"(?i)\bfind\s+a[n]?\s+([a-z][a-z0-9_-]*)\b", desc)
+            if m:
+                candidates.append(m.group(1).lower())
+        for c in sorted(set(candidates), key=len, reverse=True):
+            if re.search(rf"(?i)\b{re.escape(c)}\b", instruction):
+                primary_obj = c
+                break
+
+    # 1) Drop obviously irrelevant early "find a X" steps.
+    # If task says ladle, early "find a safe" will be removed.
+    if instruction:
         new_plan: list = []
         for idx, step in enumerate(plan):
             if not isinstance(step, dict):
                 continue
             d = desc_for(step)
-            if idx < 2 and "safe" in d:
-                continue
+            if idx < 2:
+                m = re.search(r"(?i)\bfind\s+a[n]?\s+([a-z][a-z0-9_-]*)\b", d)
+                if m:
+                    found_obj = m.group(1).lower()
+                    if primary_obj and found_obj and found_obj != primary_obj:
+                        continue
+                    if not primary_obj and "safe" in found_obj and "safe" not in instruction:
+                        continue
             new_plan.append(step)
         if new_plan:
             plan = new_plan
@@ -493,6 +519,25 @@ def postprocess_executable_plan(json_text: str, prompt_text: str) -> str:
 
     if cleaned:
         plan = cleaned
+
+    # 2.5) If plan keeps starting with "find target" loops, prepend one exploration action.
+    # Exploration actions are generally safer than repeatedly issuing the same find.
+    if plan and catalog:
+        first = plan[0] if isinstance(plan[0], dict) else None
+        first_desc = desc_for(first) if first else ""
+        looks_like_find = bool(re.search(r"(?i)\bfind\b", first_desc))
+        if looks_like_find:
+            explore_id = None
+            for aid, desc in catalog.items():
+                d = desc.lower()
+                if any(k in d for k in ("turn", "rotate", "look", "move ahead", "move forward")):
+                    explore_id = aid
+                    break
+            if explore_id is not None:
+                explore_name = catalog.get(explore_id, "")
+                explore_step = {"action_id": explore_id, "action_name": explore_name}
+                if not (isinstance(first, dict) and first.get("action_id") == explore_id):
+                    plan = [explore_step] + plan
 
     # 3) Truncate horizon.
     max_len = 8
