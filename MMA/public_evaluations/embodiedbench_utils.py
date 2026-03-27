@@ -432,6 +432,23 @@ def _extract_action_catalog(prompt_text: str) -> dict[int, str]:
         except ValueError:
             continue
         catalog[aid] = m.group(2).strip()
+    # Alternate list style: [64] find a Ladle
+    for m in re.finditer(r"(?m)^\s*\[\s*(\d{1,4})\s*\]\s*(.+?)\s*$", prompt_text):
+        try:
+            aid = int(m.group(1))
+        except ValueError:
+            continue
+        catalog[aid] = m.group(2).strip()
+    # JSON style snippets: {"action_id": 64, "action_name": "find a Ladle"}
+    for m in re.finditer(
+        r'"action_id"\s*:\s*(\d{1,4})\s*,\s*"action_name"\s*:\s*"([^"]+)"',
+        prompt_text,
+    ):
+        try:
+            aid = int(m.group(1))
+        except ValueError:
+            continue
+        catalog[aid] = m.group(2).strip()
     return catalog
 
 
@@ -456,6 +473,15 @@ def postprocess_executable_plan(json_text: str, prompt_text: str) -> str:
 
     instruction = _extract_instruction(prompt_text).lower()
     catalog = _extract_action_catalog(prompt_text)
+
+    # If explicit instruction line wasn't found, recover task-like sentence from prompt body.
+    if not instruction and isinstance(prompt_text, str):
+        m = re.search(
+            r"(?is)\b(rinse|wash|clean|pick up|pickup|move|place|put)\b.{0,120}",
+            prompt_text,
+        )
+        if m:
+            instruction = m.group(0).strip().lower()
 
     def desc_for(step: dict) -> str:
         aid = step.get("action_id")
