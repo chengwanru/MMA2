@@ -48,6 +48,7 @@ except Exception:
     pass
 
 from embodiedbench_utils import (
+    enforce_first_action_guard,
     extract_allowed_action_ids_from_prompt,
     extract_json_from_response,
     postprocess_executable_plan,
@@ -268,6 +269,14 @@ def _disable_failure_feedback_hint() -> bool:
     )
 
 
+def _enable_first_action_guard() -> bool:
+    return os.environ.get("EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
 def get_agent():
     global _agent
     if _agent is None:
@@ -372,6 +381,8 @@ def create_app():
             extracted = extract_json_from_response(response_text)
             extracted = remap_executable_plan_ids_from_prompt(extracted, sentence)
             extracted = postprocess_executable_plan(extracted, sentence)
+            if _enable_first_action_guard():
+                extracted = enforce_first_action_guard(extracted, sentence)
             if not _disable_loop_breaker():
                 extracted = _avoid_previous_first_action(extracted, sentence)
             # Regex-based allowlists often miss ids or over-restrict; EB still validates actions.
@@ -409,6 +420,8 @@ def create_app():
             extracted_retry = extract_json_from_response(retry_text)
             extracted_retry = remap_executable_plan_ids_from_prompt(extracted_retry, sentence)
             extracted_retry = postprocess_executable_plan(extracted_retry, sentence)
+            if _enable_first_action_guard():
+                extracted_retry = enforce_first_action_guard(extracted_retry, sentence)
             if not _disable_loop_breaker():
                 extracted_retry = _avoid_previous_first_action(extracted_retry, sentence)
             ok_retry, reason_retry = validate_executable_plan_json(

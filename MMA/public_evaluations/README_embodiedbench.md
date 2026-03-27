@@ -127,5 +127,6 @@ pip install -r requirements.txt
 | `EMBODIEDBENCH_PLANNER_HINT_TEXT='...'` | 自定义整段提示（覆盖默认；勿写 `数字: 描述` 行，以免干扰动作表解析）。 |
 | `EMBODIEDBENCH_DISABLE_LOOP_BREAKER=1` | 关闭“避免重复上一轮首步 action_id”的断环逻辑（用于 A/B 对照定位根因）。 |
 | `EMBODIEDBENCH_DISABLE_FAILURE_FEEDBACK_HINT=1` | 关闭“把上一轮失败首步写入下一轮提示”的反馈机制（默认开启）。 |
+| `EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD=1` | 开启“首步硬约束”：任务含 ladle/rinse/table 等词时，首步若是无关对象动作（如 Safe/DeskLamp）会被替换为更合理的首步。默认关闭。 |
 
 改完后需**重启** server 或重提 Slurm。

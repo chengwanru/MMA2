@@ -492,6 +492,114 @@ def _is_nav_action_desc(desc: str) -> bool:
     return any(d.startswith(p) for p in nav_prefixes)
 
 
+def _choose_guarded_first_action(
+    instruction: str,
+    catalog: dict[int, str],
+    current_first_id: int | None,
+) -> tuple[int, str] | None:
+    """
+    Pick a safer first action for task-driven episodes.
+    Priority:
+      1) find action whose object appears in instruction (e.g., ladle)
+      2) generic navigation action (turn/look/move)
+    """
+    if not catalog:
+        return None
+    instr = (instruction or "").lower()
+    if not instr:
+        return None
+
+    # Extract likely target object from instruction text.
+    target_obj = ""
+    for m in re.finditer(r"(?i)\b([a-z][a-z0-9_-]{2,})\b", instr):
+        tok = m.group(1).lower()
+        if tok in {"rinse", "wash", "clean", "move", "place", "put", "table", "sink", "faucet"}:
+            continue
+        target_obj = tok
+        break
+
+    # Prefer a find action for the task object if available.
+    if target_obj:
+        for aid, desc in catalog.items():
+            d = desc.lower()
+            if aid == current_first_id:
+                continue
+            if re.search(r"(?i)\bfind\b", d) and re.search(rf"(?i)\b{re.escape(target_obj)}\b", d):
+                return aid, desc
+
+    # Otherwise pick a generic navigation action.
+    for aid, desc in catalog.items():
+        if aid == current_first_id:
+            continue
+        if _is_nav_action_desc(desc):
+            return aid, desc
+
+    return None
+
+
+def enforce_first_action_guard(json_text: str, prompt_text: str) -> str:
+    """
+    Hard guard for first action quality.
+    If the first action is clearly unrelated to instruction object(s), replace it with
+    a safer first step selected from the action catalog.
+    """
+    if not isinstance(json_text, str) or not json_text.strip():
+        return json_text
+    try:
+        obj = json.loads(json_text)
+    except json.JSONDecodeError:
+        return json_text
+    if not isinstance(obj, dict):
+        return json_text
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        return json_text
+    first = plan[0]
+    if not isinstance(first, dict):
+        return json_text
+
+    instruction = _extract_instruction(prompt_text).lower()
+    if not instruction and isinstance(prompt_text, str):
+        m = re.search(r"(?is)\b(rinse|wash|clean|pick up|pickup|move|place|put)\b.{0,120}", prompt_text)
+        if m:
+            instruction = m.group(0).strip().lower()
+    if not instruction:
+        return json_text
+
+    catalog = _extract_action_catalog(prompt_text)
+    if not catalog:
+        return json_text
+
+    first_id = first.get("action_id")
+    if isinstance(first_id, float) and first_id == int(first_id):
+        first_id = int(first_id)
+    if not isinstance(first_id, int):
+        first_id = None
+
+    first_desc = catalog.get(first_id or -9999, first.get("action_name", "") or "").lower()
+    first_obj = _extract_object_from_action_desc(first_desc)
+
+    # Build allowable object set from task words.
+    allow = set()
+    for w in ("ladle", "mug", "cup", "knife", "tomato", "sink", "faucet", "table", "countertop", "counter"):
+        if re.search(rf"(?i)\b{re.escape(w)}\b", instruction):
+            allow.add(w)
+    if any(k in instruction for k in ("rinse", "wash", "clean")):
+        allow.update({"sink", "faucet"})
+    if not allow:
+        return json_text
+
+    # Replace clearly unrelated first object action.
+    if first_obj and first_obj not in allow:
+        repl = _choose_guarded_first_action(instruction, catalog, first_id)
+        if repl is not None:
+            aid, aname = repl
+            plan[0] = {"action_id": aid, "action_name": aname}
+            obj["executable_plan"] = plan
+            return json.dumps(obj, ensure_ascii=True)
+    return json_text
+
+
 def postprocess_executable_plan(json_text: str, prompt_text: str) -> str:
     """
     Best-effort cleanup to reduce invalid-action loops:
