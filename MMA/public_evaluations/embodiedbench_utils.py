@@ -452,6 +452,46 @@ def _extract_action_catalog(prompt_text: str) -> dict[int, str]:
     return catalog
 
 
+def _extract_object_from_action_desc(desc: str) -> str:
+    if not isinstance(desc, str):
+        return ""
+    d = desc.strip().lower()
+    patterns = (
+        r"\bfind\s+a[n]?\s+([a-z][a-z0-9_-]*)\b",
+        r"\bturn\s+on\s+the\s+([a-z][a-z0-9_-]*)\b",
+        r"\bturn\s+off\s+the\s+([a-z][a-z0-9_-]*)\b",
+        r"\bopen\s+the\s+([a-z][a-z0-9_-]*)\b",
+        r"\bclose\s+the\s+([a-z][a-z0-9_-]*)\b",
+        r"\bpick\s*up\s+the\s+([a-z][a-z0-9_-]*)\b",
+        r"\bput\s+the\s+([a-z][a-z0-9_-]*)\b",
+    )
+    for p in patterns:
+        m = re.search(p, d)
+        if m:
+            return m.group(1).lower()
+    return ""
+
+
+def _is_nav_action_desc(desc: str) -> bool:
+    d = (desc or "").strip().lower()
+    # Explicitly avoid "turn on/off ..." object-interaction actions.
+    if d.startswith("turn on") or d.startswith("turn off"):
+        return False
+    nav_prefixes = (
+        "turn left",
+        "turn right",
+        "rotate left",
+        "rotate right",
+        "look up",
+        "look down",
+        "move ahead",
+        "move forward",
+        "move backward",
+        "move back",
+    )
+    return any(d.startswith(p) for p in nav_prefixes)
+
+
 def postprocess_executable_plan(json_text: str, prompt_text: str) -> str:
     """
     Best-effort cleanup to reduce invalid-action loops:
@@ -505,8 +545,18 @@ def postprocess_executable_plan(json_text: str, prompt_text: str) -> str:
                 primary_obj = c
                 break
 
-    # 1) Drop obviously irrelevant early "find a X" steps.
-    # If task says ladle, early "find a safe" will be removed.
+    allowed_objs: set[str] = set()
+    if primary_obj:
+        allowed_objs.add(primary_obj)
+    if instruction:
+        for c in ("sink", "faucet", "table", "countertop", "counter"):
+            if c in instruction:
+                allowed_objs.add(c)
+        if "rinse" in instruction or "wash" in instruction or "clean" in instruction:
+            allowed_objs.update({"sink", "faucet"})
+
+    # 1) Drop obviously irrelevant early object-targeted steps.
+    # If task says ladle, early "find/turn on ... safe/desklamp/keychain" will be removed.
     if instruction:
         new_plan: list = []
         for idx, step in enumerate(plan):
@@ -514,12 +564,11 @@ def postprocess_executable_plan(json_text: str, prompt_text: str) -> str:
                 continue
             d = desc_for(step)
             if idx < 2:
-                m = re.search(r"(?i)\bfind\s+a[n]?\s+([a-z][a-z0-9_-]*)\b", d)
-                if m:
-                    found_obj = m.group(1).lower()
-                    if primary_obj and found_obj and found_obj != primary_obj:
+                found_obj = _extract_object_from_action_desc(d)
+                if found_obj:
+                    if allowed_objs and found_obj not in allowed_objs:
                         continue
-                    if not primary_obj and "safe" in found_obj and "safe" not in instruction:
+                    if not allowed_objs and "safe" in found_obj and "safe" not in instruction:
                         continue
             new_plan.append(step)
         if new_plan:
@@ -555,8 +604,7 @@ def postprocess_executable_plan(json_text: str, prompt_text: str) -> str:
         if looks_like_find:
             explore_id = None
             for aid, desc in catalog.items():
-                d = desc.lower()
-                if any(k in d for k in ("turn", "rotate", "look", "move ahead", "move forward")):
+                if _is_nav_action_desc(desc):
                     explore_id = aid
                     break
             if explore_id is not None:
