@@ -22,7 +22,9 @@ Then in EmbodiedBench:
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import sys
 import tempfile
 import traceback
@@ -103,6 +105,7 @@ def _augment_planner_sentence(sentence: str) -> str:
 _app = None
 _agent = None
 _upload_dir = None
+_last_first_action_by_instruction = {}
 
 
 def get_upload_dir():
@@ -114,6 +117,84 @@ def get_upload_dir():
         )
         os.makedirs(_upload_dir, exist_ok=True)
     return _upload_dir
+
+
+def _instruction_key(sentence: str) -> str:
+    if not isinstance(sentence, str):
+        return ""
+    for pat in (
+        r"(?mi)^\s*instruction\s*:\s*(.+?)\s*$",
+        r"(?mi)^\s*task\s*:\s*(.+?)\s*$",
+        r"(?mi)^\s*goal\s*:\s*(.+?)\s*$",
+    ):
+        m = re.search(pat, sentence)
+        if m:
+            return m.group(1).strip().lower()
+    return sentence.strip().lower()[:300]
+
+
+def _extract_first_action_id(json_text: str) -> int | None:
+    try:
+        obj = json.loads(json_text)
+    except Exception:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        return None
+    first = plan[0]
+    if not isinstance(first, dict):
+        return None
+    aid = first.get("action_id")
+    if isinstance(aid, bool):
+        return None
+    if isinstance(aid, int):
+        return aid
+    if isinstance(aid, float) and aid == int(aid):
+        return int(aid)
+    return None
+
+
+def _avoid_previous_first_action(json_text: str, sentence: str) -> str:
+    """
+    Break invalid-action loops: if this task just used action X as first step last
+    round, avoid returning X as first step again.
+    """
+    key = _instruction_key(sentence)
+    banned = _last_first_action_by_instruction.get(key)
+    if banned is None:
+        return json_text
+    try:
+        obj = json.loads(json_text)
+    except Exception:
+        return json_text
+    if not isinstance(obj, dict):
+        return json_text
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or len(plan) < 2:
+        return json_text
+    first = plan[0]
+    if not isinstance(first, dict):
+        return json_text
+    aid = first.get("action_id")
+    if isinstance(aid, float) and aid == int(aid):
+        aid = int(aid)
+    if aid == banned:
+        plan = plan[1:]
+        obj["executable_plan"] = plan
+        return json.dumps(obj, ensure_ascii=True)
+    return json_text
+
+
+def _remember_first_action(json_text: str, sentence: str) -> None:
+    key = _instruction_key(sentence)
+    if not key:
+        return
+    aid = _extract_first_action_id(json_text)
+    if aid is None:
+        return
+    _last_first_action_by_instruction[key] = aid
 
 
 def get_agent():
@@ -216,6 +297,7 @@ def create_app():
             extracted = extract_json_from_response(response_text)
             extracted = remap_executable_plan_ids_from_prompt(extracted, sentence)
             extracted = postprocess_executable_plan(extracted, sentence)
+            extracted = _avoid_previous_first_action(extracted, sentence)
             # Regex-based allowlists often miss ids or over-restrict; EB still validates actions.
             # Default: no id whitelist (set EMBODIEDBENCH_ENFORCE_ACTION_ALLOWLIST=1 to enable).
             aids = None
@@ -225,6 +307,7 @@ def create_app():
                     aids = got
             ok, reason = validate_executable_plan_json(extracted, allowed_action_ids=aids)
             if ok:
+                _remember_first_action(extracted, sentence)
                 return jsonify({"response": extracted})
 
             _trace_planner(f"=== validate_fail pass1 reason={reason}\n{extracted[:2000]}")
@@ -245,11 +328,13 @@ def create_app():
             extracted_retry = extract_json_from_response(retry_text)
             extracted_retry = remap_executable_plan_ids_from_prompt(extracted_retry, sentence)
             extracted_retry = postprocess_executable_plan(extracted_retry, sentence)
+            extracted_retry = _avoid_previous_first_action(extracted_retry, sentence)
             ok_retry, reason_retry = validate_executable_plan_json(
                 extracted_retry,
                 allowed_action_ids=aids,
             )
             if ok_retry:
+                _remember_first_action(extracted_retry, sentence)
                 return jsonify({"response": extracted_retry})
             _trace_planner(f"=== validate_fail retry reason={reason_retry}\n{extracted_retry[:2000]}")
             # Last fallback: return best-effort JSON instead of "{}" to avoid
