@@ -156,14 +156,36 @@ def _extract_first_action_id(json_text: str) -> int | None:
     return None
 
 
+def _extract_first_action_name(json_text: str) -> str:
+    try:
+        obj = json.loads(json_text)
+    except Exception:
+        return ""
+    if not isinstance(obj, dict):
+        return ""
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        return ""
+    first = plan[0]
+    if not isinstance(first, dict):
+        return ""
+    name = first.get("action_name")
+    if isinstance(name, str):
+        return name.strip()
+    return ""
+
+
 def _avoid_previous_first_action(json_text: str, sentence: str) -> str:
     """
     Break invalid-action loops: if this task just used action X as first step last
     round, avoid returning X as first step again.
     """
     key = _instruction_key(sentence)
-    banned = _last_first_action_by_instruction.get(key)
-    if banned is None:
+    banned_info = _last_first_action_by_instruction.get(key)
+    if not isinstance(banned_info, dict):
+        return json_text
+    banned = banned_info.get("id")
+    if not isinstance(banned, int):
         return json_text
     try:
         obj = json.loads(json_text)
@@ -194,11 +216,52 @@ def _remember_first_action(json_text: str, sentence: str) -> None:
     aid = _extract_first_action_id(json_text)
     if aid is None:
         return
-    _last_first_action_by_instruction[key] = aid
+    _last_first_action_by_instruction[key] = {
+        "id": aid,
+        "name": _extract_first_action_name(json_text),
+    }
+
+
+def _failure_feedback_hint(sentence: str) -> str:
+    """
+    Give planner a concrete anti-loop signal from previous failed attempts
+    on the same instruction.
+    """
+    key = _instruction_key(sentence)
+    if not key:
+        return ""
+    prev = _last_first_action_by_instruction.get(key)
+    if not isinstance(prev, dict):
+        return ""
+    aid = prev.get("id")
+    aname = prev.get("name", "")
+    if not isinstance(aid, int):
+        return ""
+    if isinstance(aname, str) and aname:
+        return (
+            "Execution feedback from the previous attempt: "
+            f"the first action (action_id={aid}, action_name={aname}) did not work. "
+            "Do NOT start with that same first action again. "
+            "Choose a different first action from ACTION LIST."
+        )
+    return (
+        "Execution feedback from the previous attempt: "
+        f"the first action (action_id={aid}) did not work. "
+        "Do NOT start with that same first action again. "
+        "Choose a different first action from ACTION LIST."
+    )
 
 
 def _disable_loop_breaker() -> bool:
     return os.environ.get("EMBODIEDBENCH_DISABLE_LOOP_BREAKER", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def _disable_failure_feedback_hint() -> bool:
+    return os.environ.get("EMBODIEDBENCH_DISABLE_FAILURE_FEEDBACK_HINT", "").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -286,6 +349,10 @@ def create_app():
             image.save(image_path)
             agent = get_agent()
             planner_message = _augment_planner_sentence(sentence)
+            if not _disable_failure_feedback_hint():
+                hint = _failure_feedback_hint(sentence)
+                if hint:
+                    planner_message = f"{planner_message}\n\n{hint}"
             response_text = agent.send_message(
                 message=planner_message, image_uris=[image_path], memorizing=False
             )
@@ -322,6 +389,10 @@ def create_app():
 
             _trace_planner(f"=== validate_fail pass1 reason={reason}\n{extracted[:2000]}")
             retry_sentence = _repair_prompt(sentence, response_text, reason)
+            if not _disable_failure_feedback_hint():
+                hint = _failure_feedback_hint(sentence)
+                if hint:
+                    retry_sentence = f"{retry_sentence}\n\n{hint}"
             retry_text = agent.send_message(
                 message=retry_sentence,
                 image_uris=[image_path],
