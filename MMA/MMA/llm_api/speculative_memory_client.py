@@ -310,6 +310,7 @@ class SpeculativeMemoryClient(LLMClientBase):
         chat = request_data["chat"]
         memory_items = request_data.get("memory_items") or []
         local_rag = request_data.get("local_rag", False)
+        baseline_mode = os.environ.get("MMA_SPECULATIVE_BASELINE", "").strip() == "1"
         max_new_tokens = request_data.get("max_new_tokens") or 256
         vl_content_parts = request_data.get("vl_content_parts") or []
         image_paths = request_data.get("image_paths") or []
@@ -326,9 +327,9 @@ class SpeculativeMemoryClient(LLMClientBase):
         if prompt_ids is None:
             return {"generated_text": ""}
 
-        if local_rag:
-            # baseline4: Standard RAG — target model only, memory already in prompt text.
-            # No draft, no KV injection, no logit bias. Pure autoregressive generation.
+        if local_rag or baseline_mode:
+            # baseline4/local_rag OR baseline1(target-only): standard AR generation with target model.
+            # No draft verification loop, no memory KV injection, no speculative logits path.
             with torch.no_grad():
                 gen_kwargs: dict = {
                     "input_ids": prompt_ids,
