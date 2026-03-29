@@ -23,10 +23,16 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Slurm copies this script to a spool dir; do NOT use dirname "$0" for repo paths.
 ROOT="${ROOT:-/data/group/zhaolab/project}"
 MMA_ROOT="${MMA_ROOT:-${ROOT}/MMA2}"
+MMA_PEV="${MMA_PEV:-${MMA_ROOT}/MMA/public_evaluations}"
+SCRIPT_DIR="${MMA_PEV}"
 IDX_FILE="${SCRIPT_DIR}/regression_episodes_base.json"
+if [[ ! -f "${IDX_FILE}" ]]; then
+  echo "ERROR: missing ${IDX_FILE}. Set ROOT/MMA_ROOT/MMA_PEV to your MMA2 layout." >&2
+  exit 1
+fi
 
 export EXP_NAME="${EXP_NAME:-regression_base_$(date +%m%d_%H%M%S)}"
 export DOWNSAMPLE="${DOWNSAMPLE:-1}"
