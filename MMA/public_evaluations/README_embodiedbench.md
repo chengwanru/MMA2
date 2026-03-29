@@ -147,8 +147,8 @@ pip install -r requirements.txt
 
 ### 8.2 固定 20 集回归
 
-- 列表文件：[`regression_episodes_base.json`](regression_episodes_base.json)（`selected_indexes` 传给 Hydra）。
-- 一键脚本：[`run_embench_regression.sh`](run_embench_regression.sh)（内部 `down_sample_ratio=1` 且带 `selected_indexes`）。Slurm 会把脚本拷到 spool 目录执行，故用环境变量 **`ROOT` / `MMA_PEV`**（默认 `/data/group/zhaolab/project`）定位 `regression_episodes_base.json`，勿依赖 `sbatch` 时的当前目录。
+- 列表文件：[`regression_episodes_base.json`](regression_episodes_base.json)（通过 **`+selected_indexes=[...]`** 传给 Hydra；必须带 **`+`**，否则报 `Key 'selected_indexes' is not in struct`）。
+- 一键脚本：[`run_embench_regression.sh`](run_embench_regression.sh)（内部 `down_sample_ratio=1` 且传 `+selected_indexes=...`）。Slurm 会把脚本拷到 spool 目录执行，故用环境变量 **`ROOT` / `MMA_PEV`**（默认 `/data/group/zhaolab/project`）定位 `regression_episodes_base.json`，勿依赖 `sbatch` 时的当前目录。
 
 ### 8.3 结果汇总脚本
 

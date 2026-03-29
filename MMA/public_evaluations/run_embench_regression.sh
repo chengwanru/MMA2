@@ -49,7 +49,8 @@ EB_ROOT="${EB_ROOT:-${ROOT}/EmbodiedBench}"
 export EMBODIEDBENCH_INVALID_LOG_JSONL="${EMBODIEDBENCH_INVALID_LOG_JSONL:-${EB_ROOT}/running/eb_alfred/mma_${EXP_NAME}/base/invalid_reason.jsonl}"
 mkdir -p "$(dirname "${EMBODIEDBENCH_INVALID_LOG_JSONL}")" 2>/dev/null || true
 
-echo "EXP_NAME=${EXP_NAME} DOWNSAMPLE=${DOWNSAMPLE} selected_indexes=${SELECTED}"
+echo "EXP_NAME=${EXP_NAME} DOWNSAMPLE=${DOWNSAMPLE} +selected_indexes=${SELECTED}"
 echo "EMBODIEDBENCH_INVALID_LOG_JSONL=${EMBODIEDBENCH_INVALID_LOG_JSONL}"
 
-exec bash "${SCRIPT_DIR}/run_embench_mma_one_node.sh" "selected_indexes=${SELECTED}"
+# Hydra struct config: use + to add keys not declared in YAML (see HYDRA error hint).
+exec bash "${SCRIPT_DIR}/run_embench_mma_one_node.sh" "+selected_indexes=${SELECTED}"

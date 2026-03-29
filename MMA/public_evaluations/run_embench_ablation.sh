@@ -47,7 +47,7 @@ submit() {
     --mem="${MEM}" \
     --gres=gpu:1 \
     --export=ALL,EXP_NAME="${exp}",DOWNSAMPLE="${DOWNSAMPLE}",EB_ROOT="${EB_ROOT}"${extra_export} \
-    "${SCRIPT}" "eval_sets=[base]" "selected_indexes=${SELECTED}" | awk '{print $4}'
+    "${SCRIPT}" "eval_sets=[base]" "+selected_indexes=${SELECTED}" | awk '{print $4}'
 }
 
 LOG_BASE="${EB_ROOT}/running/eb_alfred"
@@ -60,7 +60,7 @@ D_JOB="$(submit "D_closed_loop" "abla_D_closed_loop_${TS}" ",EMBODIEDBENCH_FEASI
 REPORT="${EB_ROOT}/embench_ablation_${TS}.txt"
 {
   echo "EmbodiedBench ablation ${TS}"
-  echo "partition=${PARTITION} DOWNSAMPLE=${DOWNSAMPLE} selected_indexes=${SELECTED}"
+  echo "partition=${PARTITION} DOWNSAMPLE=${DOWNSAMPLE} +selected_indexes=${SELECTED}"
   echo "A_baseline job=${A_JOB}"
   echo "B_invalid_log job=${B_JOB}"
   echo "C_feas_gate job=${C_JOB}"
