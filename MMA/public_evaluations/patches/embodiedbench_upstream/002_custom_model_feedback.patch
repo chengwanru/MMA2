@@ -1,0 +1,18 @@
+--- a/embodiedbench/planner/custom_model.py
++++ b/embodiedbench/planner/custom_model.py
+@@ -15,10 +15,14 @@ class CustomModel():
+         self.model_type = 'custom'
+         
+ 
+-    def respond(self, prompt, obs=None):        
++    def respond(self, prompt, obs=None, extra=None):
+         with open(obs, "rb") as img_file:
+             files = {"image": img_file}
+             data = {"sentence": prompt}
++            if extra:
++                for k, v in extra.items():
++                    if v is not None and str(v).strip() != "":
++                        data[k] = str(v)
+             response = requests.post(server_url, files=files, data=data)
+ 
+         res= response.json()['response']

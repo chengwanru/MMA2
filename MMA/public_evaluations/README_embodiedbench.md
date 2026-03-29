@@ -127,6 +127,54 @@ pip install -r requirements.txt
 | `EMBODIEDBENCH_PLANNER_HINT_TEXT='...'` | 自定义整段提示（覆盖默认；勿写 `数字: 描述` 行，以免干扰动作表解析）。 |
 | `EMBODIEDBENCH_DISABLE_LOOP_BREAKER=1` | 关闭“避免重复上一轮首步 action_id”的断环逻辑（用于 A/B 对照定位根因）。 |
 | `EMBODIEDBENCH_DISABLE_FAILURE_FEEDBACK_HINT=1` | 关闭“把上一轮失败首步写入下一轮提示”的反馈机制（默认开启）。 |
-| `EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD=1` | 开启“首步硬约束”：任务含 ladle/rinse/table 等词时，首步若是无关对象动作（如 Safe/DeskLamp）会被替换为更合理的首步。默认关闭。 |
+| `EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD=1` | 开启“首步硬约束”：首步若是与任务无关的物体（如 Safe/KeyChain）会尽量换成 `find` 任务物体或导航。`embodiedbench_server` 默认关闭；`run_embench_mma_one_node.sh` 默认导出为 `1`（可用 `EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD=0` 关掉）。 |
 
-改完后需**重启** server 或重提 Slurm。
+改完后需**重启** server 或重提 Slurm。查看结果时若未设置 `EXP_NAME`，可用  
+`ls -td .../eb_alfred/mma_*/base/results/summary.json | head -1` 找最新 `summary.json`。
+
+---
+
+## 8. Invalid action 专项：回归集、诊断、可行性门控、短闭环（实施清单）
+
+### 8.1 上游 EmbodiedBench 补丁（invalid 原因 JSONL + 反馈字段）
+
+在 **EmbodiedBench 仓库根目录**执行（或查看说明）：
+
+- [`patches/embodiedbench_upstream/README.md`](patches/embodiedbench_upstream/README.md)
+- `bash patches/embodiedbench_upstream/apply_patches.sh /path/to/EmbodiedBench`
+
+作用：`EBAlfEnv` 在 Thor 交互失败时写入 `EMBODIEDBENCH_INVALID_LOG_JSONL`；`CustomModel` / `VLMPlanner` 将上一轮 `env_feedback` 以表单字段 `last_env_feedback` 发给 MMA server（与 [`embodiedbench_server.py`](embodiedbench_server.py) 对应）。
+
+### 8.2 固定 20 集回归
+
+- 列表文件：[`regression_episodes_base.json`](regression_episodes_base.json)（`selected_indexes` 传给 Hydra）。
+- 一键脚本：[`run_embench_regression.sh`](run_embench_regression.sh)（内部 `down_sample_ratio=1` 且带 `selected_indexes`）。
+
+### 8.3 结果汇总脚本
+
+```bash
+python MMA/public_evaluations/scripts/summarize_invalid_actions.py \
+  /path/to/EmbodiedBench/running/eb_alfred/mma_<exp>/base/results \
+  --invalid-log /path/to/invalid_reason.jsonl
+```
+
+### 8.4 MMA server 环境变量（可行性门控 / 短计划）
+
+| 变量 | 作用 |
+|------|------|
+| `EMBODIEDBENCH_FEASIBILITY_GATE=1` | 一键预设：首步 guard + 短 `executable_plan`（默认最多 3 步，可用 `EMBODIEDBENCH_EXECUTABLE_PLAN_MAX_LEN` 覆盖）。 |
+| `EMBODIEDBENCH_SHORT_HORIZON_PLAN=1` | 未显式设置 `EMBODIEDBENCH_EXECUTABLE_PLAN_MAX_LEN` 时，把计划截断为 **2** 步。 |
+| `EMBODIEDBENCH_EXECUTABLE_PLAN_MAX_LEN` | 显式最大步数（覆盖短 horizon 默认值）。 |
+| `EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD` | 首步物体对齐 guard（`run_embench_mma_one_node.sh` 默认 `1`）。 |
+
+客户端（EmbodiedBench 打补丁后）可传 `last_env_feedback`，server 会插入 `[Simulator feedback from previous step]`。
+
+### 8.5 A/B/C/D 消融矩阵
+
+脚本：[`run_embench_ablation.sh`](run_embench_ablation.sh)（Slurm 提交四条 job）。  
+**晋升标准**（与计划一致）：在同一 `selected_indexes` 上，`num_invalid_actions` 中位数较基线下降 ≥40%，且 `planner_output_error` 不明显变差。
+
+### 8.6 晋升闸门（手动检查）
+
+1. `python scripts/summarize_invalid_actions.py ...`  
+2. 若 `reason_code` 直方图以 `not_visible` / `not_reachable` 为主，优先增加探索/导航再 pick，而不是继续加长 JSON 计划。

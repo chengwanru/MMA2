@@ -8,6 +8,7 @@ Utilities for using MMA as EmbodiedBench's model backend.
 from __future__ import annotations
 
 import json
+import os
 import re
 
 
@@ -472,6 +473,63 @@ def _extract_object_from_action_desc(desc: str) -> str:
     return ""
 
 
+def _target_object_from_instruction(instruction: str, catalog: dict[int, str]) -> str:
+    """
+    Resolve a task object name for matching catalog lines like \"find a Ladle\".
+    Prefer objects that appear both in the instruction and as find-* targets in the catalog.
+    Avoids the bug where the first non-verb token is \"off\" in \"rinse off a ladle ...\".
+    """
+    instr = (instruction or "").strip().lower()
+    if not instr:
+        return ""
+    candidates: list[str] = []
+    for desc in catalog.values():
+        m = re.search(r"(?i)\bfind\s+a[n]?\s+([a-z][a-z0-9_-]*)\b", desc)
+        if m:
+            candidates.append(m.group(1).lower())
+    for c in sorted(set(candidates), key=len, reverse=True):
+        if re.search(rf"(?i)\b{re.escape(c)}\b", instr):
+            return c
+    stop = frozenset(
+        {
+            "rinse",
+            "wash",
+            "clean",
+            "move",
+            "place",
+            "put",
+            "the",
+            "a",
+            "an",
+            "off",
+            "to",
+            "it",
+            "and",
+            "or",
+            "on",
+            "in",
+            "at",
+            "for",
+            "with",
+            "from",
+            "into",
+            "is",
+            "are",
+            "be",
+            "this",
+            "that",
+            "then",
+            "your",
+            "task",
+        }
+    )
+    for m in re.finditer(r"(?i)\b([a-z][a-z0-9_-]{2,})\b", instr):
+        tok = m.group(1).lower()
+        if tok not in stop:
+            return tok
+    return ""
+
+
 def _is_nav_action_desc(desc: str) -> bool:
     d = (desc or "").strip().lower()
     # Explicitly avoid "turn on/off ..." object-interaction actions.
@@ -509,14 +567,7 @@ def _choose_guarded_first_action(
     if not instr:
         return None
 
-    # Extract likely target object from instruction text.
-    target_obj = ""
-    for m in re.finditer(r"(?i)\b([a-z][a-z0-9_-]{2,})\b", instr):
-        tok = m.group(1).lower()
-        if tok in {"rinse", "wash", "clean", "move", "place", "put", "table", "sink", "faucet"}:
-            continue
-        target_obj = tok
-        break
+    target_obj = _target_object_from_instruction(instruction, catalog)
 
     # Prefer a find action for the task object if available.
     if target_obj:
@@ -722,7 +773,14 @@ def postprocess_executable_plan(json_text: str, prompt_text: str) -> str:
                     plan = [explore_step] + plan
 
     # 3) Truncate horizon.
-    max_len = 8
+    max_len = int(os.environ.get("EMBODIEDBENCH_EXECUTABLE_PLAN_MAX_LEN", "8"))
+    if os.environ.get("EMBODIEDBENCH_SHORT_HORIZON_PLAN", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        if "EMBODIEDBENCH_EXECUTABLE_PLAN_MAX_LEN" not in os.environ:
+            max_len = 2
     if len(plan) > max_len:
         plan = plan[:max_len]
 

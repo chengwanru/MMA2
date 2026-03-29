@@ -1,0 +1,26 @@
+--- a/embodiedbench/planner/vlm_planner.py
++++ b/embodiedbench/planner/vlm_planner.py
+@@ -180,9 +180,9 @@ class VLMPlanner():
+ 
+     
+         
+-    def act_custom(self, prompt, obs):
++    def act_custom(self, prompt, obs, extra=None):
+         assert type(obs) == str # input image path
+-        out = self.model.respond(prompt, obs)
++        out = self.model.respond(prompt, obs, extra)
+         # fix common generated json errors
+         out = fix_json(out)
+         logger.debug(f"Model Output:\n{out}\n")
+@@ -203,7 +203,10 @@ class VLMPlanner():
+             prompt = prompt + template_lang if self.language_only else prompt + template
+ 
+         if self.model_type == 'custom':
+-            return self.act_custom(prompt, obs) 
++            extra = None
++            if len(self.episode_act_feedback) > 0:
++                extra = {"last_env_feedback": self.episode_act_feedback[-1][1]}
++            return self.act_custom(prompt, obs, extra) 
+ 
+         if len(self.episode_messages) == 0:
+              self.episode_messages = self.get_message(obs, prompt)

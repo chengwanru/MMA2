@@ -76,6 +76,8 @@ trap cleanup EXIT
 
 cd "${PEV_DIR}"
 export EMBODIEDBENCH_SERVER_PORT="${PORT}"
+# First-step guard replaces irrelevant first actions (e.g. find Safe) when the model mis-picks; set to 0 to A/B.
+export EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD="${EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD:-1}"
 python embodiedbench_server.py >"${SLURM_TMPDIR:-/tmp}/embench_server_${SLURM_JOB_ID:-local}.log" 2>&1 &
 SERVER_PID=$!
 

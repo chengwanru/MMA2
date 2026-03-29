@@ -1,0 +1,84 @@
+--- a/embodiedbench/envs/eb_alfred/EBAlfEnv.py
++++ b/embodiedbench/envs/eb_alfred/EBAlfEnv.py
+@@ -17,6 +17,7 @@
+ import json
+ import numpy as np
+ from PIL import Image 
++import hashlib
+ 
+ # Import custom modules
+ import embodiedbench.envs.eb_alfred.utils as utils
+@@ -36,7 +37,35 @@
+     'visual_appearance', 'long_horizon'
+     ]
+ 
++def _classify_alfred_invalid_reason(message):
++    """Map Thor error message to a coarse reason bucket for JSONL logging."""
++    if not message:
++        return "unknown"
++    m = message.lower()
++    if "not visible" in m:
++        return "not_visible"
++    if "too far" in m or "out of reach" in m:
++        return "not_reachable"
++    if "cannot" in m and "open" in m:
++        return "cannot_open"
++    if "because it is in" in m or "does not contain" in m:
++        return "container_or_location"
++    return "other"
+ 
++
++def _append_invalid_jsonl(log_path, record):
++    if not log_path:
++        return
++    d = os.path.dirname(log_path)
++    if d:
++        os.makedirs(d, exist_ok=True)
++    with open(log_path, "a", encoding="utf-8") as f:
++        f.write(json.dumps(record, ensure_ascii=False))
++        f.write("\n")
++
++
++
++
+ def get_global_action_space():
+     """
+     Generate a comprehensive action space for the environment.
+@@ -309,6 +338,7 @@
+         event = self.env.llm_skill_interact(lang_action)
+         if not event['success']:
+             self._cur_invalid_actions += 1
++            self._maybe_log_invalid_action(lang_action, action, event)
+         
+         ## test calculate reward
+         reward, done = self.env.get_transition_reward()
+@@ -341,6 +371,29 @@
+         self.episode_log.append(info)
+         return obs, reward, done, info
+     
++    def _episode_display_index(self):
++        if not len(self.selected_indexes):
++            return int(self._current_episode_num)
++        return int(self.selected_indexes[self._current_episode_num - 1]) + 1
++
++    def _maybe_log_invalid_action(self, lang_action, action, event):
++        log_path = os.environ.get("EMBODIEDBENCH_INVALID_LOG_JSONL", "").strip()
++        if not log_path:
++            return
++        msg = event.get("message", "") or ""
++        instr = self.episode_language_instruction or ""
++        rec = {
++            "episode_display_idx": self._episode_display_index(),
++            "env_step": self._current_step,
++            "instruction_hash": hashlib.sha256(instr.encode("utf-8")).hexdigest()[:16],
++            "instruction": instr[:500],
++            "lang_action": lang_action,
++            "action_arg": repr(action),
++            "thor_message": msg,
++            "reason_code": _classify_alfred_invalid_reason(msg),
++        }
++        _append_invalid_jsonl(log_path, rec)
++
+     def get_env_feedback(self, info):
+         """
+         Generate feedback message for the current step.

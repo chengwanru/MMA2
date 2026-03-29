@@ -1,0 +1,7 @@
+{
+  "description": "Fixed 20-episode regression subset for eb-alf eval_set=base (0-based indices into the split after down_sample_ratio). Override via EMBODIEDBENCH_REGRESSION_INDICES or Hydra selected_indexes=[...].",
+  "eval_set": "base",
+  "selected_indexes": [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
+  ]
+}

@@ -277,6 +277,22 @@ def _enable_first_action_guard() -> bool:
     )
 
 
+def _apply_feasibility_gate_bundle() -> None:
+    """
+    One-switch preset for Phase-2 style gating (first-step guard + short executable_plan).
+    Uses setdefault so explicit env vars always win.
+    """
+    if os.environ.get("EMBODIEDBENCH_FEASIBILITY_GATE", "").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return
+    os.environ.setdefault("EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD", "1")
+    os.environ.setdefault("EMBODIEDBENCH_SHORT_HORIZON_PLAN", "1")
+    os.environ.setdefault("EMBODIEDBENCH_EXECUTABLE_PLAN_MAX_LEN", "3")
+
+
 def get_agent():
     global _agent
     if _agent is None:
@@ -348,8 +364,11 @@ def create_app():
             return jsonify({"error": "Missing image or sentence"}), 400
         image = request.files["image"]
         sentence = request.form["sentence"]
+        last_env_feedback = (request.form.get("last_env_feedback") or "").strip()
         if image.filename == "":
             return jsonify({"error": "No selected file"}), 400
+
+        _apply_feasibility_gate_bundle()
 
         upload_dir = get_upload_dir()
         ext = os.path.splitext(image.filename)[1] or ".png"
@@ -358,6 +377,10 @@ def create_app():
             image.save(image_path)
             agent = get_agent()
             planner_message = _augment_planner_sentence(sentence)
+            if last_env_feedback:
+                planner_message = (
+                    f"{planner_message}\n\n[Simulator feedback from previous step]\n{last_env_feedback}"
+                )
             if not _disable_failure_feedback_hint():
                 hint = _failure_feedback_hint(sentence)
                 if hint:
@@ -400,6 +423,10 @@ def create_app():
 
             _trace_planner(f"=== validate_fail pass1 reason={reason}\n{extracted[:2000]}")
             retry_sentence = _repair_prompt(sentence, response_text, reason)
+            if last_env_feedback:
+                retry_sentence = (
+                    f"{retry_sentence}\n\n[Simulator feedback from previous step]\n{last_env_feedback}"
+                )
             if not _disable_failure_feedback_hint():
                 hint = _failure_feedback_hint(sentence)
                 if hint:
