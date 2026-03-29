@@ -40,6 +40,7 @@ submit() {
   local exp="$2"
   local extra_export="$3"
   sbatch \
+    --job-name=MMA2 \
     -p "${PARTITION}" \
     -t "${TIME_LIMIT}" \
     --cpus-per-task="${CPUS}" \

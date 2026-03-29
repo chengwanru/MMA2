@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#SBATCH --job-name=MMA2
 #SBATCH -p day
 #SBATCH -t 08:00:00
 #SBATCH -N 1
