@@ -4,7 +4,7 @@ Main loop: speculative decoding with memory.
 Draft (with memory bias) -> Verify (with extended KV) -> accept/reject -> repeat.
 """
 
-from typing import Any, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 
@@ -121,6 +121,7 @@ def generate_with_speculative_memory(
     image_grid_thw: Optional[torch.Tensor] = None,
     pixel_values_videos: Optional[torch.Tensor] = None,
     video_grid_thw: Optional[torch.Tensor] = None,
+    stats_out: Optional[Dict[str, Any]] = None,
 ) -> torch.Tensor:
     """
     Generate tokens using speculative decoding with memory.
@@ -128,6 +129,13 @@ def generate_with_speculative_memory(
     - Draft model generates up to max_draft_steps tokens per round, with memory bias on logits.
     - Target model verifies in one forward (with extended KV from memory); accept/reject.
     - Rejected prefix is discarded; we append one token from target and continue.
+
+    If ``stats_out`` is a dict, it is filled with acceptance statistics after generation:
+      - ``verify_rounds``: speculative rounds with at least one draft token (verify path).
+      - ``no_draft_rounds``: rounds where draft produced 0 tokens (single target step).
+      - ``draft_tokens_proposed``: sum of draft token counts over verify rounds.
+      - ``draft_tokens_accepted``: sum of accepted draft tokens (excludes bonus/correction).
+      - ``acceptance_rate``: ``draft_tokens_accepted / draft_tokens_proposed`` (0.0 if none).
 
     Args:
         prompt_input_ids: (1, seq_len) or (seq_len,) token ids for context (e.g. system + user).
@@ -143,6 +151,18 @@ def generate_with_speculative_memory(
     Returns:
         Generated token ids (1, output_len); includes prompt + generated.
     """
+    if stats_out is not None:
+        stats_out.clear()
+        stats_out.update(
+            {
+                "verify_rounds": 0,
+                "no_draft_rounds": 0,
+                "draft_tokens_proposed": 0,
+                "draft_tokens_accepted": 0,
+                "acceptance_rate": 0.0,
+            }
+        )
+
     if config is None:
         config = SpeculativeMemoryConfig()
     if eos_token_id is None:
@@ -224,6 +244,8 @@ def generate_with_speculative_memory(
         )
         num_draft = draft_result.num_draft
         if num_draft == 0:
+            if stats_out is not None:
+                stats_out["no_draft_rounds"] = int(stats_out["no_draft_rounds"]) + 1
             # Standard speculative fallback: draft produced 0 tokens (e.g. EOS immediately).
             # Generate one token from target and continue (no raise). See also draft_model:
             # min_new_tokens=1 and keeping first EOS as one draft token.
@@ -345,6 +367,15 @@ def generate_with_speculative_memory(
         num_accepted = accept_result.num_accepted
         rejected_at = accept_result.rejected_at
 
+        if stats_out is not None:
+            stats_out["verify_rounds"] = int(stats_out["verify_rounds"]) + 1
+            stats_out["draft_tokens_proposed"] = (
+                int(stats_out["draft_tokens_proposed"]) + num_draft
+            )
+            stats_out["draft_tokens_accepted"] = (
+                int(stats_out["draft_tokens_accepted"]) + num_accepted
+            )
+
         # Append accepted draft tokens
         accepted_tokens = draft_result.draft_token_ids[:num_accepted]
         if accepted_tokens:
@@ -387,5 +418,10 @@ def generate_with_speculative_memory(
             break
         if total_generated >= max_new_tokens:
             break
+
+    if stats_out is not None:
+        prop = int(stats_out["draft_tokens_proposed"])
+        acc = int(stats_out["draft_tokens_accepted"])
+        stats_out["acceptance_rate"] = (acc / prop) if prop > 0 else 0.0
 
     return current_ids

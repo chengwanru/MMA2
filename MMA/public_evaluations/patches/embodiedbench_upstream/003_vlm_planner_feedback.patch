@@ -12,14 +12,25 @@
          # fix common generated json errors
          out = fix_json(out)
          logger.debug(f"Model Output:\n{out}\n")
-@@ -203,7 +203,10 @@ class VLMPlanner():
+@@ -203,7 +203,20 @@ class VLMPlanner():
              prompt = prompt + template_lang if self.language_only else prompt + template
  
          if self.model_type == 'custom':
 -            return self.act_custom(prompt, obs) 
 +            extra = None
 +            if len(self.episode_act_feedback) > 0:
-+                extra = {"last_env_feedback": self.episode_act_feedback[-1][1]}
++                fb = self.episode_act_feedback[-1][1]
++                extra = {"last_env_feedback": fb}
++                if isinstance(fb, str):
++                    low = fb.lower()
++                    if ("not visible" in low) or ("not_visible" in low):
++                        extra["reason_code"] = "not_visible"
++                    elif ("not reachable" in low) or ("not_reachable" in low):
++                        extra["reason_code"] = "not_reachable"
++                    elif ("collision" in low) or ("collid" in low):
++                        extra["reason_code"] = "collision"
++                    elif ("blocked" in low):
++                        extra["reason_code"] = "blocked"
 +            return self.act_custom(prompt, obs, extra) 
  
          if len(self.episode_messages) == 0:

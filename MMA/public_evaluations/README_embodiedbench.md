@@ -128,6 +128,7 @@ pip install -r requirements.txt
 | `EMBODIEDBENCH_DISABLE_LOOP_BREAKER=1` | 关闭“避免重复上一轮首步 action_id”的断环逻辑（用于 A/B 对照定位根因）。 |
 | `EMBODIEDBENCH_DISABLE_FAILURE_FEEDBACK_HINT=1` | 关闭“把上一轮失败首步写入下一轮提示”的反馈机制（默认开启）。 |
 | `EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD=1` | 开启“首步硬约束”：首步若是与任务无关的物体（如 Safe/KeyChain）会尽量换成 `find` 任务物体或导航。`embodiedbench_server` 默认关闭；`run_embench_mma_one_node.sh` 默认导出为 `1`（可用 `EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD=0` 关掉）。 |
+| `EMBODIEDBENCH_SIM_INFO_LEVEL` | 仿真器信息回传分档：`off`（默认，关闭）/ `A`（只传上一轮 env feedback）/ `B`（A + 紧凑状态提示，如 visible/reachable/holding/collision）/ `C`（B + 原始上下文摘录）。建议按 A→B→C 逐步 A/B。 |
 
 改完后需**重启** server 或重提 Slurm。查看结果时若未设置 `EXP_NAME`，可用  
 `ls -td .../eb_alfred/mma_*/base/results/summary.json | head -1` 找最新 `summary.json`。
@@ -168,6 +169,28 @@ python MMA/public_evaluations/scripts/summarize_invalid_actions.py \
 | `EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD` | 首步物体对齐 guard（`run_embench_mma_one_node.sh` 默认 `1`）。 |
 
 客户端（EmbodiedBench 打补丁后）可传 `last_env_feedback`，server 会插入 `[Simulator feedback from previous step]`。
+
+推荐对照设置（仅示例）：
+
+```bash
+# A 档：最保守，只把上一轮失败原因带回下一轮
+export EMBODIEDBENCH_SIM_INFO_LEVEL=A
+
+# B 档：A + 紧凑状态摘要（更利于短步 replan）
+export EMBODIEDBENCH_SIM_INFO_LEVEL=B
+
+# C 档：B + 更丰富上下文（工程上更强，但公平性风险更高）
+export EMBODIEDBENCH_SIM_INFO_LEVEL=C
+```
+
+若 EmbodiedBench 客户端（或你自定义评测器）愿意传结构化字段，server 会优先使用这些字段（不传也兼容）：
+
+- `sim_info_json`（JSON 字符串；可一次性承载全部键）
+- 或单字段表单：`reason_code`, `last_action_id`, `last_action_name`, `holding_object`,
+  `target_visible`, `target_reachable`, `visible_objects_topk`, `agent_pose_summary`,
+  `step_idx`, `episode_progress`
+
+建议最小可用集合（先做 B 档）：`reason_code + target_visible + target_reachable + holding_object`。
 
 ### 8.5 A/B/C/D 消融矩阵
 

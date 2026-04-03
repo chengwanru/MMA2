@@ -102,6 +102,160 @@ def _augment_planner_sentence(sentence: str) -> str:
     return f"{hint}\n\n---\n\n{sentence}"
 
 
+def _sim_info_level() -> str:
+    """
+    Simulator-information passthrough level:
+      - off: disable extra simulator-info block
+      - A: previous-step feedback only (safest)
+      - B: A + compact status hints parsed from prompt/feedback
+      - C: B + richer raw simulator context excerpts
+    """
+    raw = os.environ.get("EMBODIEDBENCH_SIM_INFO_LEVEL", "").strip().lower()
+    if raw in ("", "off", "0", "false", "none"):
+        return "off"
+    if raw in ("a", "1", "minimal"):
+        return "A"
+    if raw in ("b", "2", "summary"):
+        return "B"
+    if raw in ("c", "3", "rich", "full"):
+        return "C"
+    return "A"
+
+
+def _extract_sim_status_hints(sentence: str, last_env_feedback: str) -> list[str]:
+    hints: list[str] = []
+    text = f"{sentence}\n{last_env_feedback}"
+
+    patterns = [
+        (r"(?im)\bvisible\b\s*[:=]\s*(yes|no|true|false)", "visibility"),
+        (r"(?im)\breachable\b\s*[:=]\s*(yes|no|true|false)", "reachability"),
+        (r"(?im)\bholding\b\s*[:=]\s*([^\n,;]+)", "holding"),
+        (r"(?im)\binventory\b\s*[:=]\s*([^\n]+)", "inventory"),
+        (r"(?im)\blook\s*direction\b\s*[:=]\s*([^\n,;]+)", "look_direction"),
+        (r"(?im)\b(step|timestep|frame)\b\s*[:=]\s*([0-9]+)", "time"),
+    ]
+    for pat, name in patterns:
+        m = re.search(pat, text)
+        if not m:
+            continue
+        val = m.group(m.lastindex or 1).strip()
+        hints.append(f"{name}={val}")
+
+    for key in ("not_visible", "not_reachable", "collision", "blocked"):
+        if re.search(rf"(?i)\b{re.escape(key)}\b", text):
+            hints.append(f"signal={key}")
+    return hints[:8]
+
+
+def _parse_bool_like(value: str) -> str:
+    v = (value or "").strip().lower()
+    if v in ("1", "true", "yes", "y"):
+        return "true"
+    if v in ("0", "false", "no", "n"):
+        return "false"
+    return value.strip()
+
+
+def _collect_structured_sim_info(form) -> dict:
+    info: dict[str, object] = {}
+    raw_json = (form.get("sim_info_json") or "").strip()
+    if raw_json:
+        try:
+            obj = json.loads(raw_json)
+            if isinstance(obj, dict):
+                info.update(obj)
+        except Exception:
+            pass
+
+    field_map = {
+        "reason_code": "reason_code",
+        "last_action_id": "last_action_id",
+        "last_action_name": "last_action_name",
+        "holding_object": "holding_object",
+        "target_visible": "target_visible",
+        "target_reachable": "target_reachable",
+        "visible_objects_topk": "visible_objects_topk",
+        "agent_pose_summary": "agent_pose_summary",
+        "step_idx": "step_idx",
+        "episode_progress": "episode_progress",
+    }
+    for src, dst in field_map.items():
+        if src in form:
+            val = (form.get(src) or "").strip()
+            if val != "":
+                info[dst] = val
+    return info
+
+
+def _format_structured_sim_hints(sim_info: dict) -> list[str]:
+    hints: list[str] = []
+    order = [
+        "reason_code",
+        "last_action_id",
+        "last_action_name",
+        "holding_object",
+        "target_visible",
+        "target_reachable",
+        "visible_objects_topk",
+        "agent_pose_summary",
+        "step_idx",
+        "episode_progress",
+    ]
+    for k in order:
+        if k not in sim_info:
+            continue
+        v = sim_info.get(k)
+        if v is None:
+            continue
+        if k in ("target_visible", "target_reachable"):
+            hints.append(f"{k}={_parse_bool_like(str(v))}")
+        else:
+            hints.append(f"{k}={str(v).strip()}")
+    return hints
+
+
+def _extract_context_snippet(text: str, max_lines: int = 8) -> str:
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    return "\n".join(lines[-max_lines:])
+
+
+def _build_simulator_info_block(sentence: str, last_env_feedback: str, sim_info: dict | None = None) -> str:
+    level = _sim_info_level()
+    if level == "off":
+        return ""
+
+    parts: list[str] = []
+    sim_info = sim_info or {}
+
+    if last_env_feedback:
+        parts.append("[Previous-step environment feedback]")
+        parts.append(last_env_feedback)
+    elif level in ("A", "B", "C"):
+        parts.append("[Previous-step environment feedback]")
+        parts.append("No explicit env feedback provided by client.")
+
+    if level in ("B", "C"):
+        hints = _format_structured_sim_hints(sim_info)
+        if not hints:
+            hints = _extract_sim_status_hints(sentence, last_env_feedback)
+        if hints:
+            parts.append("[Compact simulator status hints]")
+            parts.extend(f"- {h}" for h in hints)
+
+    if level == "C":
+        snippet_src = (sim_info.get("raw_context") if isinstance(sim_info, dict) else None) or sentence
+        snippet = _extract_context_snippet(str(snippet_src), max_lines=10)
+        if snippet:
+            parts.append("[Raw simulator/planner context excerpt]")
+            parts.append(snippet)
+
+    if not parts:
+        return ""
+    return "\n".join(parts)
+
+
 # Lazy init of Flask and MMA agent (avoid loading heavy deps on import)
 _app = None
 _agent = None
@@ -365,6 +519,7 @@ def create_app():
         image = request.files["image"]
         sentence = request.form["sentence"]
         last_env_feedback = (request.form.get("last_env_feedback") or "").strip()
+        sim_info = _collect_structured_sim_info(request.form)
         if image.filename == "":
             return jsonify({"error": "No selected file"}), 400
 
@@ -377,10 +532,9 @@ def create_app():
             image.save(image_path)
             agent = get_agent()
             planner_message = _augment_planner_sentence(sentence)
-            if last_env_feedback:
-                planner_message = (
-                    f"{planner_message}\n\n[Simulator feedback from previous step]\n{last_env_feedback}"
-                )
+            sim_info_block = _build_simulator_info_block(sentence, last_env_feedback, sim_info)
+            if sim_info_block:
+                planner_message = f"{planner_message}\n\n{sim_info_block}"
             if not _disable_failure_feedback_hint():
                 hint = _failure_feedback_hint(sentence)
                 if hint:
@@ -423,10 +577,8 @@ def create_app():
 
             _trace_planner(f"=== validate_fail pass1 reason={reason}\n{extracted[:2000]}")
             retry_sentence = _repair_prompt(sentence, response_text, reason)
-            if last_env_feedback:
-                retry_sentence = (
-                    f"{retry_sentence}\n\n[Simulator feedback from previous step]\n{last_env_feedback}"
-                )
+            if sim_info_block:
+                retry_sentence = f"{retry_sentence}\n\n{sim_info_block}"
             if not _disable_failure_feedback_hint():
                 hint = _failure_feedback_hint(sentence)
                 if hint:
