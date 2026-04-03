@@ -33,7 +33,7 @@ submit_job() {
   local jid
   jid=$(
     sbatch \
-      --job-name="MMA2_${level}" \
+      --job-name="MMA2" \
       -p "${PARTITION}" \
       -t "${TIME_LIMIT}" \
       --cpus-per-task="${CPUS}" \
