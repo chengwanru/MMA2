@@ -192,6 +192,13 @@ export EMBODIEDBENCH_SIM_INFO_LEVEL=C
 
 建议最小可用集合（先做 B 档）：`reason_code + target_visible + target_reachable + holding_object`。
 
+### 8.4.1 Sim-info 四档（并行）
+
+- **小样本快扫**（`down_sample_ratio=0.01`，`eval_sets=[base]`）：[`run_embench_siminfo_quick.sh`](run_embench_siminfo_quick.sh)  
+  `bash run_embench_siminfo_quick.sh` → 报告 `${EB_ROOT}/embench_siminfo_quick_<TS>.txt`（需已 `git pull` 含 B 行 job id 解析修复）。
+- **固定 20 集 regression**（`DOWNSAMPLE=1`，`+selected_indexes` 来自 `regression_episodes_base.json`，四 job 并行）：[`run_embench_siminfo_regression.sh`](run_embench_siminfo_regression.sh)  
+  `bash run_embench_siminfo_regression.sh` → 报告 `${EB_ROOT}/embench_siminfo_regression_<TS>.txt`。默认 `-t 03:00:00`；可调 `TIME_LIMIT=04:00:00`。
+
 ### 8.5 A/B/C/D 消融矩阵
 
 脚本：[`run_embench_ablation.sh`](run_embench_ablation.sh)（Slurm 提交四条 job）。  
