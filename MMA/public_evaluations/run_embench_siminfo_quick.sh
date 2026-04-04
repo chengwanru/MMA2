@@ -57,19 +57,34 @@ echo "${A_INFO}"
 echo "${B_INFO}"
 echo "${C_INFO}"
 
-OFF_JOB="${OFF_INFO#*:}"; OFF_JOB="${OFF_JOB%%:*}"
-A_JOB="${A_INFO#*:}";     A_JOB="${A_JOB%%:*}"
-B_JOB="${B_INFO#*:}";     B_JOB="${B_INFO%%:*}"
-C_JOB="${C_INFO#*:}";     C_JOB="${C_JOB%%:*}"
+# IMPORTANT: ${B_INFO#*:} is parsed as ${B} + "_INFO#*:}" in bash — use read instead.
+_parse_jid() {
+  local _lvl _jid _exp
+  IFS=':' read -r _lvl _jid _exp <<< "$1"
+  echo "${_jid}"
+}
 
-OFF_EXP="${OFF_INFO##*:}"
-A_EXP="${A_INFO##*:}"
-B_EXP="${B_INFO##*:}"
-C_EXP="${C_INFO##*:}"
+_parse_exp() {
+  local _lvl _jid _exp
+  IFS=':' read -r _lvl _jid _exp <<< "$1"
+  echo "${_exp}"
+}
+
+OFF_JOB="$(_parse_jid "${OFF_INFO}")"
+A_JOB="$(_parse_jid "${A_INFO}")"
+B_JOB="$(_parse_jid "${B_INFO}")"
+C_JOB="$(_parse_jid "${C_INFO}")"
+
+OFF_EXP="$(_parse_exp "${OFF_INFO}")"
+A_EXP="$(_parse_exp "${A_INFO}")"
+B_EXP="$(_parse_exp "${B_INFO}")"
+C_EXP="$(_parse_exp "${C_INFO}")"
 
 echo "Waiting for jobs to finish: ${OFF_JOB}, ${A_JOB}, ${B_JOB}, ${C_JOB}"
 while true; do
-  running="$(squeue -h -j "${OFF_JOB},${A_JOB},${B_JOB},${C_JOB}" | wc -l | tr -d ' ')"
+  if ! running="$(squeue -h -j "${OFF_JOB},${A_JOB},${B_JOB},${C_JOB}" 2>/dev/null | wc -l | tr -d ' ')"; then
+    running="1"
+  fi
   if [[ "${running}" == "0" ]]; then
     break
   fi
