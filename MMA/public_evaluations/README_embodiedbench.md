@@ -197,7 +197,7 @@ export EMBODIEDBENCH_SIM_INFO_LEVEL=C
 - **小样本快扫**（`down_sample_ratio=0.01`，`eval_sets=[base]`）：[`run_embench_siminfo_quick.sh`](run_embench_siminfo_quick.sh)  
   `bash run_embench_siminfo_quick.sh` → 报告 `${EB_ROOT}/embench_siminfo_quick_<TS>.txt`（需已 `git pull` 含 B 行 job id 解析修复）。
 - **固定 20 集 regression**（`DOWNSAMPLE=1`，`+selected_indexes` 来自 `regression_episodes_base.json`，四 job 并行）：[`run_embench_siminfo_regression.sh`](run_embench_siminfo_regression.sh)  
-  `bash run_embench_siminfo_regression.sh` → 报告 `${EB_ROOT}/embench_siminfo_regression_<TS>.txt`。默认 `-t 03:00:00`；可调 `TIME_LIMIT=04:00:00`。
+  `bash run_embench_siminfo_regression.sh` → 报告 `${EB_ROOT}/embench_siminfo_regression_<TS>.txt`。默认 `-t 08:00:00`（与 `run_embench_regression.sh` 一致）；若仍 `TIMEOUT` 再加大 `TIME_LIMIT`。
 
 ### 8.5 A/B/C/D 消融矩阵
 

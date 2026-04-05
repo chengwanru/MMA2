@@ -10,13 +10,14 @@ set -euo pipefail
 #   bash run_embench_siminfo_regression.sh
 #
 # Optional:
-#   PARTITION=day TIME_LIMIT=03:00:00 ROOT=/data/group/zhaolab/project bash run_embench_siminfo_regression.sh
+#   PARTITION=day TIME_LIMIT=08:00:00 ROOT=/data/group/zhaolab/project bash run_embench_siminfo_regression.sh
 #
 # Logs: run_embench_mma_one_node.sh writes embench_one_node_<jobid>.log under EB_ROOT.
 # Report: ${EB_ROOT}/embench_siminfo_regression_<TS>.txt (after all jobs finish).
 
 PARTITION="${PARTITION:-day}"
-TIME_LIMIT="${TIME_LIMIT:-03:00:00}"
+# 20 ep + Thor + VLM often exceeds 3h; align with run_embench_regression.sh (08:00:00).
+TIME_LIMIT="${TIME_LIMIT:-08:00:00}"
 CPUS="${CPUS:-8}"
 MEM="${MEM:-64G}"
 
