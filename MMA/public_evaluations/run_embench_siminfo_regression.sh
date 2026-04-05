@@ -16,8 +16,8 @@ set -euo pipefail
 # Report: ${EB_ROOT}/embench_siminfo_regression_<TS>.txt (after all jobs finish).
 
 PARTITION="${PARTITION:-day}"
-# Walltime: 3h run reached ~9/20 eps; linear lower bound ~6.7h + Thor/model jitter. Default 16h; use 24h if partition allows and you want margin.
-TIME_LIMIT="${TIME_LIMIT:-16:00:00}"
+# Walltime: 3h run reached ~9/20 eps; linear lower bound ~6.7h + Thor/model jitter. Default 24h if partition MaxTime allows.
+TIME_LIMIT="${TIME_LIMIT:-24:00:00}"
 CPUS="${CPUS:-8}"
 MEM="${MEM:-64G}"
 
