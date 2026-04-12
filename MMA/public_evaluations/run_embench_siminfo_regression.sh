@@ -10,6 +10,8 @@ set -euo pipefail
 #   REGRESSION_CHUNK=1 bash run_embench_siminfo_regression.sh   # last 10 indices
 # EXP_NAME suffix includes _c0 / _c1. Merge metrics manually from both runs.
 #
+# Default: PARTITION=week, TIME_LIMIT=72:00:00 (day is MaxTime 1d — use REGRESSION_CHUNK + TIME_LIMIT=24:00:00 there).
+#
 # Usage (HPC):
 #   cd MMA/public_evaluations
 #   bash run_embench_siminfo_regression.sh
@@ -20,9 +22,9 @@ set -euo pipefail
 # Logs: run_embench_mma_one_node.sh writes embench_one_node_<jobid>.log under EB_ROOT.
 # Report: ${EB_ROOT}/embench_siminfo_regression_<TS>.txt (after all jobs finish).
 
-PARTITION="${PARTITION:-day}"
-# Walltime: 3h run reached ~9/20 eps; linear lower bound ~6.7h + Thor/model jitter. Default 24h if partition MaxTime allows.
-TIME_LIMIT="${TIME_LIMIT:-24:00:00}"
+PARTITION="${PARTITION:-week}"
+# 20 ep + Thor + VLM: 24h on day often TIMEOUT. Default 72h on week (MaxTime 7d).
+TIME_LIMIT="${TIME_LIMIT:-72:00:00}"
 CPUS="${CPUS:-8}"
 MEM="${MEM:-64G}"
 
