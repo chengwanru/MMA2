@@ -9,6 +9,10 @@ Env:
   MMA_DRAFT_MODEL_PATH / MMA_TARGET_MODEL_PATH
   MMA_SPEEDUP_NEW_TOKENS=128   (default 128)
   MMA_SPEEDUP_WARMUP=1         (optional: one untimed warmup each path)
+  MMA_SPEEDUP_MAX_DRAFT_STEPS=3
+  MMA_SPEEDUP_REJECT_STRATEGY=prob_diff   # or threshold
+  MMA_SPEEDUP_PROB_DIFF_THRESHOLD=0.3      # prob_diff mode
+  MMA_SPEEDUP_ACCEPT_THRESHOLD=0.1       # threshold mode
 
 Speedup = t_baseline / t_speculative  (per wall-clock for generating up to N new tokens).
 If speculative hits EOS early, printed new_token counts may differ slightly.
@@ -32,6 +36,8 @@ if __name__ == "__main__":
         )
 
 import torch
+
+from typing import Literal, cast
 
 from mma.speculative_memory import (
     SpeculativeMemoryConfig,
@@ -81,6 +87,15 @@ def main() -> None:
     draft_path = os.environ.get("MMA_DRAFT_MODEL_PATH", "Qwen/Qwen3-VL-2B-Instruct")
     target_path = os.environ.get("MMA_TARGET_MODEL_PATH", "Qwen/Qwen3-VL-8B-Instruct")
     max_new = int(os.environ.get("MMA_SPEEDUP_NEW_TOKENS", "128"))
+    max_draft = int(os.environ.get("MMA_SPEEDUP_MAX_DRAFT_STEPS", "3"))
+    rs_raw = os.environ.get("MMA_SPEEDUP_REJECT_STRATEGY", "prob_diff").strip().lower()
+    if rs_raw not in ("prob_diff", "threshold"):
+        raise ValueError(
+            "MMA_SPEEDUP_REJECT_STRATEGY must be prob_diff or threshold"
+        )
+    reject_strategy = cast(Literal["prob_diff", "threshold"], rs_raw)
+    prob_diff_th = float(os.environ.get("MMA_SPEEDUP_PROB_DIFF_THRESHOLD", "0.3"))
+    accept_th = float(os.environ.get("MMA_SPEEDUP_ACCEPT_THRESHOLD", "0.1"))
     do_warmup = os.environ.get("MMA_SPEEDUP_WARMUP", "").strip().lower() in (
         "1",
         "true",
@@ -90,15 +105,22 @@ def main() -> None:
     config = SpeculativeMemoryConfig(
         draft_model_name_or_path=draft_path,
         target_model_name_or_path=target_path,
-        max_draft_steps=3,
+        max_draft_steps=max_draft,
         max_new_tokens=max_new,
         do_sample=False,
+        reject_strategy=reject_strategy,
+        prob_diff_threshold=prob_diff_th,
+        accept_threshold=accept_th,
     )
 
     device_s = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(device_s)
-    print(f"Device: {device_s}  max_new_tokens={max_new}")
-    print(f"reject_strategy={config.reject_strategy}  prob_diff_threshold={config.prob_diff_threshold}")
+    print(f"Device: {device_s}  max_new_tokens={max_new}  max_draft_steps={max_draft}")
+    print(
+        f"reject_strategy={config.reject_strategy}  "
+        f"prob_diff_threshold={config.prob_diff_threshold}  "
+        f"accept_threshold={config.accept_threshold}"
+    )
     print()
 
     print("Loading draft model ...")
