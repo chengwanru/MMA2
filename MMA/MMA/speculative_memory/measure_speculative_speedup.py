@@ -70,7 +70,7 @@ def target_only_greedy(
                 logits = logits[:, -1, :]
             else:
                 logits = logits[-1:, :]
-            next_id = logits.argmax(dim=-1)
+            next_id = logits.argmax(dim=-1, keepdim=True)
             current = torch.cat([current, next_id], dim=1)
             if eos_id is not None and next_id.item() == eos_id:
                 break
