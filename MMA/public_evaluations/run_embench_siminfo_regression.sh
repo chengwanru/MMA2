@@ -2,15 +2,20 @@
 set -euo pipefail
 
 # Four parallel jobs: EMBODIEDBENCH_SIM_INFO_LEVEL in {off, A, B, C}
-# on the fixed 20-episode regression subset (regression_episodes_base.json),
-# DOWNSAMPLE=1, eval_sets=[base].
+# on the fixed regression subset (regression_episodes_base.json), DOWNSAMPLE=1, eval_sets=[base].
+#
+# IMPORTANT: If your Slurm partition MaxTime is 24h (e.g. `sinfo -p day -o "%P %l"` -> 1-00:00:00),
+# a full 20-episode run often TIMEOUTs. Use two waves:
+#   REGRESSION_CHUNK=0 bash run_embench_siminfo_regression.sh   # first 10 indices
+#   REGRESSION_CHUNK=1 bash run_embench_siminfo_regression.sh   # last 10 indices
+# EXP_NAME suffix includes _c0 / _c1. Merge metrics manually from both runs.
 #
 # Usage (HPC):
 #   cd MMA/public_evaluations
 #   bash run_embench_siminfo_regression.sh
 #
 # Optional:
-#   PARTITION=day TIME_LIMIT=24:00:00 ROOT=/data/group/zhaolab/project bash run_embench_siminfo_regression.sh
+#   REGRESSION_CHUNK=0 PARTITION=day TIME_LIMIT=24:00:00 ROOT=... bash run_embench_siminfo_regression.sh
 #
 # Logs: run_embench_mma_one_node.sh writes embench_one_node_<jobid>.log under EB_ROOT.
 # Report: ${EB_ROOT}/embench_siminfo_regression_<TS>.txt (after all jobs finish).
@@ -28,6 +33,7 @@ EB_ROOT="${EB_ROOT:-${ROOT}/EmbodiedBench}"
 SCRIPT="${MMA_PEV}/run_embench_mma_one_node.sh"
 IDX_FILE="${MMA_PEV}/regression_episodes_base.json"
 TS="$(date +%m%d_%H%M%S)"
+REGRESSION_CHUNK="${REGRESSION_CHUNK:-}"
 
 cd "${MMA_PEV}"
 
@@ -36,13 +42,36 @@ if [[ ! -f "${IDX_FILE}" ]]; then
   exit 1
 fi
 
+if [[ -n "${REGRESSION_CHUNK}" && "${REGRESSION_CHUNK}" != "0" && "${REGRESSION_CHUNK}" != "1" ]]; then
+  echo "ERROR: REGRESSION_CHUNK must be empty (all episodes), 0 (first half), or 1 (second half)." >&2
+  exit 1
+fi
+
+export REGRESSION_CHUNK
+
 SELECTED="$(python3 - <<PY
-import json
+import json, os
+chunk = os.environ.get("REGRESSION_CHUNK", "").strip()
 with open("${IDX_FILE}") as f:
     d = json.load(f)
-print("[" + ",".join(str(x) for x in d["selected_indexes"]) + "]")
+idx = list(d["selected_indexes"])
+if chunk == "0":
+    idx = idx[: len(idx) // 2] if len(idx) >= 2 else idx
+elif chunk == "1":
+    idx = idx[len(idx) // 2 :]
+print("[" + ",".join(str(x) for x in idx) + "]")
 PY
 )"
+
+_chunk_suffix() {
+  if [[ -z "${REGRESSION_CHUNK}" ]]; then
+    echo ""
+  else
+    echo "_c${REGRESSION_CHUNK}"
+  fi
+}
+
+CSUF="$(_chunk_suffix)"
 
 submit_job() {
   local level="$1"
@@ -64,13 +93,13 @@ submit_job() {
   echo "${level}:${jid}:${exp}"
 }
 
-echo "Submitting sim_info regression matrix: 20-ep fixed subset, DOWNSAMPLE=1, time=${TIME_LIMIT}"
+echo "Submitting sim_info regression matrix: DOWNSAMPLE=1, time=${TIME_LIMIT}, REGRESSION_CHUNK=${REGRESSION_CHUNK:-full}"
 echo "+selected_indexes=${SELECTED}"
 
-OFF_INFO="$(submit_job "off" "simreg_off_${TS}")"
-A_INFO="$(submit_job "A" "simreg_A_${TS}")"
-B_INFO="$(submit_job "B" "simreg_B_${TS}")"
-C_INFO="$(submit_job "C" "simreg_C_${TS}")"
+OFF_INFO="$(submit_job "off" "simreg_off_${TS}${CSUF}")"
+A_INFO="$(submit_job "A" "simreg_A_${TS}${CSUF}")"
+B_INFO="$(submit_job "B" "simreg_B_${TS}${CSUF}")"
+C_INFO="$(submit_job "C" "simreg_C_${TS}${CSUF}")"
 
 echo "${OFF_INFO}"
 echo "${A_INFO}"
@@ -111,10 +140,10 @@ while true; do
 done
 
 EVAL_SET="base"
-REPORT="${EB_ROOT}/embench_siminfo_regression_${TS}.txt"
+REPORT="${EB_ROOT}/embench_siminfo_regression_${TS}${CSUF}.txt"
 {
-  echo "EmbodiedBench SimInfo Regression Report (${TS})"
-  echo "20-episode fixed subset (regression_episodes_base.json), DOWNSAMPLE=1"
+  echo "EmbodiedBench SimInfo Regression Report (${TS}${CSUF})"
+  echo "subset=regression_episodes_base.json chunk=${REGRESSION_CHUNK:-full}, DOWNSAMPLE=1"
   echo "partition=${PARTITION} time=${TIME_LIMIT} cpus=${CPUS} mem=${MEM} eval_set=${EVAL_SET}"
   echo
   echo "off job=${OFF_JOB} exp=${OFF_EXP}"

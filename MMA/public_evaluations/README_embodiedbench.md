@@ -197,7 +197,11 @@ export EMBODIEDBENCH_SIM_INFO_LEVEL=C
 - **小样本快扫**（`down_sample_ratio=0.01`，`eval_sets=[base]`）：[`run_embench_siminfo_quick.sh`](run_embench_siminfo_quick.sh)  
   `bash run_embench_siminfo_quick.sh` → 报告 `${EB_ROOT}/embench_siminfo_quick_<TS>.txt`（需已 `git pull` 含 B 行 job id 解析修复）。
 - **固定 20 集 regression**（`DOWNSAMPLE=1`，`+selected_indexes` 来自 `regression_episodes_base.json`，四 job 并行）：[`run_embench_siminfo_regression.sh`](run_embench_siminfo_regression.sh)  
-  `bash run_embench_siminfo_regression.sh` → 报告 `${EB_ROOT}/embench_siminfo_regression_<TS>.txt`。默认 `-t 24:00:00`（20 集 + Thor + 双模型；需 `day` 等分区 `MaxTime` 允许；否则用 `TIME_LIMIT=<分区上限>`）。
+  `bash run_embench_siminfo_regression.sh` → 报告 `${EB_ROOT}/embench_siminfo_regression_<TS>.txt`。默认 `-t 24:00:00`。  
+  **若分区 `MaxTime` 仅 24h**（如 `sinfo -p day -o "%P %l"` 为 `1-00:00:00`），整 20 集常会 `TIMEOUT`，请**分两趟**（各约一半 index，`EXP_NAME` 带 `_c0` / `_c1`）：  
+  `REGRESSION_CHUNK=0 bash run_embench_siminfo_regression.sh`  
+  `REGRESSION_CHUNK=1 bash run_embench_siminfo_regression.sh`  
+  指标需**合并两趟**的 `summary.json` / per-episode 结果后再对比。
 
 ### 8.5 A/B/C/D 消融矩阵
 
