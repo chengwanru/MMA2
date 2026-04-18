@@ -13,7 +13,8 @@
 # Smoke (1% data) is default in script; full regression override CMD below.
 
 #PBS -P mv44
-#PBS -q gpuvolta
+# H200 queue (often shorter wait than V100; higher KSU — see group PDF). V100: #PBS -q gpuvolta
+#PBS -q gpuhopper
 #PBS -l ncpus=12,ngpus=1,mem=64GB,jobfs=50GB,walltime=04:00:00
 #PBS -l storage=scratch/mv44+gdata/mv44
 #PBS -N embench_mma

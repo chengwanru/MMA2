@@ -5,7 +5,8 @@
 # mkdir -p /scratch/mv44/$USER/work && cd there && qsub .../run_speculative_speedup_gadi.pbs
 
 #PBS -P mv44
-#PBS -q gpuvolta
+# H200 — for V100 use gpuvolta instead
+#PBS -q gpuhopper
 #PBS -l ncpus=8,ngpus=1,mem=32GB,jobfs=20GB,walltime=01:00:00
 #PBS -l storage=scratch/mv44+gdata/mv44
 #PBS -N mma_speedup
