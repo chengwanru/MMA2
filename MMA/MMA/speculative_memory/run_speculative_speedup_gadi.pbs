@@ -15,11 +15,20 @@
 set -euo pipefail
 cd "${PBS_O_WORKDIR:-.}"
 
-module load cuda/12.1.1
+set +e
+if [[ -n "${MODULE_CUDA:-}" ]]; then
+  module load "${MODULE_CUDA}"
+else
+  for _c in cuda/12.6.2 cuda/12.6.1 cuda/12.4.2 cuda/12.4.1 cuda/12.3.2 cuda/12.2.2 cuda/12.2.0 cuda/12.1.1 cuda; do
+    module load "${_c}" 2>/dev/null && echo "Loaded CUDA module: ${_c}" && break
+  done
+fi
+set -e
+
 source "${HOME}/.bashrc"
 conda activate "${CONDA_ENV:-embench}"
 
-export ROOT="${ROOT:-/scratch/mv44/${USER}/projects}"
+export ROOT="${ROOT:-/g/data/mv44/${USER}}"
 export MMA_ROOT="${MMA_ROOT:-${ROOT}/MMA2}"
 export PYTHONPATH="${MMA_ROOT}/MMA:${PYTHONPATH:-}"
 export MMA_SPEEDUP_NEW_TOKENS="${MMA_SPEEDUP_NEW_TOKENS:-512}"
