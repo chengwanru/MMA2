@@ -1,0 +1,51 @@
+#!/bin/bash
+# NCI Gadi / PBS — EmbodiedBench + MMA (see PDF "NCI-LTU Server": gpuvolta=V100, gpuhopper=H200).
+#
+# EDIT before qsub:
+#   -P project code (mv44 per group doc)
+#   -l storage=... must match your NCI project paths (scratch + gdata)
+#   -o log path under /scratch/mv44/$USER/...
+#   ROOT / clones below
+#
+# Submit:
+#   qsub submit_embodiedbench_gadi.pbs
+#
+# Smoke (1% data) is default in script; full regression override CMD below.
+
+#PBS -P mv44
+#PBS -q gpuvolta
+#PBS -l ncpus=12,ngpus=1,mem=64GB,jobfs=50GB,walltime=04:00:00
+#PBS -l storage=scratch/mv44+gdata/mv44
+#PBS -N embench_mma
+#PBS -j oe
+# Logs default to <job_name>.o<jobid> in the directory from which you ran qsub.
+# Prefer: mkdir -p /scratch/mv44/$USER/work && cd there && qsub /path/to/submit_embodiedbench_gadi.pbs
+
+set -euo pipefail
+cd "${PBS_O_WORKDIR:-.}"
+
+module load cuda/12.1.1
+
+# --- clone layout: MMA2 and EmbodiedBench live under ROOT ---
+export ROOT="${ROOT:-/scratch/mv44/${USER}/projects}"
+export MMA_ROOT="${MMA_ROOT:-${ROOT}/MMA2}"
+export EB_ROOT="${EB_ROOT:-${ROOT}/EmbodiedBench}"
+export CONDA_ENV="${CONDA_ENV:-embench}"
+
+source "${HOME}/.bashrc"
+conda activate "${CONDA_ENV}"
+
+cd "${MMA_ROOT}/MMA/public_evaluations"
+
+# Example: quick smoke (default DOWNSAMPLE=0.01 inside script)
+# bash run_embench_mma_one_node_gadi.sh
+
+# Example: full regression chunk C level (same as Slurm workflow)
+export EXP_NAME="${EXP_NAME:-simreg_C_gadi_$(date +%m%d_%H%M%S)_c0}"
+export DOWNSAMPLE=1
+export EMBODIEDBENCH_SIM_INFO_LEVEL=C
+INVALID="${EB_ROOT}/running/eb_alfred/mma_${EXP_NAME}/base/invalid_reason.jsonl"
+mkdir -p "$(dirname "${INVALID}")"
+export EMBODIEDBENCH_INVALID_LOG_JSONL="${INVALID}"
+
+bash run_embench_mma_one_node_gadi.sh "+selected_indexes=[0,1,2,3,4,5,6,7,8,9]" "eval_sets=[base]"

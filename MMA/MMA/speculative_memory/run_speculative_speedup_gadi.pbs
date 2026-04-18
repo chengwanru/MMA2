@@ -1,0 +1,27 @@
+#!/bin/bash
+# NCI Gadi PBS — micro-benchmark wall_speedup (same Python as run_speculative_speedup.sh).
+#
+# EDIT: ROOT, conda env, project/storage lines, walltime if needed.
+# mkdir -p /scratch/mv44/$USER/work && cd there && qsub .../run_speculative_speedup_gadi.pbs
+
+#PBS -P mv44
+#PBS -q gpuvolta
+#PBS -l ncpus=8,ngpus=1,mem=32GB,jobfs=20GB,walltime=01:00:00
+#PBS -l storage=scratch/mv44+gdata/mv44
+#PBS -N mma_speedup
+#PBS -j oe
+
+set -euo pipefail
+cd "${PBS_O_WORKDIR:-.}"
+
+module load cuda/12.1.1
+source "${HOME}/.bashrc"
+conda activate "${CONDA_ENV:-embench}"
+
+export ROOT="${ROOT:-/scratch/mv44/${USER}/projects}"
+export MMA_ROOT="${MMA_ROOT:-${ROOT}/MMA2}"
+export PYTHONPATH="${MMA_ROOT}/MMA:${PYTHONPATH:-}"
+export MMA_SPEEDUP_NEW_TOKENS="${MMA_SPEEDUP_NEW_TOKENS:-512}"
+export MMA_SPEEDUP_WARMUP="${MMA_SPEEDUP_WARMUP:-1}"
+
+python "${MMA_ROOT}/MMA/MMA/speculative_memory/measure_speculative_speedup.py"
