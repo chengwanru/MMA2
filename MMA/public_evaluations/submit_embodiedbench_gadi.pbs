@@ -22,7 +22,9 @@
 # Logs default to <job_name>.o<jobid> in the directory from which you ran qsub.
 # Prefer: mkdir -p /scratch/mv44/$USER/work && cd there && qsub /path/to/submit_embodiedbench_gadi.pbs
 
-set -euo pipefail
+# Do not use `set -u` here: sourcing ~/.bashrc pulls in /etc/bashrc which references
+# BASHRCSOURCED before set — under nounset the job exits immediately on Gadi PBS.
+set -eo pipefail
 cd "${PBS_O_WORKDIR:-.}"
 
 # CUDA: pdf may say cuda/12.1.1 but Gadi refreshes versions — run `module avail cuda` on login if this fails.

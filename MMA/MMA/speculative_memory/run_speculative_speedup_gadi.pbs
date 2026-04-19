@@ -12,7 +12,8 @@
 #PBS -N mma_speedup
 #PBS -j oe
 
-set -euo pipefail
+# Avoid `set -u`: breaks /etc/bashrc when sourcing ~/.bashrc on Gadi (BASHRCSOURCED).
+set -eo pipefail
 cd "${PBS_O_WORKDIR:-.}"
 
 set +e
