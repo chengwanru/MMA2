@@ -16,7 +16,7 @@
 2. **作业开始后立刻**（或在 smoke 脚本里已打印）**`nvidia-smi`**：确认无陌生大进程占满显存。  
 3. **环境变量**（可选但推荐）：  
    `export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`  
-4. **LTU 上先跑 1 集 smoke**：  
+4. **LTU 上先跑 1 集 smoke**（默认 **`#SBATCH -p short`**）：  
    `sbatch run_embench_memory_smoke.sh`  
    结束后：  
    `grep -c "CUDA out of memory" .../embench_memcheck_<jobid>.log`  

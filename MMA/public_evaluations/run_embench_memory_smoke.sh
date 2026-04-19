@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=mm_memcheck
-#SBATCH -p day
+#SBATCH -p short
 #SBATCH -t 01:00:00
 #SBATCH -N 1
 #SBATCH -n 1
@@ -17,9 +17,10 @@
 #   cd MMA/public_evaluations
 #   sbatch run_embench_memory_smoke.sh
 #
-# After job ends:
-#   grep -c "CUDA out of memory" "${EB_ROOT}/embench_one_node_${SLURM_JOB_ID}.log"
-#   (expect 0)
+# After job ends (this job writes embench_memcheck_<jobid>.log):
+#   grep -c "CUDA out of memory" "${EB_ROOT}/embench_memcheck_${SLURM_JOB_ID}.log"
+# Invalid stats (1 ep): python scripts/summarize_invalid_actions.py .../mma_${EXP_NAME}/base/results
+# Thor reasons (needs upstream invalid patch): tail .../mma_${EXP_NAME}/base/invalid_reason.jsonl
 #
 # Optional env before sbatch:
 #   EXP_NAME=my_memcheck  ROOT=/data/group/zhaolab/project
@@ -35,6 +36,9 @@ export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:T
 export EXP_NAME="${EXP_NAME:-memcheck_smoke_$(date +%m%d_%H%M%S)}"
 export DOWNSAMPLE=1
 export EMBODIEDBENCH_SIM_INFO_LEVEL="${EMBODIEDBENCH_SIM_INFO_LEVEL:-off}"
+INVALID_JSONL="${EB_ROOT}/running/eb_alfred/mma_${EXP_NAME}/base/invalid_reason.jsonl"
+mkdir -p "$(dirname "${INVALID_JSONL}")"
+export EMBODIEDBENCH_INVALID_LOG_JSONL="${EMBODIEDBENCH_INVALID_LOG_JSONL:-${INVALID_JSONL}}"
 
 cd "${PEV}"
 echo "=== GPU before server (expect one job using this card in exclusive mode) ==="

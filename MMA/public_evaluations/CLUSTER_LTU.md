@@ -19,7 +19,7 @@
 | 单节点 EmbodiedBench + MMA server | `run_embench_mma_one_node.sh` |
 | sim-info 单档（off/A/B/C） | `run_embench_siminfo_one.sh` |
 | sim-info 四档矩阵 | `run_embench_siminfo_regression.sh` |
-| **1 集显存 / OOM smoke** | `run_embench_memory_smoke.sh` |
+| **1 集显存 / OOM smoke** | `run_embench_memory_smoke.sh`（默认分区 **`short`**，易排队） |
 | speculative 加速比（Slurm） | `MMA/MMA/speculative_memory/run_speculative_speedup.sh` |
 
 日志默认：`${EB_ROOT}/embench_one_node_<jobid>.log`（smoke 为 `embench_memcheck_<jobid>.log`）。
