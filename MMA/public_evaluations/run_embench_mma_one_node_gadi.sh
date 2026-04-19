@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #
+# NCI Gadi only — see CLUSTER_NCI_GADI.md (do not use Slurm/LTU paths from CLUSTER_LTU.md).
 # EmbodiedBench + MMA server — same behavior as run_embench_mma_one_node.sh but for NCI Gadi (PBS).
 # Run inside an interactive GPU allocation or from a qsub script (not on login node for Thor).
 #

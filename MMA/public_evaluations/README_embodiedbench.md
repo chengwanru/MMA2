@@ -1,5 +1,9 @@
 # EmbodiedBench + MMA Server 常见错误与修复
 
+**集群分拆（请勿混用命令）**：[**LTU（Slurm）**](CLUSTER_LTU.md) · [**NCI Gadi（PBS）**](CLUSTER_NCI_GADI.md) · [**GPU 显存 / 可复现核对**](RUNBOOK_GPU_MEMORY.md)
+
+---
+
 ## 1. `No module named 'httpx_sse'`
 
 **现象**：EmbodiedBench 客户端收到：
