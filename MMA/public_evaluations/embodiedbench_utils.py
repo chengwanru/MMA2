@@ -852,6 +852,55 @@ def validate_executable_plan_json(
     return True, "ok"
 
 
+def extract_find_targets_from_action_catalog(
+    prompt_text: str, *, max_items: int = 48
+) -> list[str]:
+    """
+    Collect distinct object phrases from ACTION LIST lines like \"72: find a Tomato 2\".
+
+    Mirrors the idea behind RoboAgent parsing `language_skill_set` for exploration:
+    constrain object choices to vocabulary that EmbodiedBench already exposes as legal
+    skills, without requiring Thor scene-graph APIs at inference time.
+    """
+    catalog = _extract_action_catalog(prompt_text)
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for desc in catalog.values():
+        if not isinstance(desc, str):
+            continue
+        line = desc.strip()
+        m = re.search(r"(?i)\bfind\s+a[n]?\s+(.+)$", line)
+        if not m:
+            continue
+        t = m.group(1).strip()
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        ordered.append(t)
+        if len(ordered) >= max_items:
+            break
+    return ordered
+
+
+def format_action_catalog_object_hint(prompt_text: str) -> str:
+    """
+    Short English block listing find-targets from the prompt's action table.
+
+    Empty string if nothing parsed (caller decides whether to prepend).
+    """
+    targets = extract_find_targets_from_action_catalog(prompt_text)
+    if not targets:
+        return ""
+    # Keep one line so token overhead stays small on large skill sets.
+    joined = ", ".join(targets)
+    return (
+        "[EmbodiedBench action-list find targets]\n"
+        "These strings appear as \"find a …\" in the ACTION LIST below. "
+        "Prefer task-relevant targets from this vocabulary over unrelated furniture.\n"
+        f"Find targets: {joined}"
+    )
+
+
 def extract_allowed_action_ids_from_prompt(prompt_text: str) -> set[int]:
     """
     Best-effort extraction of available action ids from EmbodiedBench prompt text.

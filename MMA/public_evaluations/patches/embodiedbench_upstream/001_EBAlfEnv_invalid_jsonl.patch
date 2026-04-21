@@ -17,6 +17,10 @@
 +    if not message:
 +        return "unknown"
 +    m = message.lower()
++    if "teleportfull" in m and "missing the following arguments" in m:
++        return "missing_action_args"
++    if "teleportfull" in m:
++        return "teleport_failure"
 +    if "not visible" in m:
 +        return "not_visible"
 +    if "too far" in m or "out of reach" in m:

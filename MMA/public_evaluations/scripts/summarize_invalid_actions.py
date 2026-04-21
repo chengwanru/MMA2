@@ -82,6 +82,7 @@ def summarize_invalid_log(log_path: Path) -> None:
         print(f"(skip) invalid log not found: {log_path}", file=sys.stderr)
         return
     reasons = Counter()
+    lang_actions = Counter()
     n = 0
     with log_path.open(encoding="utf-8") as f:
         for line in f:
@@ -95,9 +96,17 @@ def summarize_invalid_log(log_path: Path) -> None:
             n += 1
             r = ev.get("reason_code") or ev.get("reason") or "unknown"
             reasons[str(r)] += 1
+            la = ev.get("lang_action")
+            if isinstance(la, str) and la.strip():
+                lang_actions[la.strip()] += 1
     print(f"=== Invalid log: {log_path} (lines={n}) ===")
     for k, v in reasons.most_common():
         print(f"  {k}: {v}")
+    if lang_actions:
+        print("--- top failing lang_action strings (hint: fix grounding / vocabulary / exploration) ---")
+        for la, v in lang_actions.most_common(15):
+            shown = la if len(la) <= 140 else la[:137] + "..."
+            print(f"  [{v}x] {shown}")
 
 
 def main() -> None:

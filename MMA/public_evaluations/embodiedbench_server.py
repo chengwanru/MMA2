@@ -51,6 +51,7 @@ from embodiedbench_utils import (
     enforce_first_action_guard,
     extract_allowed_action_ids_from_prompt,
     extract_json_from_response,
+    format_action_catalog_object_hint,
     postprocess_executable_plan,
     remap_executable_plan_ids_from_prompt,
     validate_executable_plan_json,
@@ -86,6 +87,21 @@ _DEFAULT_PLANNER_HINT = """[EmbodiedBench / ALFRED planner — follow strictly]
 5) If a navigation or find-style step would likely fail, prefer a different legal action from the list (e.g. move / look / turn) instead of repeating the same failing step many times.
 6) Keep executable_plan reasonably short (about 3–12 steps). Do not output dozens of identical steps.
 7) No markdown code fences; JSON only."""
+
+
+def _enable_action_catalog_object_hint() -> bool:
+    """Optional: prepend find-target vocabulary parsed from the ACTION LIST (RoboAgent-style narrowing)."""
+    return os.environ.get("EMBODIEDBENCH_ACTION_CATALOG_OBJECT_HINT", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def _optional_action_catalog_object_hint(sentence: str) -> str:
+    if not _enable_action_catalog_object_hint():
+        return ""
+    return format_action_catalog_object_hint(sentence)
 
 
 def _augment_planner_sentence(sentence: str) -> str:
@@ -532,6 +548,9 @@ def create_app():
             image.save(image_path)
             agent = get_agent()
             planner_message = _augment_planner_sentence(sentence)
+            catalog_hint = _optional_action_catalog_object_hint(sentence)
+            if catalog_hint:
+                planner_message = f"{catalog_hint}\n\n---\n\n{planner_message}"
             sim_info_block = _build_simulator_info_block(sentence, last_env_feedback, sim_info)
             if sim_info_block:
                 planner_message = f"{planner_message}\n\n{sim_info_block}"
@@ -577,6 +596,8 @@ def create_app():
 
             _trace_planner(f"=== validate_fail pass1 reason={reason}\n{extracted[:2000]}")
             retry_sentence = _repair_prompt(sentence, response_text, reason)
+            if catalog_hint:
+                retry_sentence = f"{catalog_hint}\n\n---\n\n{retry_sentence}"
             if sim_info_block:
                 retry_sentence = f"{retry_sentence}\n\n{sim_info_block}"
             if not _disable_failure_feedback_hint():
