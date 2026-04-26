@@ -744,8 +744,11 @@ def _extract_target_from_instruction(sentence: str, catalog: dict[int, str]) -> 
     text = (sentence or "").lower()
     # Prefer object names that appear in find-actions and task text.
     cands: list[str] = []
+    _find_obj = re.compile(
+        r"(?i)\bfind\s+(?:a|an|the)\s+([A-Za-z][A-Za-z0-9_-]*)\b"
+    )
     for desc in catalog.values():
-        m = re.search(r"(?i)\bfind\s+a[n]?\s+([a-z][a-z0-9_-]*)\b", desc)
+        m = _find_obj.search(desc)
         if m:
             cands.append(m.group(1).lower())
     for c in sorted(set(cands), key=len, reverse=True):
@@ -792,11 +795,25 @@ def _is_target_related_desc(desc: str, target: str, instruction: str) -> bool:
     return False
 
 
-def _hard_filter_plan_to_target(json_text: str, sentence: str) -> str:
+def _hard_filter_plan_to_target(
+    json_text: str,
+    sentence: str,
+    *,
+    ban_pick_target: bool = False,
+    controller_target: str = "",
+) -> str:
     """
     Task-target hard constraint:
     remove unrelated find/pick/manipulation actions to keep plan focused on
     target object + essential navigation/context actions.
+
+    When ban_pick_target is True (controller locked after cannot-find pickup),
+    do NOT re-admit pickup steps for the task target even if they match the
+    target string — otherwise we undo controller.rewrite_plan().
+
+    controller_target: object name inferred from env feedback (same episode);
+    merged so we never bail out with ``if not target`` while the controller
+    already knows the failed object (instruction-only parse can be empty).
     """
     try:
         obj = json.loads(json_text)
@@ -809,9 +826,13 @@ def _hard_filter_plan_to_target(json_text: str, sentence: str) -> str:
         return json_text
 
     catalog = _parse_action_catalog_lines(sentence)
-    target = _extract_target_from_instruction(sentence, catalog)
+    instr_target = _extract_target_from_instruction(sentence, catalog)
+    ctl_target = (controller_target or "").strip().lower()
+    target = instr_target or ctl_target
     if not target:
         return json_text
+
+    ban_pick_names = {t for t in (instr_target, ctl_target) if t}
 
     filtered: list[dict] = []
     for step in plan:
@@ -825,6 +846,9 @@ def _hard_filter_plan_to_target(json_text: str, sentence: str) -> str:
             desc = catalog.get(aid, "")
         if not desc:
             desc = str(step.get("action_name", "") or "")
+        if ban_pick_target and ban_pick_names:
+            if any(_is_pickup_desc_for_target(desc, t) for t in ban_pick_names):
+                continue
         if _is_target_related_desc(desc, target, sentence):
             filtered.append(step)
 
@@ -939,6 +963,14 @@ class EpisodeController:
             nav = _choose_nav_replacement(catalog)
             if nav:
                 filtered = [nav]
+            elif self.ban_pick_target or self.cooldown_pick > 0:
+                rep = _choose_find_or_nav_replacement(catalog, target)
+                if rep:
+                    filtered = [rep]
+                elif plan:
+                    filtered = [plan[0]]
+                else:
+                    filtered = []
             else:
                 filtered = plan
 
@@ -1258,7 +1290,12 @@ def create_app():
             extracted = _rewrite_pick_loop_first_step(extracted, sentence, last_env_feedback)
             extracted = _rewrite_pick_loop_by_action_id(extracted, sentence, last_env_feedback)
             extracted = controller.rewrite_plan(extracted, sentence)
-            extracted = _hard_filter_plan_to_target(extracted, sentence)
+            extracted = _hard_filter_plan_to_target(
+                extracted,
+                sentence,
+                ban_pick_target=controller.ban_pick_target,
+                controller_target=controller.target,
+            )
             # Regex-based allowlists often miss ids or over-restrict; EB still validates actions.
             # Default: no id whitelist (set EMBODIEDBENCH_ENFORCE_ACTION_ALLOWLIST=1 to enable).
             aids = None
@@ -1311,7 +1348,12 @@ def create_app():
             extracted_retry = _rewrite_pick_loop_first_step(extracted_retry, sentence, last_env_feedback)
             extracted_retry = _rewrite_pick_loop_by_action_id(extracted_retry, sentence, last_env_feedback)
             extracted_retry = controller.rewrite_plan(extracted_retry, sentence)
-            extracted_retry = _hard_filter_plan_to_target(extracted_retry, sentence)
+            extracted_retry = _hard_filter_plan_to_target(
+                extracted_retry,
+                sentence,
+                ban_pick_target=controller.ban_pick_target,
+                controller_target=controller.target,
+            )
             ok_retry, reason_retry = validate_executable_plan_json(
                 extracted_retry,
                 allowed_action_ids=aids,
