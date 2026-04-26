@@ -1118,6 +1118,42 @@ def _repair_prompt(sentence: str, bad_response: str, reason: str) -> str:
     )
 
 
+def _trace_final_plan(tag: str, json_text: str) -> None:
+    """
+    Debug helper: log first few executable steps from final payload returned to EB.
+    Enabled only when EMBODIEDBENCH_DEBUG_FEEDBACK is truthy.
+    """
+    if os.environ.get("EMBODIEDBENCH_DEBUG_FEEDBACK", "").strip().lower() not in ("1", "true", "yes"):
+        return
+    try:
+        obj = json.loads(json_text)
+    except Exception as e:
+        _trace_planner(f"final_plan_debug tag={tag} parse_error={e}")
+        return
+    if not isinstance(obj, dict):
+        _trace_planner(f"final_plan_debug tag={tag} payload_not_dict")
+        return
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list):
+        _trace_planner(f"final_plan_debug tag={tag} plan_not_list")
+        return
+    preview = []
+    for step in plan[:3]:
+        if isinstance(step, dict):
+            preview.append(
+                {
+                    "action_id": step.get("action_id"),
+                    "action_name": step.get("action_name"),
+                }
+            )
+        else:
+            preview.append({"raw": str(step)})
+    _trace_planner(
+        "final_plan_debug "
+        f"tag={tag} plan_len={len(plan)} first_steps={json.dumps(preview, ensure_ascii=True)}"
+    )
+
+
 def create_app():
     global _app
     if _app is not None:
@@ -1212,6 +1248,7 @@ def create_app():
                 if not _disable_loop_breaker():
                     _remember_first_action(extracted, sentence)
                 _remember_first_action_name(extracted, sentence)
+                _trace_final_plan("pass1_ok", extracted)
                 return jsonify({"response": extracted})
 
             _trace_planner(f"=== validate_fail pass1 reason={reason}\n{extracted[:2000]}")
@@ -1260,10 +1297,12 @@ def create_app():
                 if not _disable_loop_breaker():
                     _remember_first_action(extracted_retry, sentence)
                 _remember_first_action_name(extracted_retry, sentence)
+                _trace_final_plan("retry_ok", extracted_retry)
                 return jsonify({"response": extracted_retry})
             _trace_planner(f"=== validate_fail retry reason={reason_retry}\n{extracted_retry[:2000]}")
             # Last fallback: return best-effort JSON instead of "{}" to avoid
             # planner_output_error spikes caused by missing executable_plan key.
+            _trace_final_plan("retry_fallback", extracted_retry)
             return jsonify({"response": extracted_retry})
         except Exception as e:
             traceback.print_exc()
