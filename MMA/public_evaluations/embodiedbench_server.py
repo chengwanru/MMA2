@@ -856,6 +856,7 @@ class EpisodeController:
         self.cooldown_find = 0
         self.find_fail_streak = 0
         self.pick_fail_streak = 0
+        self.ban_pick_target = False
 
     def _set_target_if_missing(self, target: str) -> None:
         if target and not self.target:
@@ -874,6 +875,7 @@ class EpisodeController:
             self.pick_fail_streak += 1
             self.mode = "RECOVERY"
             self.cooldown_pick = max(self.cooldown_pick, 3)
+            self.ban_pick_target = True
 
         # object-not-in-scene style failures: avoid repeating find immediately
         if "may not exist in this scene" in fb:
@@ -883,6 +885,12 @@ class EpisodeController:
             target_find = _extract_find_target_from_feedback(last_env_feedback).lower()
             if target_find:
                 self.target = target_find
+            self.ban_pick_target = True
+
+        # Positive evidence: if no cannot-find signal and feedback indicates success,
+        # allow pickup again.
+        if ("cannot find" not in fb) and ("last action is invalid" not in fb) and ("success" in fb):
+            self.ban_pick_target = False
 
         # If feedback includes clear success wording, relax recovery quickly.
         if ("last action is invalid" not in fb) and ("success" in fb):
@@ -916,7 +924,7 @@ class EpisodeController:
         pickup_ids = {aid for aid, desc in catalog.items() if _is_pickup_desc_for_target(desc, target or "__unknown_pick_target__")}
         find_ids = {aid for aid, desc in catalog.items() if _is_find_desc_for_target(desc, target)}
 
-        # 1) During pickup cooldown, remove all pickup steps for target.
+        # 1) During pickup cooldown/ban, remove all pickup steps for target.
         filtered: list[dict] = []
         for step in plan:
             if not isinstance(step, dict):
@@ -924,7 +932,7 @@ class EpisodeController:
             aid = step.get("action_id")
             if isinstance(aid, float) and aid == int(aid):
                 aid = int(aid)
-            if self.cooldown_pick > 0 and isinstance(aid, int) and aid in pickup_ids:
+            if (self.cooldown_pick > 0 or self.ban_pick_target) and isinstance(aid, int) and aid in pickup_ids:
                 continue
             filtered.append(step)
         if not filtered:
@@ -978,6 +986,21 @@ class EpisodeController:
             self.cooldown_find -= 1
         if self.cooldown_pick == 0 and self.cooldown_find == 0 and self.mode == "RECOVERY":
             self.mode = "NORMAL"
+
+        # Debug: verify pickup ban is respected in final plan when enabled.
+        if self.ban_pick_target and pickup_ids:
+            for step in filtered:
+                if not isinstance(step, dict):
+                    continue
+                aid = step.get("action_id")
+                if isinstance(aid, float) and aid == int(aid):
+                    aid = int(aid)
+                if isinstance(aid, int) and aid in pickup_ids:
+                    _trace_planner(
+                        "controller_violation "
+                        f"ban_pick_target=true but pickup_id still present: aid={aid}, target={target}"
+                    )
+                    break
 
         return json.dumps(obj, ensure_ascii=True)
 
