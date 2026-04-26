@@ -384,6 +384,72 @@ def _parse_action_catalog_lines(prompt_text: str) -> dict[int, str]:
     return catalog
 
 
+def _extract_pickup_target_from_action_name(action_name: str) -> str:
+    if not isinstance(action_name, str) or not action_name.strip():
+        return ""
+    m = re.search(r"(?i)^\s*pick\s+up\s+the\s+([a-z][a-z0-9_-]*)\b", action_name.strip())
+    if m:
+        return m.group(1).strip()
+    return ""
+
+
+def _has_find_for_target(plan: list, target: str) -> bool:
+    if not target:
+        return False
+    for step in plan:
+        if not isinstance(step, dict):
+            continue
+        name = str(step.get("action_name", "")).strip().lower()
+        if re.search(r"(?i)\bfind\b", name) and re.search(rf"(?i)\b{re.escape(target)}\b", name):
+            return True
+    return False
+
+
+def _choose_find_or_nav_replacement(catalog: dict[int, str], target: str) -> dict[str, object] | None:
+    for aid, desc in catalog.items():
+        d = desc.lower()
+        if target and re.search(r"(?i)\bfind\b", d) and re.search(rf"(?i)\b{re.escape(target)}\b", d):
+            return {"action_id": aid, "action_name": desc}
+    for aid, desc in catalog.items():
+        d = desc.lower()
+        if d.startswith(("turn left", "turn right", "look up", "look down", "move ahead", "move forward")):
+            return {"action_id": aid, "action_name": desc}
+    return None
+
+
+def _rewrite_pick_without_find_guard(json_text: str, sentence: str) -> str:
+    """
+    Feedback-independent safety net:
+    if plan starts with pick up X but does not include find X anywhere, rewrite
+    first step to find/navigation to avoid blind pickup loops.
+    """
+    try:
+        obj = json.loads(json_text)
+    except Exception:
+        return json_text
+    if not isinstance(obj, dict):
+        return json_text
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        return json_text
+    first = plan[0]
+    if not isinstance(first, dict):
+        return json_text
+    first_name = str(first.get("action_name", "")).strip()
+    target = _extract_pickup_target_from_action_name(first_name)
+    if not target:
+        return json_text
+    if _has_find_for_target(plan, target):
+        return json_text
+    catalog = _parse_action_catalog_lines(sentence)
+    replacement = _choose_find_or_nav_replacement(catalog, target)
+    if replacement is None:
+        return json_text
+    plan[0] = replacement
+    obj["executable_plan"] = plan
+    return json.dumps(obj, ensure_ascii=True)
+
+
 def _rewrite_pick_loop_first_step(
     json_text: str, sentence: str, last_env_feedback: str
 ) -> str:
@@ -422,18 +488,7 @@ def _rewrite_pick_loop_first_step(
     if not removed_pick:
         return json_text
 
-    replacement: dict[str, object] | None = None
-    for aid, desc in catalog.items():
-        d = desc.lower()
-        if re.search(r"(?i)\bfind\b", d) and re.search(rf"(?i)\b{re.escape(target)}\b", d):
-            replacement = {"action_id": aid, "action_name": desc}
-            break
-    if replacement is None:
-        for aid, desc in catalog.items():
-            d = desc.lower()
-            if d.startswith(("turn left", "turn right", "look up", "look down", "move ahead", "move forward")):
-                replacement = {"action_id": aid, "action_name": desc}
-                break
+    replacement = _choose_find_or_nav_replacement(catalog, target)
     if replacement is None:
         return json_text
 
@@ -636,6 +691,12 @@ def create_app():
         image = request.files["image"]
         sentence = request.form["sentence"]
         last_env_feedback = (request.form.get("last_env_feedback") or "").strip()
+        if os.environ.get("EMBODIEDBENCH_DEBUG_FEEDBACK", "").strip().lower() in ("1", "true", "yes"):
+            _trace_planner(
+                "feedback_debug "
+                f"has_last_env_feedback={'yes' if bool(last_env_feedback) else 'no'} "
+                f"form_keys={sorted(list(request.form.keys()))}"
+            )
         sim_info = _collect_structured_sim_info(request.form)
         if image.filename == "":
             return jsonify({"error": "No selected file"}), 400
@@ -679,6 +740,7 @@ def create_app():
             extracted = remap_executable_plan_ids_from_prompt(extracted, sentence)
             extracted = postprocess_executable_plan(extracted, sentence)
             extracted = _rewrite_pick_loop_first_step(extracted, sentence, last_env_feedback)
+            extracted = _rewrite_pick_without_find_guard(extracted, sentence)
             if _enable_first_action_guard():
                 extracted = enforce_first_action_guard(extracted, sentence)
             if not _disable_loop_breaker():
@@ -723,6 +785,7 @@ def create_app():
             extracted_retry = remap_executable_plan_ids_from_prompt(extracted_retry, sentence)
             extracted_retry = postprocess_executable_plan(extracted_retry, sentence)
             extracted_retry = _rewrite_pick_loop_first_step(extracted_retry, sentence, last_env_feedback)
+            extracted_retry = _rewrite_pick_without_find_guard(extracted_retry, sentence)
             if _enable_first_action_guard():
                 extracted_retry = enforce_first_action_guard(extracted_retry, sentence)
             if not _disable_loop_breaker():
