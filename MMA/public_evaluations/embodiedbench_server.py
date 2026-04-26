@@ -277,6 +277,7 @@ _app = None
 _agent = None
 _upload_dir = None
 _last_first_action_by_instruction = {}
+_last_first_action_name_by_instruction = {}
 
 
 def get_upload_dir():
@@ -606,6 +607,55 @@ def _remember_first_action(json_text: str, sentence: str) -> None:
     }
 
 
+def _avoid_repeated_find_first_action_by_name(json_text: str, sentence: str) -> str:
+    """
+    Feedback-independent loop breaker: if the same first-step find action name is
+    repeated for the same instruction, rewrite first step to a navigation action.
+    """
+    key = _instruction_key(sentence)
+    if not key:
+        return json_text
+    prev_name = _last_first_action_name_by_instruction.get(key, "")
+    if not isinstance(prev_name, str) or not prev_name:
+        return json_text
+    try:
+        obj = json.loads(json_text)
+    except Exception:
+        return json_text
+    if not isinstance(obj, dict):
+        return json_text
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        return json_text
+    first = plan[0]
+    if not isinstance(first, dict):
+        return json_text
+    first_name = str(first.get("action_name", "")).strip()
+    if not first_name:
+        return json_text
+    if first_name.lower() != prev_name.lower():
+        return json_text
+    if not re.search(r"(?i)^\s*find\b", first_name):
+        return json_text
+    catalog = _parse_action_catalog_lines(sentence)
+    nav = _choose_nav_replacement(catalog)
+    if nav is None:
+        return json_text
+    plan[0] = nav
+    obj["executable_plan"] = plan
+    return json.dumps(obj, ensure_ascii=True)
+
+
+def _remember_first_action_name(json_text: str, sentence: str) -> None:
+    key = _instruction_key(sentence)
+    if not key:
+        return
+    name = _extract_first_action_name(json_text)
+    if not name:
+        return
+    _last_first_action_name_by_instruction[key] = name
+
+
 def _failure_feedback_hint(sentence: str) -> str:
     """
     Give planner a concrete anti-loop signal from previous failed attempts
@@ -799,6 +849,7 @@ def create_app():
             extracted = _rewrite_pick_loop_first_step(extracted, sentence, last_env_feedback)
             extracted = _rewrite_pick_without_find_guard(extracted, sentence)
             extracted = _rewrite_find_not_in_scene_loop(extracted, sentence, last_env_feedback)
+            extracted = _avoid_repeated_find_first_action_by_name(extracted, sentence)
             if _enable_first_action_guard():
                 extracted = enforce_first_action_guard(extracted, sentence)
             if not _disable_loop_breaker():
@@ -814,6 +865,7 @@ def create_app():
             if ok:
                 if not _disable_loop_breaker():
                     _remember_first_action(extracted, sentence)
+                _remember_first_action_name(extracted, sentence)
                 return jsonify({"response": extracted})
 
             _trace_planner(f"=== validate_fail pass1 reason={reason}\n{extracted[:2000]}")
@@ -845,6 +897,7 @@ def create_app():
             extracted_retry = _rewrite_pick_loop_first_step(extracted_retry, sentence, last_env_feedback)
             extracted_retry = _rewrite_pick_without_find_guard(extracted_retry, sentence)
             extracted_retry = _rewrite_find_not_in_scene_loop(extracted_retry, sentence, last_env_feedback)
+            extracted_retry = _avoid_repeated_find_first_action_by_name(extracted_retry, sentence)
             if _enable_first_action_guard():
                 extracted_retry = enforce_first_action_guard(extracted_retry, sentence)
             if not _disable_loop_breaker():
@@ -856,6 +909,7 @@ def create_app():
             if ok_retry:
                 if not _disable_loop_breaker():
                     _remember_first_action(extracted_retry, sentence)
+                _remember_first_action_name(extracted_retry, sentence)
                 return jsonify({"response": extracted_retry})
             _trace_planner(f"=== validate_fail retry reason={reason_retry}\n{extracted_retry[:2000]}")
             # Last fallback: return best-effort JSON instead of "{}" to avoid
