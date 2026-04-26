@@ -365,6 +365,18 @@ def _extract_pickup_target_from_feedback(last_env_feedback: str) -> str:
     return ""
 
 
+def _extract_find_target_from_feedback(last_env_feedback: str) -> str:
+    if not isinstance(last_env_feedback, str) or not last_env_feedback.strip():
+        return ""
+    m = re.search(
+        r"(?i)cannot\s+find\s+([a-z][a-z0-9_-]*)\b",
+        last_env_feedback,
+    )
+    if m:
+        return m.group(1).strip()
+    return ""
+
+
 def _parse_action_catalog_lines(prompt_text: str) -> dict[int, str]:
     catalog: dict[int, str] = {}
     if not isinstance(prompt_text, str) or not prompt_text.strip():
@@ -417,6 +429,14 @@ def _choose_find_or_nav_replacement(catalog: dict[int, str], target: str) -> dic
     return None
 
 
+def _choose_nav_replacement(catalog: dict[int, str]) -> dict[str, object] | None:
+    for aid, desc in catalog.items():
+        d = desc.lower()
+        if d.startswith(("turn left", "turn right", "look up", "look down", "move ahead", "move forward")):
+            return {"action_id": aid, "action_name": desc}
+    return None
+
+
 def _rewrite_pick_without_find_guard(json_text: str, sentence: str) -> str:
     """
     Feedback-independent safety net:
@@ -446,6 +466,43 @@ def _rewrite_pick_without_find_guard(json_text: str, sentence: str) -> str:
     if replacement is None:
         return json_text
     plan[0] = replacement
+    obj["executable_plan"] = plan
+    return json.dumps(obj, ensure_ascii=True)
+
+
+def _rewrite_find_not_in_scene_loop(
+    json_text: str, sentence: str, last_env_feedback: str
+) -> str:
+    """
+    If feedback says the current target is not in scene, avoid repeating the same
+    first-step find action; use a navigation step to explore before finding again.
+    """
+    if not re.search(r"(?i)may\s+not\s+exist\s+in\s+this\s+scene", last_env_feedback or ""):
+        return json_text
+    target = _extract_find_target_from_feedback(last_env_feedback)
+    if not target:
+        return json_text
+    try:
+        obj = json.loads(json_text)
+    except Exception:
+        return json_text
+    if not isinstance(obj, dict):
+        return json_text
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        return json_text
+    first = plan[0]
+    if not isinstance(first, dict):
+        return json_text
+    first_name = str(first.get("action_name", "")).strip().lower()
+    if not (re.search(r"(?i)\bfind\b", first_name) and re.search(rf"(?i)\b{re.escape(target)}\b", first_name)):
+        return json_text
+
+    catalog = _parse_action_catalog_lines(sentence)
+    nav = _choose_nav_replacement(catalog)
+    if nav is None:
+        return json_text
+    plan[0] = nav
     obj["executable_plan"] = plan
     return json.dumps(obj, ensure_ascii=True)
 
@@ -741,6 +798,7 @@ def create_app():
             extracted = postprocess_executable_plan(extracted, sentence)
             extracted = _rewrite_pick_loop_first_step(extracted, sentence, last_env_feedback)
             extracted = _rewrite_pick_without_find_guard(extracted, sentence)
+            extracted = _rewrite_find_not_in_scene_loop(extracted, sentence, last_env_feedback)
             if _enable_first_action_guard():
                 extracted = enforce_first_action_guard(extracted, sentence)
             if not _disable_loop_breaker():
@@ -786,6 +844,7 @@ def create_app():
             extracted_retry = postprocess_executable_plan(extracted_retry, sentence)
             extracted_retry = _rewrite_pick_loop_first_step(extracted_retry, sentence, last_env_feedback)
             extracted_retry = _rewrite_pick_without_find_guard(extracted_retry, sentence)
+            extracted_retry = _rewrite_find_not_in_scene_loop(extracted_retry, sentence, last_env_feedback)
             if _enable_first_action_guard():
                 extracted_retry = enforce_first_action_guard(extracted_retry, sentence)
             if not _disable_loop_breaker():
