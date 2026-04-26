@@ -449,6 +449,65 @@ def _choose_nav_replacement(catalog: dict[int, str]) -> dict[str, object] | None
     return None
 
 
+def _is_pickup_desc_for_target(desc: str, target: str) -> bool:
+    d = (desc or "").strip().lower()
+    if not d.startswith("pick up"):
+        return False
+    if not target or target == "__unknown_pick_target__":
+        return True
+    return bool(re.search(rf"(?i)\b{re.escape(target)}\b", d))
+
+
+def _rewrite_pick_loop_by_action_id(
+    json_text: str, sentence: str, last_env_feedback: str
+) -> str:
+    """
+    Action-id based anti-loop fallback.
+    Remove pickup steps (by action_id mapped from ACTION LIST desc) when feedback
+    indicates cannot-find+pickup, then force first step to find/nav.
+    """
+    target = _extract_pickup_target_from_feedback(last_env_feedback)
+    if not target:
+        return json_text
+    try:
+        obj = json.loads(json_text)
+    except Exception:
+        return json_text
+    if not isinstance(obj, dict):
+        return json_text
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        return json_text
+    catalog = _parse_action_catalog_lines(sentence)
+    if not catalog:
+        return json_text
+
+    pickup_ids = {aid for aid, desc in catalog.items() if _is_pickup_desc_for_target(desc, target)}
+    filtered: list[dict] = []
+    removed = False
+    for step in plan:
+        if not isinstance(step, dict):
+            continue
+        aid = step.get("action_id")
+        if isinstance(aid, float) and aid == int(aid):
+            aid = int(aid)
+        if isinstance(aid, int) and aid in pickup_ids:
+            removed = True
+            continue
+        filtered.append(step)
+    if not removed:
+        return json_text
+
+    replacement = _choose_find_or_nav_replacement(catalog, "" if target == "__unknown_pick_target__" else target)
+    if replacement is not None:
+        if not filtered:
+            filtered = [replacement]
+        else:
+            filtered[0] = replacement
+    obj["executable_plan"] = filtered
+    return json.dumps(obj, ensure_ascii=True)
+
+
 def _rewrite_pick_without_find_guard(json_text: str, sentence: str) -> str:
     """
     Feedback-independent safety net:
@@ -873,6 +932,7 @@ def create_app():
                 extracted = _avoid_previous_first_action(extracted, sentence)
             # Keep anti-pickup-loop rewrite last so later guards do not reintroduce pickup.
             extracted = _rewrite_pick_loop_first_step(extracted, sentence, last_env_feedback)
+            extracted = _rewrite_pick_loop_by_action_id(extracted, sentence, last_env_feedback)
             # Regex-based allowlists often miss ids or over-restrict; EB still validates actions.
             # Default: no id whitelist (set EMBODIEDBENCH_ENFORCE_ACTION_ALLOWLIST=1 to enable).
             aids = None
@@ -922,6 +982,7 @@ def create_app():
             if not _disable_loop_breaker():
                 extracted_retry = _avoid_previous_first_action(extracted_retry, sentence)
             extracted_retry = _rewrite_pick_loop_first_step(extracted_retry, sentence, last_env_feedback)
+            extracted_retry = _rewrite_pick_loop_by_action_id(extracted_retry, sentence, last_env_feedback)
             ok_retry, reason_retry = validate_executable_plan_json(
                 extracted_retry,
                 allowed_action_ids=aids,
