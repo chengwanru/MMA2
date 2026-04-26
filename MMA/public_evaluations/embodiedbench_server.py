@@ -388,8 +388,12 @@ def _rewrite_pick_loop_first_step(
     json_text: str, sentence: str, last_env_feedback: str
 ) -> str:
     """
-    If env feedback says "Cannot find X to pick up", avoid repeating "pick up X"
-    as the first step in the next plan. Prefer "find a X", else a navigation step.
+    If env feedback says "Cannot find X to pick up", suppress repeated "pick up X"
+    in the returned plan until the model re-establishes visibility via find/navigation.
+
+    Strategy:
+      1) remove all "pick up X" steps from executable_plan
+      2) ensure the first step is "find a X" if available, else a navigation action
     """
     target = _extract_pickup_target_from_feedback(last_env_feedback)
     if not target:
@@ -403,14 +407,21 @@ def _rewrite_pick_loop_first_step(
     plan = obj.get("executable_plan")
     if not isinstance(plan, list) or not plan:
         return json_text
-    first = plan[0]
-    if not isinstance(first, dict):
-        return json_text
-    first_name = str(first.get("action_name", "")).strip().lower()
-    if not (first_name.startswith("pick up") and re.search(rf"(?i)\b{re.escape(target)}\b", first_name)):
+    catalog = _parse_action_catalog_lines(sentence)
+    # Drop all direct pickup attempts for the missing target.
+    filtered: list[dict] = []
+    removed_pick = False
+    for step in plan:
+        if not isinstance(step, dict):
+            continue
+        sname = str(step.get("action_name", "")).strip().lower()
+        if sname.startswith("pick up") and re.search(rf"(?i)\b{re.escape(target)}\b", sname):
+            removed_pick = True
+            continue
+        filtered.append(step)
+    if not removed_pick:
         return json_text
 
-    catalog = _parse_action_catalog_lines(sentence)
     replacement: dict[str, object] | None = None
     for aid, desc in catalog.items():
         d = desc.lower()
@@ -425,8 +436,14 @@ def _rewrite_pick_loop_first_step(
                 break
     if replacement is None:
         return json_text
-    plan[0] = replacement
-    obj["executable_plan"] = plan
+
+    if not filtered:
+        filtered = [replacement]
+    else:
+        first_name = str(filtered[0].get("action_name", "")).strip().lower()
+        if not (re.search(r"(?i)\bfind\b", first_name) and re.search(rf"(?i)\b{re.escape(target)}\b", first_name)):
+            filtered[0] = replacement
+    obj["executable_plan"] = filtered
     return json.dumps(obj, ensure_ascii=True)
 
 
