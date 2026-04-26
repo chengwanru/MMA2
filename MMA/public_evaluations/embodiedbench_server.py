@@ -350,6 +350,17 @@ def _extract_first_action_name(json_text: str) -> str:
 def _extract_pickup_target_from_feedback(last_env_feedback: str) -> str:
     if not isinstance(last_env_feedback, str) or not last_env_feedback.strip():
         return ""
+    fb = last_env_feedback.strip()
+    # Broad fallback first: any feedback mentioning cannot-find and pick-up
+    # should trigger anti-pickup loop handling even if wording changes.
+    if re.search(r"(?i)cannot\s+find", fb) and re.search(r"(?i)pick\s*up", fb):
+        m_obj = re.search(r"(?i)cannot\s+find\s+([a-z][a-z0-9_-]*)\b", fb)
+        if m_obj:
+            return m_obj.group(1).strip()
+        m_obj2 = re.search(r"(?i)pick\s*up\s+the\s+([a-z][a-z0-9_-]*)\b", fb)
+        if m_obj2:
+            return m_obj2.group(1).strip()
+        return "__unknown_pick_target__"
     m = re.search(
         r"(?i)cannot\s+find\s+([a-z][a-z0-9_-]*)\s+to\s+pick\s+up",
         last_env_feedback,
@@ -539,14 +550,18 @@ def _rewrite_pick_loop_first_step(
         if not isinstance(step, dict):
             continue
         sname = str(step.get("action_name", "")).strip().lower()
-        if sname.startswith("pick up") and re.search(rf"(?i)\b{re.escape(target)}\b", sname):
+        if target == "__unknown_pick_target__":
+            if sname.startswith("pick up"):
+                removed_pick = True
+                continue
+        elif sname.startswith("pick up") and re.search(rf"(?i)\b{re.escape(target)}\b", sname):
             removed_pick = True
             continue
         filtered.append(step)
     if not removed_pick:
         return json_text
 
-    replacement = _choose_find_or_nav_replacement(catalog, target)
+    replacement = _choose_find_or_nav_replacement(catalog, "" if target == "__unknown_pick_target__" else target)
     if replacement is None:
         return json_text
 
@@ -799,10 +814,12 @@ def create_app():
         sentence = request.form["sentence"]
         last_env_feedback = (request.form.get("last_env_feedback") or "").strip()
         if os.environ.get("EMBODIEDBENCH_DEBUG_FEEDBACK", "").strip().lower() in ("1", "true", "yes"):
+            snippet = last_env_feedback.replace("\n", " ")[:180]
             _trace_planner(
                 "feedback_debug "
                 f"has_last_env_feedback={'yes' if bool(last_env_feedback) else 'no'} "
-                f"form_keys={sorted(list(request.form.keys()))}"
+                f"form_keys={sorted(list(request.form.keys()))} "
+                f"last_env_feedback_snippet={snippet!r}"
             )
         sim_info = _collect_structured_sim_info(request.form)
         if image.filename == "":
@@ -854,6 +871,8 @@ def create_app():
                 extracted = enforce_first_action_guard(extracted, sentence)
             if not _disable_loop_breaker():
                 extracted = _avoid_previous_first_action(extracted, sentence)
+            # Keep anti-pickup-loop rewrite last so later guards do not reintroduce pickup.
+            extracted = _rewrite_pick_loop_first_step(extracted, sentence, last_env_feedback)
             # Regex-based allowlists often miss ids or over-restrict; EB still validates actions.
             # Default: no id whitelist (set EMBODIEDBENCH_ENFORCE_ACTION_ALLOWLIST=1 to enable).
             aids = None
@@ -902,6 +921,7 @@ def create_app():
                 extracted_retry = enforce_first_action_guard(extracted_retry, sentence)
             if not _disable_loop_breaker():
                 extracted_retry = _avoid_previous_first_action(extracted_retry, sentence)
+            extracted_retry = _rewrite_pick_loop_first_step(extracted_retry, sentence, last_env_feedback)
             ok_retry, reason_retry = validate_executable_plan_json(
                 extracted_retry,
                 allowed_action_ids=aids,
