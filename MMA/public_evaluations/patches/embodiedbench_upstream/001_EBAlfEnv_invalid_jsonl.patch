@@ -5,6 +5,7 @@
  import numpy as np
  from PIL import Image 
 +import hashlib
++import re
  
  # Import custom modules
  import embodiedbench.envs.eb_alfred.utils as utils
@@ -21,6 +22,12 @@
 +        return "missing_action_args"
 +    if "teleportfull" in m:
 +        return "teleport_failure"
++    if re.search(r"cannot\s+find\s+.+\s+to\s+pick\s+up", m):
++        return "not_found_before_pickup"
++    if "find the object before picking up" in m:
++        return "not_found_before_pickup"
++    if "may not exist in this scene" in m:
++        return "object_not_in_scene"
 +    if "not visible" in m:
 +        return "not_visible"
 +    if "too far" in m or "out of reach" in m:

@@ -346,6 +346,90 @@ def _extract_first_action_name(json_text: str) -> str:
     return ""
 
 
+def _extract_pickup_target_from_feedback(last_env_feedback: str) -> str:
+    if not isinstance(last_env_feedback, str) or not last_env_feedback.strip():
+        return ""
+    m = re.search(
+        r"(?i)cannot\s+find\s+([a-z][a-z0-9_-]*)\s+to\s+pick\s+up",
+        last_env_feedback,
+    )
+    if m:
+        return m.group(1).strip()
+    m = re.search(
+        r"(?i)find\s+the\s+object\s+before\s+picking\s+up",
+        last_env_feedback,
+    )
+    if m:
+        # No explicit object in this variant; caller should skip.
+        return ""
+    return ""
+
+
+def _parse_action_catalog_lines(prompt_text: str) -> dict[int, str]:
+    catalog: dict[int, str] = {}
+    if not isinstance(prompt_text, str) or not prompt_text.strip():
+        return catalog
+    for m in re.finditer(r"(?m)^\s*(\d{1,4})\s*:\s*(.+?)\s*$", prompt_text):
+        try:
+            aid = int(m.group(1))
+        except ValueError:
+            continue
+        catalog[aid] = m.group(2).strip()
+    for m in re.finditer(r"(?m)^\s*\[\s*(\d{1,4})\s*\]\s*(.+?)\s*$", prompt_text):
+        try:
+            aid = int(m.group(1))
+        except ValueError:
+            continue
+        catalog[aid] = m.group(2).strip()
+    return catalog
+
+
+def _rewrite_pick_loop_first_step(
+    json_text: str, sentence: str, last_env_feedback: str
+) -> str:
+    """
+    If env feedback says "Cannot find X to pick up", avoid repeating "pick up X"
+    as the first step in the next plan. Prefer "find a X", else a navigation step.
+    """
+    target = _extract_pickup_target_from_feedback(last_env_feedback)
+    if not target:
+        return json_text
+    try:
+        obj = json.loads(json_text)
+    except Exception:
+        return json_text
+    if not isinstance(obj, dict):
+        return json_text
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        return json_text
+    first = plan[0]
+    if not isinstance(first, dict):
+        return json_text
+    first_name = str(first.get("action_name", "")).strip().lower()
+    if not (first_name.startswith("pick up") and re.search(rf"(?i)\b{re.escape(target)}\b", first_name)):
+        return json_text
+
+    catalog = _parse_action_catalog_lines(sentence)
+    replacement: dict[str, object] | None = None
+    for aid, desc in catalog.items():
+        d = desc.lower()
+        if re.search(r"(?i)\bfind\b", d) and re.search(rf"(?i)\b{re.escape(target)}\b", d):
+            replacement = {"action_id": aid, "action_name": desc}
+            break
+    if replacement is None:
+        for aid, desc in catalog.items():
+            d = desc.lower()
+            if d.startswith(("turn left", "turn right", "look up", "look down", "move ahead", "move forward")):
+                replacement = {"action_id": aid, "action_name": desc}
+                break
+    if replacement is None:
+        return json_text
+    plan[0] = replacement
+    obj["executable_plan"] = plan
+    return json.dumps(obj, ensure_ascii=True)
+
+
 def _avoid_previous_first_action(json_text: str, sentence: str) -> str:
     """
     Break invalid-action loops: if this task just used action X as first step last
@@ -577,6 +661,7 @@ def create_app():
             extracted = extract_json_from_response(response_text)
             extracted = remap_executable_plan_ids_from_prompt(extracted, sentence)
             extracted = postprocess_executable_plan(extracted, sentence)
+            extracted = _rewrite_pick_loop_first_step(extracted, sentence, last_env_feedback)
             if _enable_first_action_guard():
                 extracted = enforce_first_action_guard(extracted, sentence)
             if not _disable_loop_breaker():
@@ -620,6 +705,7 @@ def create_app():
             extracted_retry = extract_json_from_response(retry_text)
             extracted_retry = remap_executable_plan_ids_from_prompt(extracted_retry, sentence)
             extracted_retry = postprocess_executable_plan(extracted_retry, sentence)
+            extracted_retry = _rewrite_pick_loop_first_step(extracted_retry, sentence, last_env_feedback)
             if _enable_first_action_guard():
                 extracted_retry = enforce_first_action_guard(extracted_retry, sentence)
             if not _disable_loop_breaker():
