@@ -278,6 +278,7 @@ _agent = None
 _upload_dir = None
 _last_first_action_by_instruction = {}
 _last_first_action_name_by_instruction = {}
+_controller_by_instruction = {}
 
 
 def get_upload_dir():
@@ -730,6 +731,181 @@ def _remember_first_action_name(json_text: str, sentence: str) -> None:
     _last_first_action_name_by_instruction[key] = name
 
 
+def _is_find_desc_for_target(desc: str, target: str) -> bool:
+    d = (desc or "").strip().lower()
+    if not re.search(r"(?i)\bfind\b", d):
+        return False
+    if not target:
+        return True
+    return bool(re.search(rf"(?i)\b{re.escape(target)}\b", d))
+
+
+def _extract_target_from_instruction(sentence: str, catalog: dict[int, str]) -> str:
+    text = (sentence or "").lower()
+    # Prefer object names that appear in find-actions and task text.
+    cands: list[str] = []
+    for desc in catalog.values():
+        m = re.search(r"(?i)\bfind\s+a[n]?\s+([a-z][a-z0-9_-]*)\b", desc)
+        if m:
+            cands.append(m.group(1).lower())
+    for c in sorted(set(cands), key=len, reverse=True):
+        if re.search(rf"(?i)\b{re.escape(c)}\b", text):
+            return c
+    return cands[0] if cands else ""
+
+
+class EpisodeController:
+    """
+    Lightweight embodied-agent style controller:
+    - Tracks failure mode by feedback
+    - Applies short cooldowns to prevent oscillation
+    - Enforces preconditions (no blind pickup before find)
+    """
+
+    def __init__(self):
+        self.target = ""
+        self.mode = "NORMAL"  # NORMAL | RECOVERY
+        self.cooldown_pick = 0
+        self.cooldown_find = 0
+        self.find_fail_streak = 0
+        self.pick_fail_streak = 0
+
+    def _set_target_if_missing(self, target: str) -> None:
+        if target and not self.target:
+            self.target = target.lower()
+
+    def update_from_feedback(self, last_env_feedback: str, sentence: str) -> None:
+        fb = (last_env_feedback or "").strip().lower()
+        if not fb:
+            return
+        target_pick = _extract_pickup_target_from_feedback(last_env_feedback).lower()
+        if target_pick and target_pick != "__unknown_pick_target__":
+            self.target = target_pick
+
+        # cannot-find pickup failures: strongly suppress pickup for a few rounds
+        if ("cannot find" in fb) and ("pick up" in fb):
+            self.pick_fail_streak += 1
+            self.mode = "RECOVERY"
+            self.cooldown_pick = max(self.cooldown_pick, 3)
+
+        # object-not-in-scene style failures: avoid repeating find immediately
+        if "may not exist in this scene" in fb:
+            self.find_fail_streak += 1
+            self.mode = "RECOVERY"
+            self.cooldown_find = max(self.cooldown_find, 2)
+            target_find = _extract_find_target_from_feedback(last_env_feedback).lower()
+            if target_find:
+                self.target = target_find
+
+        # If feedback includes clear success wording, relax recovery quickly.
+        if ("last action is invalid" not in fb) and ("success" in fb):
+            self.mode = "NORMAL"
+            self.find_fail_streak = 0
+            self.pick_fail_streak = 0
+            self.cooldown_find = 0
+            self.cooldown_pick = 0
+
+        # Infer target from instruction/catalog if still unknown.
+        if not self.target:
+            catalog = _parse_action_catalog_lines(sentence)
+            self.target = _extract_target_from_instruction(sentence, catalog)
+
+    def rewrite_plan(self, json_text: str, sentence: str) -> str:
+        try:
+            obj = json.loads(json_text)
+        except Exception:
+            return json_text
+        if not isinstance(obj, dict):
+            return json_text
+        plan = obj.get("executable_plan")
+        if not isinstance(plan, list) or not plan:
+            return json_text
+        catalog = _parse_action_catalog_lines(sentence)
+        if not catalog:
+            return json_text
+        target = (self.target or "").lower()
+
+        # Build pickup/find id sets for target.
+        pickup_ids = {aid for aid, desc in catalog.items() if _is_pickup_desc_for_target(desc, target or "__unknown_pick_target__")}
+        find_ids = {aid for aid, desc in catalog.items() if _is_find_desc_for_target(desc, target)}
+
+        # 1) During pickup cooldown, remove all pickup steps for target.
+        filtered: list[dict] = []
+        for step in plan:
+            if not isinstance(step, dict):
+                continue
+            aid = step.get("action_id")
+            if isinstance(aid, float) and aid == int(aid):
+                aid = int(aid)
+            if self.cooldown_pick > 0 and isinstance(aid, int) and aid in pickup_ids:
+                continue
+            filtered.append(step)
+        if not filtered:
+            nav = _choose_nav_replacement(catalog)
+            if nav:
+                filtered = [nav]
+            else:
+                filtered = plan
+
+        # 2) During find cooldown, do not start with same-target find.
+        first = filtered[0] if filtered and isinstance(filtered[0], dict) else None
+        first_aid = None
+        if first is not None:
+            first_aid = first.get("action_id")
+            if isinstance(first_aid, float) and first_aid == int(first_aid):
+                first_aid = int(first_aid)
+        if self.cooldown_find > 0 and isinstance(first_aid, int) and first_aid in find_ids:
+            nav = _choose_nav_replacement(catalog)
+            if nav:
+                filtered[0] = nav
+
+        # 3) Precondition gate: if first step is pickup target and no find target
+        # appears in the plan, force first step to find/nav.
+        first = filtered[0] if filtered and isinstance(filtered[0], dict) else None
+        first_aid = None
+        if first is not None:
+            first_aid = first.get("action_id")
+            if isinstance(first_aid, float) and first_aid == int(first_aid):
+                first_aid = int(first_aid)
+        has_find = False
+        for step in filtered:
+            if not isinstance(step, dict):
+                continue
+            aid = step.get("action_id")
+            if isinstance(aid, float) and aid == int(aid):
+                aid = int(aid)
+            if isinstance(aid, int) and aid in find_ids:
+                has_find = True
+                break
+        if isinstance(first_aid, int) and first_aid in pickup_ids and not has_find:
+            replacement = _choose_find_or_nav_replacement(catalog, target)
+            if replacement:
+                filtered[0] = replacement
+
+        obj["executable_plan"] = filtered
+
+        # Consume one cooldown step after producing guarded plan.
+        if self.cooldown_pick > 0:
+            self.cooldown_pick -= 1
+        if self.cooldown_find > 0:
+            self.cooldown_find -= 1
+        if self.cooldown_pick == 0 and self.cooldown_find == 0 and self.mode == "RECOVERY":
+            self.mode = "NORMAL"
+
+        return json.dumps(obj, ensure_ascii=True)
+
+
+def _get_controller(sentence: str) -> EpisodeController:
+    key = _instruction_key(sentence)
+    if not key:
+        key = "__default__"
+    ctl = _controller_by_instruction.get(key)
+    if ctl is None:
+        ctl = EpisodeController()
+        _controller_by_instruction[key] = ctl
+    return ctl
+
+
 def _failure_feedback_hint(sentence: str) -> str:
     """
     Give planner a concrete anti-loop signal from previous failed attempts
@@ -892,6 +1068,8 @@ def create_app():
         try:
             image.save(image_path)
             agent = get_agent()
+            controller = _get_controller(sentence)
+            controller.update_from_feedback(last_env_feedback, sentence)
             planner_message = _augment_planner_sentence(sentence)
             catalog_hint = _optional_action_catalog_object_hint(sentence)
             if catalog_hint:
@@ -933,6 +1111,7 @@ def create_app():
             # Keep anti-pickup-loop rewrite last so later guards do not reintroduce pickup.
             extracted = _rewrite_pick_loop_first_step(extracted, sentence, last_env_feedback)
             extracted = _rewrite_pick_loop_by_action_id(extracted, sentence, last_env_feedback)
+            extracted = controller.rewrite_plan(extracted, sentence)
             # Regex-based allowlists often miss ids or over-restrict; EB still validates actions.
             # Default: no id whitelist (set EMBODIEDBENCH_ENFORCE_ACTION_ALLOWLIST=1 to enable).
             aids = None
@@ -983,6 +1162,7 @@ def create_app():
                 extracted_retry = _avoid_previous_first_action(extracted_retry, sentence)
             extracted_retry = _rewrite_pick_loop_first_step(extracted_retry, sentence, last_env_feedback)
             extracted_retry = _rewrite_pick_loop_by_action_id(extracted_retry, sentence, last_env_feedback)
+            extracted_retry = controller.rewrite_plan(extracted_retry, sentence)
             ok_retry, reason_retry = validate_executable_plan_json(
                 extracted_retry,
                 allowed_action_ids=aids,
