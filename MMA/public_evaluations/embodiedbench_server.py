@@ -754,6 +754,93 @@ def _extract_target_from_instruction(sentence: str, catalog: dict[int, str]) -> 
     return cands[0] if cands else ""
 
 
+def _is_nav_desc(desc: str) -> bool:
+    d = (desc or "").strip().lower()
+    return d.startswith(
+        (
+            "turn left",
+            "turn right",
+            "look up",
+            "look down",
+            "move ahead",
+            "move forward",
+            "move back",
+            "move backward",
+            "rotate left",
+            "rotate right",
+        )
+    )
+
+
+def _is_target_related_desc(desc: str, target: str, instruction: str) -> bool:
+    d = (desc or "").strip().lower()
+    t = (target or "").lower().strip()
+    instr = (instruction or "").lower()
+    if not d:
+        return False
+    if _is_nav_desc(d):
+        return True
+    if t and re.search(rf"(?i)\b{re.escape(t)}\b", d):
+        return True
+    # Allow essential sink/table style actions only when instruction mentions them.
+    for helper in ("sink", "faucet", "table", "counter", "countertop"):
+        if helper in instr and re.search(rf"(?i)\b{re.escape(helper)}\b", d):
+            return True
+    # Keep neutral "put down object in hand" because it can be needed for recovery.
+    if "put down the object in hand" in d:
+        return True
+    return False
+
+
+def _hard_filter_plan_to_target(json_text: str, sentence: str) -> str:
+    """
+    Task-target hard constraint:
+    remove unrelated find/pick/manipulation actions to keep plan focused on
+    target object + essential navigation/context actions.
+    """
+    try:
+        obj = json.loads(json_text)
+    except Exception:
+        return json_text
+    if not isinstance(obj, dict):
+        return json_text
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        return json_text
+
+    catalog = _parse_action_catalog_lines(sentence)
+    target = _extract_target_from_instruction(sentence, catalog)
+    if not target:
+        return json_text
+
+    filtered: list[dict] = []
+    for step in plan:
+        if not isinstance(step, dict):
+            continue
+        aid = step.get("action_id")
+        if isinstance(aid, float) and aid == int(aid):
+            aid = int(aid)
+        desc = ""
+        if isinstance(aid, int):
+            desc = catalog.get(aid, "")
+        if not desc:
+            desc = str(step.get("action_name", "") or "")
+        if _is_target_related_desc(desc, target, sentence):
+            filtered.append(step)
+
+    if not filtered:
+        replacement = _choose_find_or_nav_replacement(catalog, target)
+        if replacement is None:
+            replacement = _choose_nav_replacement(catalog)
+        if replacement is not None:
+            filtered = [replacement]
+        else:
+            return json_text
+
+    obj["executable_plan"] = filtered
+    return json.dumps(obj, ensure_ascii=True)
+
+
 class EpisodeController:
     """
     Lightweight embodied-agent style controller:
@@ -1112,6 +1199,7 @@ def create_app():
             extracted = _rewrite_pick_loop_first_step(extracted, sentence, last_env_feedback)
             extracted = _rewrite_pick_loop_by_action_id(extracted, sentence, last_env_feedback)
             extracted = controller.rewrite_plan(extracted, sentence)
+            extracted = _hard_filter_plan_to_target(extracted, sentence)
             # Regex-based allowlists often miss ids or over-restrict; EB still validates actions.
             # Default: no id whitelist (set EMBODIEDBENCH_ENFORCE_ACTION_ALLOWLIST=1 to enable).
             aids = None
@@ -1163,6 +1251,7 @@ def create_app():
             extracted_retry = _rewrite_pick_loop_first_step(extracted_retry, sentence, last_env_feedback)
             extracted_retry = _rewrite_pick_loop_by_action_id(extracted_retry, sentence, last_env_feedback)
             extracted_retry = controller.rewrite_plan(extracted_retry, sentence)
+            extracted_retry = _hard_filter_plan_to_target(extracted_retry, sentence)
             ok_retry, reason_retry = validate_executable_plan_json(
                 extracted_retry,
                 allowed_action_ids=aids,
