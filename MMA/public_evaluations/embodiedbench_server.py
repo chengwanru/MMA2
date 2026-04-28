@@ -279,6 +279,8 @@ _upload_dir = None
 _last_first_action_by_instruction = {}
 _last_first_action_name_by_instruction = {}
 _controller_by_instruction = {}
+_diag_feedback_state_by_instruction = {}
+_diag_plan_signature_by_instruction = {}
 
 
 def get_upload_dir():
@@ -304,6 +306,65 @@ def _instruction_key(sentence: str) -> str:
         if m:
             return m.group(1).strip().lower()
     return sentence.strip().lower()[:300]
+
+
+def _extract_plan_signature(json_text: str, max_steps: int = 3) -> str:
+    """Return compact first-N action signature for loop diagnostics."""
+    try:
+        obj = json.loads(json_text)
+    except Exception:
+        return ""
+    if not isinstance(obj, dict):
+        return ""
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        return ""
+    names: list[str] = []
+    for step in plan[:max_steps]:
+        if not isinstance(step, dict):
+            continue
+        name = str(step.get("action_name", "") or "").strip()
+        if name:
+            names.append(name.lower())
+    return " | ".join(names)
+
+
+def _trace_controller_diagnostics(
+    sentence: str, last_env_feedback: str, final_plan_json: str, controller: "EpisodeController"
+) -> None:
+    """
+    Emit per-instruction loop diagnostics:
+    - repeated same feedback snippet count
+    - repeated same first-3-step plan signature count
+    - controller internal state snapshot
+    """
+    key = _instruction_key(sentence) or "__default__"
+
+    fb_snippet = (last_env_feedback or "").replace("\n", " ").strip().lower()[:180]
+    prev_fb = _diag_feedback_state_by_instruction.get(key, {})
+    if prev_fb.get("text") == fb_snippet and fb_snippet:
+        fb_repeat = int(prev_fb.get("repeat", 0)) + 1
+    else:
+        fb_repeat = 1 if fb_snippet else 0
+    _diag_feedback_state_by_instruction[key] = {"text": fb_snippet, "repeat": fb_repeat}
+
+    sig = _extract_plan_signature(final_plan_json, max_steps=3)
+    prev_sig = _diag_plan_signature_by_instruction.get(key, {})
+    if prev_sig.get("sig") == sig and sig:
+        sig_repeat = int(prev_sig.get("repeat", 0)) + 1
+    else:
+        sig_repeat = 1 if sig else 0
+    _diag_plan_signature_by_instruction[key] = {"sig": sig, "repeat": sig_repeat}
+
+    state = controller.debug_state()
+    _trace_planner(
+        "controller_diag "
+        f"instruction_key={key!r} "
+        f"feedback_repeat={fb_repeat} "
+        f"plan_sig_repeat={sig_repeat} "
+        f"plan_sig={sig!r} "
+        f"state={json.dumps(state, ensure_ascii=True, sort_keys=True)}"
+    )
 
 
 def _extract_first_action_id(json_text: str) -> int | None:
@@ -882,6 +943,17 @@ class EpisodeController:
         self.pick_fail_streak = 0
         self.ban_pick_target = False
 
+    def debug_state(self) -> dict[str, object]:
+        return {
+            "target": self.target,
+            "mode": self.mode,
+            "cooldown_pick": self.cooldown_pick,
+            "cooldown_find": self.cooldown_find,
+            "find_fail_streak": self.find_fail_streak,
+            "pick_fail_streak": self.pick_fail_streak,
+            "ban_pick_target": self.ban_pick_target,
+        }
+
     def _set_target_if_missing(self, target: str) -> None:
         if target and not self.target:
             self.target = target.lower()
@@ -1305,6 +1377,7 @@ def create_app():
                     aids = got
             ok, reason = validate_executable_plan_json(extracted, allowed_action_ids=aids)
             if ok:
+                _trace_controller_diagnostics(sentence, last_env_feedback, extracted, controller)
                 if not _disable_loop_breaker():
                     _remember_first_action(extracted, sentence)
                 _remember_first_action_name(extracted, sentence)
@@ -1359,6 +1432,9 @@ def create_app():
                 allowed_action_ids=aids,
             )
             if ok_retry:
+                _trace_controller_diagnostics(
+                    sentence, last_env_feedback, extracted_retry, controller
+                )
                 if not _disable_loop_breaker():
                     _remember_first_action(extracted_retry, sentence)
                 _remember_first_action_name(extracted_retry, sentence)
