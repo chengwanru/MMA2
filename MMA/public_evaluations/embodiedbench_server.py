@@ -801,11 +801,31 @@ def _is_find_desc_for_target(desc: str, target: str) -> bool:
     return bool(re.search(rf"(?i)\b{re.escape(target)}\b", d))
 
 
+def _instruction_focus_text(sentence: str) -> str:
+    """
+    Text that should describe the task, not the action catalog.
+
+    EmbodiedBench often places ``TASK:`` / ``Instruction:`` *below* ACTION LIST.
+    ``_prompt_before_action_catalog`` alone would then miss the real object (ladle)
+    and callers used to fall back to ``cands[0]`` (often Safe / KeyChain order).
+    """
+    parts: list[str] = []
+    head = (_prompt_before_action_catalog(sentence or "") or "").strip()
+    if head:
+        parts.append(head)
+    body = sentence or ""
+    for m in re.finditer(
+        r"(?mi)(?:^|\n)\s*(?:task|instruction|goal)\s*:\s*(.+?)(?=\n\s*(?:task|instruction|goal|ACTION|AVAILABLE)\b|\Z)",
+        body,
+    ):
+        seg = (m.group(1) or "").strip()
+        if seg:
+            parts.append(seg)
+    return "\n".join(parts).strip()
+
+
 def _extract_target_from_instruction(sentence: str, catalog: dict[int, str]) -> str:
-    # Match task wording only — full `sentence` includes ACTION LIST lines like
-    # "find a Safe", which falsely appear "in the task" and steal target from ladle.
-    text = _prompt_before_action_catalog(sentence or "").lower()
-    # Prefer object names that appear in find-actions and task text.
+    # Prefer object names that appear in find-actions *and* task-focused text.
     cands: list[str] = []
     _find_obj = re.compile(
         r"(?i)\bfind\s+(?:a|an|the)\s+([A-Za-z][A-Za-z0-9_-]*)\b"
@@ -814,10 +834,19 @@ def _extract_target_from_instruction(sentence: str, catalog: dict[int, str]) -> 
         m = _find_obj.search(desc)
         if m:
             cands.append(m.group(1).lower())
-    for c in sorted(set(cands), key=len, reverse=True):
-        if re.search(rf"(?i)\b{re.escape(c)}\b", text):
-            return c
-    return cands[0] if cands else ""
+    if not cands:
+        return ""
+    blobs = [
+        (_instruction_focus_text(sentence) or "").lower(),
+        (_instruction_key(sentence) or "").strip().lower(),
+    ]
+    for text in blobs:
+        if not text:
+            continue
+        for c in sorted(set(cands), key=len, reverse=True):
+            if re.search(rf"(?i)\b{re.escape(c)}\b", text):
+                return c
+    return ""
 
 
 def _is_nav_desc(desc: str) -> bool:

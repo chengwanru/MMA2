@@ -193,7 +193,7 @@ python MMA/public_evaluations/scripts/summarize_invalid_actions.py \
 ### 8.5 减少 invalid、推动任务：server 侧在做什么
 
 - **Put-down**：若上一轮首步是 `put down the object in hand`，且反馈里出现 Thor 式 **「not holding / dropped the object」**（不一定带 `last action is invalid`），会立刻 **ban + 长 cooldown**，避免同一 episode 里连续占 env step 刷无效 put-down。
-- **错 `find`（Safe / KeyChain）**：从 TASK 里抽主物体时只使用 **ACTION LIST 之上的任务正文**，避免动作表里出现的物体名被当成「任务相关」，从而让 `_hard_filter_plan_to_target` 能滤掉无关 `find`。
+- **错 `find`（Safe / KeyChain）**：从 TASK 里抽主物体时用 **`_instruction_focus_text`**：合并 **ACTION LIST 之上的正文** 与正文中任意 **`Task:` / `Instruction:` / `Goal:`` 行**（EB 常把 TASK 写在动作表下面）。已去掉「无匹配时退回 `cands[0]`」的随机回退，避免硬过滤目标被偷成目录里第一个 `find` 物体。
 
 客户端（EmbodiedBench 打补丁后）可传 `last_env_feedback`，server 会插入 `[Simulator feedback from previous step]`。
 
