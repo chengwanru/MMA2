@@ -22,7 +22,7 @@
 # Invalid stats (1 ep):
 #   python scripts/summarize_invalid_actions.py "${EB_ROOT}/running/eb_alfred/mma_${EXP_NAME}/base/results" \
 #     --invalid-log "${EB_ROOT}/running/eb_alfred/mma_${EXP_NAME}/base/invalid_reason.jsonl"
-# After job: EXP_NAME=$(grep -m1 '^EXP_NAME=' "${EB_ROOT}/embench_memcheck_${SLURM_JOB_ID}.log" | cut -d= -f2-)
+# After job: EXP_NAME=$(grep -m1 '^EXP_NAME=' "${EB_ROOT}/embench_memcheck_${SLURM_JOB_ID}.log" | sed -n 's/^EXP_NAME=\([^[:space:]]*\).*/\1/p')
 #
 # Optional env before sbatch:
 #   EXP_NAME=my_memcheck  ROOT=/data/group/zhaolab/project
@@ -50,6 +50,8 @@ cd "${PEV}"
 echo "=== GPU before server (expect one job using this card in exclusive mode) ==="
 nvidia-smi || true
 echo "PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF}"
-echo "EXP_NAME=${EXP_NAME}  EMBODIEDBENCH_SIM_INFO_LEVEL=${EMBODIEDBENCH_SIM_INFO_LEVEL}"
+# One variable per line so logs are easy to parse (avoid cut -d= -f2- swallowing SIM_INFO on same line).
+echo "EXP_NAME=${EXP_NAME}"
+echo "EMBODIEDBENCH_SIM_INFO_LEVEL=${EMBODIEDBENCH_SIM_INFO_LEVEL}"
 
 bash run_embench_mma_one_node.sh "+selected_indexes=[0]" "eval_sets=[base]"

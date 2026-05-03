@@ -144,7 +144,8 @@ pip install -r requirements.txt
 ```bash
 EB_ROOT="${EB_ROOT:-/data/group/zhaolab/project/EmbodiedBench}"
 JOB=402896
-EXP_NAME=$(grep -m1 '^EXP_NAME=' "${EB_ROOT}/embench_memcheck_${JOB}.log" | cut -d= -f2-)
+# Do not use cut -d= -f2- on a line that also contains VAR=value — use sed to take EXP_NAME token only.
+EXP_NAME=$(grep -m1 '^EXP_NAME=' "${EB_ROOT}/embench_memcheck_${JOB}.log" | sed -n 's/^EXP_NAME=\([^[:space:]]*\).*/\1/p')
 BASE="${EB_ROOT}/running/eb_alfred/mma_${EXP_NAME}/base"
 echo "EXP_NAME=${EXP_NAME}" "BASE=${BASE}"
 test -f "${BASE}/invalid_reason.jsonl" && grep -c "put down the object in hand" "${BASE}/invalid_reason.jsonl" || echo "missing invalid_reason.jsonl"
