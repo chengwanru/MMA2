@@ -297,14 +297,22 @@ def get_upload_dir():
 def _instruction_key(sentence: str) -> str:
     if not isinstance(sentence, str):
         return ""
+    # MULTILINE: EB often puts ``Task:`` below boilerplate / ACTION LIST headers.
+    flags = re.MULTILINE | re.IGNORECASE
     for pat in (
-        r"(?mi)^\s*instruction\s*:\s*(.+?)\s*$",
-        r"(?mi)^\s*task\s*:\s*(.+?)\s*$",
-        r"(?mi)^\s*goal\s*:\s*(.+?)\s*$",
+        r"^\s*instruction\s*:\s*(.+?)\s*$",
+        r"^\s*task\s*:\s*(.+?)\s*$",
+        r"^\s*goal\s*:\s*(.+?)\s*$",
     ):
-        m = re.search(pat, sentence)
+        m = re.search(pat, sentence, flags=flags)
         if m:
             return m.group(1).strip().lower()
+    focus = _instruction_focus_text(sentence).strip()
+    if focus:
+        return focus.lower()[:400]
+    head = (_prompt_before_action_catalog(sentence) or "").strip()
+    if head:
+        return head.lower()[:400]
     return sentence.strip().lower()[:300]
 
 
@@ -815,12 +823,28 @@ def _instruction_focus_text(sentence: str) -> str:
         parts.append(head)
     body = sentence or ""
     for m in re.finditer(
-        r"(?mi)(?:^|\n)\s*(?:task|instruction|goal)\s*:\s*(.+?)(?=\n\s*(?:task|instruction|goal|ACTION|AVAILABLE)\b|\Z)",
+        r"(?mi)(?:^|\n)\s*(?:task|instruction|goal)\s*[:=]+\s*(.+?)(?=\n\s*(?:task|instruction|goal|ACTION|AVAILABLE)\b|\Z)",
         body,
     ):
         seg = (m.group(1) or "").strip()
         if seg:
             parts.append(seg)
+    # Prose after ACTION LIST: skip ``NN: find …`` lines so ``TASK:`` / free-form
+    # instructions survive even when not matched above (format drift).
+    mlist = re.search(r"(?is)\bACTION\s+LIST\b", body)
+    if mlist:
+        tail = body[mlist.end() :]
+        kept: list[str] = []
+        for raw in tail.splitlines():
+            s = raw.strip()
+            if not s:
+                continue
+            if re.match(r"^\s*\d+\s*:\s*", s):
+                continue
+            kept.append(s)
+        prose = "\n".join(kept).strip()
+        if prose:
+            parts.append(prose)
     return "\n".join(parts).strip()
 
 
@@ -836,16 +860,14 @@ def _extract_target_from_instruction(sentence: str, catalog: dict[int, str]) -> 
             cands.append(m.group(1).lower())
     if not cands:
         return ""
-    blobs = [
-        (_instruction_focus_text(sentence) or "").lower(),
-        (_instruction_key(sentence) or "").strip().lower(),
-    ]
-    for text in blobs:
-        if not text:
-            continue
-        for c in sorted(set(cands), key=len, reverse=True):
-            if re.search(rf"(?i)\b{re.escape(c)}\b", text):
-                return c
+    # Do not use ``_instruction_key``'s legacy raw-prefix fallback here: the first
+    # ~300 chars often still contain ACTION LIST lines like ``find a Safe``.
+    text = (_instruction_focus_text(sentence) or "").lower()
+    if not text:
+        return ""
+    for c in sorted(set(cands), key=len, reverse=True):
+        if re.search(rf"(?i)\b{re.escape(c)}\b", text):
+            return c
     return ""
 
 
