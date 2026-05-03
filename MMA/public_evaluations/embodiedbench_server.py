@@ -836,19 +836,41 @@ def _is_nav_desc(desc: str) -> bool:
     )
 
 
-def _is_target_related_desc(desc: str, target: str, instruction: str) -> bool:
+def _prompt_before_action_catalog(sentence: str) -> str:
+    """
+    Task/instruction text only — exclude ACTION LIST and similar blocks.
+
+    Important: the full planner prompt repeats action lines ("find a Sink", …).
+    Using the whole string for helper matching falsely treats catalog words as
+    part of the task and keeps sink/faucet steps forever (legal infinite loops).
+    """
+    if not isinstance(sentence, str) or not sentence.strip():
+        return ""
+    for pat in (
+        r"(?is)\bACTION\s+LIST\b",
+        r"(?is)\bAVAILABLE\s+ACTIONS\b",
+        r"(?is)^\s*ACTION\s+LIST\s*$",
+    ):
+        m = re.search(pat, sentence)
+        if m:
+            return sentence[: m.start()]
+    return sentence
+
+
+def _is_target_related_desc(desc: str, target: str, sentence: str) -> bool:
     d = (desc or "").strip().lower()
     t = (target or "").lower().strip()
-    instr = (instruction or "").lower()
+    instr_core = _prompt_before_action_catalog(sentence).lower()
     if not d:
         return False
     if _is_nav_desc(d):
         return True
     if t and re.search(rf"(?i)\b{re.escape(t)}\b", d):
         return True
-    # Allow essential sink/table style actions only when instruction mentions them.
+    # Allow sink/table style actions only when the *task region* mentions them,
+    # not when only the ACTION LIST (below) contains those words.
     for helper in ("sink", "faucet", "table", "counter", "countertop"):
-        if helper in instr and re.search(rf"(?i)\b{re.escape(helper)}\b", d):
+        if helper in instr_core and re.search(rf"(?i)\b{re.escape(helper)}\b", d):
             return True
     # Keep neutral "put down object in hand" because it can be needed for recovery.
     if "put down the object in hand" in d:
