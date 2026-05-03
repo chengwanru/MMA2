@@ -836,6 +836,45 @@ def _is_nav_desc(desc: str) -> bool:
     )
 
 
+def _irrelevant_wet_station_streak_threshold() -> int:
+    """After this many find-fail streak steps, drop sink/faucet not tied to failed target."""
+    raw = os.environ.get("EMBODIEDBENCH_IRRELEVANT_WET_STREAK", "").strip()
+    if raw.isdigit():
+        return int(raw)
+    return 3
+
+
+def _is_wet_station_action_desc(desc: str) -> bool:
+    d = (desc or "").strip().lower()
+    return bool(re.search(r"(?i)\bsink\b", d) or re.search(r"(?i)\bfaucet\b", d))
+
+
+def _failed_target_is_wet_station(fail_target: str) -> bool:
+    ft = (fail_target or "").strip().lower()
+    if not ft:
+        return False
+    if ft in ("sink", "faucet"):
+        return True
+    return "sink" in ft or "faucet" in ft
+
+
+def _should_skip_irrelevant_wet_station(
+    desc: str, controller_target: str, find_fail_streak: int
+) -> bool:
+    """
+    Boilerplate above ACTION LIST often still mentions sink/faucet, so helper
+    allowlist can remain true forever. When feedback shows repeated failure to
+    find a *non-wet* object (e.g. Safe), reject sink/faucet macro-plans.
+    """
+    thr = _irrelevant_wet_station_streak_threshold()
+    if thr <= 0 or find_fail_streak < thr:
+        return False
+    ct = (controller_target or "").strip().lower()
+    if not ct or _failed_target_is_wet_station(ct):
+        return False
+    return _is_wet_station_action_desc(desc)
+
+
 def _prompt_before_action_catalog(sentence: str) -> str:
     """
     Task/instruction text only — exclude ACTION LIST and similar blocks.
@@ -884,6 +923,7 @@ def _hard_filter_plan_to_target(
     *,
     ban_pick_target: bool = False,
     controller_target: str = "",
+    find_fail_streak: int = 0,
 ) -> str:
     """
     Task-target hard constraint:
@@ -932,6 +972,8 @@ def _hard_filter_plan_to_target(
         if ban_pick_target and ban_pick_names:
             if any(_is_pickup_desc_for_target(desc, t) for t in ban_pick_names):
                 continue
+        if _should_skip_irrelevant_wet_station(desc, ctl_target, find_fail_streak):
+            continue
         if _is_target_related_desc(desc, target, sentence):
             filtered.append(step)
 
@@ -1389,6 +1431,7 @@ def create_app():
                 sentence,
                 ban_pick_target=controller.ban_pick_target,
                 controller_target=controller.target,
+                find_fail_streak=controller.find_fail_streak,
             )
             # Regex-based allowlists often miss ids or over-restrict; EB still validates actions.
             # Default: no id whitelist (set EMBODIEDBENCH_ENFORCE_ACTION_ALLOWLIST=1 to enable).
@@ -1448,6 +1491,7 @@ def create_app():
                 sentence,
                 ban_pick_target=controller.ban_pick_target,
                 controller_target=controller.target,
+                find_fail_streak=controller.find_fail_streak,
             )
             ok_retry, reason_retry = validate_executable_plan_json(
                 extracted_retry,
