@@ -403,15 +403,15 @@ def remap_executable_plan_ids_from_prompt(json_text: str, prompt_text: str) -> s
 def _extract_instruction(prompt_text: str) -> str:
     if not isinstance(prompt_text, str):
         return ""
-    m = re.search(r"(?mi)^\s*instruction\s*:\s*(.+?)\s*$", prompt_text)
-    if m:
-        return m.group(1).strip()
-    m = re.search(r"(?mi)^\s*task\s*:\s*(.+?)\s*$", prompt_text)
-    if m:
-        return m.group(1).strip()
-    m = re.search(r"(?mi)^\s*goal\s*:\s*(.+?)\s*$", prompt_text)
-    if m:
-        return m.group(1).strip()
+    flags = re.MULTILINE | re.IGNORECASE
+    for pat in (
+        r"^\s*instruction\s*:\s*(.+?)\s*$",
+        r"^\s*task\s*:\s*(.+?)\s*$",
+        r"^\s*goal\s*:\s*(.+?)\s*$",
+    ):
+        m = re.search(pat, prompt_text, flags=flags)
+        if m:
+            return m.group(1).strip()
     m = re.search(r"(?is)\byour task is to\s+(.+?)(?:[\n\r]|$)", prompt_text)
     if m:
         return m.group(1).strip()
@@ -732,6 +732,12 @@ def postprocess_executable_plan(json_text: str, prompt_text: str) -> str:
             new_plan.append(step)
         if new_plan:
             plan = new_plan
+        elif catalog:
+            # All early steps were unrelated (e.g. plan was only ``find Safe``); previously
+            # we kept the original toxic plan because ``new_plan`` was empty.
+            g = _choose_guarded_first_action(instruction, catalog, None)
+            if g is not None:
+                plan = [{"action_id": g[0], "action_name": g[1]}]
 
     # 2) Remove consecutive duplicates and cap per-id repeats.
     cleaned: list[dict] = []
