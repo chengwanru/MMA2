@@ -135,8 +135,23 @@ pip install -r requirements.txt
 | `EMBODIEDBENCH_SIM_INFO_LEVEL` | 仿真器信息回传分档：`off`（默认，关闭）/ `A`（只传上一轮 env feedback）/ `B`（A + 紧凑状态提示，如 visible/reachable/holding/collision）/ `C`（B + 原始上下文摘录）。建议按 A→B→C 逐步 A/B。 |
 | `EMBODIEDBENCH_ACTION_CATALOG_OBJECT_HINT=1` | **可选**：从 prompt 里 **ACTION LIST** 中所有 `find a …` 目标解析出一行 **Find targets:**，插在 planner 输入前，收窄物体词汇（思路类似 RoboAgent 从技能表抽物体表）。默认关闭；建议与 `EMBODIEDBENCH_ENABLE_PLANNER_HINTS` 等小样本 A/B。 |
 
-改完后需**重启** server 或重提 Slurm。查看结果时若未设置 `EXP_NAME`，可用  
-`ls -td .../eb_alfred/mma_*/base/results/summary.json | head -1` 找最新 `summary.json`。
+改完后需**重启** server 或重提 Slurm。
+
+**找本次 run 的目录（不要用字面量 `...`，也不要假设 shell 里已有 `EXP_NAME`）**：
+
+- `run_embench_memory_smoke.sh` 会把 `EXP_NAME=...` 打在 **`${EB_ROOT}/embench_memcheck_<jobid>.log`** 开头（与 `#SBATCH -o` 一致）。例如 job `402896`：
+
+```bash
+EB_ROOT="${EB_ROOT:-/data/group/zhaolab/project/EmbodiedBench}"
+JOB=402896
+EXP_NAME=$(grep -m1 '^EXP_NAME=' "${EB_ROOT}/embench_memcheck_${JOB}.log" | cut -d= -f2-)
+BASE="${EB_ROOT}/running/eb_alfred/mma_${EXP_NAME}/base"
+echo "EXP_NAME=${EXP_NAME}" "BASE=${BASE}"
+test -f "${BASE}/invalid_reason.jsonl" && grep -c "put down the object in hand" "${BASE}/invalid_reason.jsonl" || echo "missing invalid_reason.jsonl"
+test -f "${BASE}/planner_trace.log" && grep -c "put down the object in hand" "${BASE}/planner_trace.log" || echo "missing planner_trace.log (older smoke runs: resubmit smoke script or set EMBODIEDBENCH_TRACE_LOG before sbatch)"
+```
+
+- 若未提前记 `EXP_NAME`，也可用：`ls -td "${EB_ROOT}/running/eb_alfred/mma_memcheck_smoke_"*/base/results/summary.json 2>/dev/null | head -1` 找最近一次 memcheck smoke 的 `summary.json`，再 `dirname` 两次得到 `base/`。
 
 ---
 

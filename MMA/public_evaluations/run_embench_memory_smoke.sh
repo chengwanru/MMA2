@@ -19,8 +19,10 @@
 #
 # After job ends (this job writes embench_memcheck_<jobid>.log):
 #   grep -c "CUDA out of memory" "${EB_ROOT}/embench_memcheck_${SLURM_JOB_ID}.log"
-# Invalid stats (1 ep): python scripts/summarize_invalid_actions.py .../mma_${EXP_NAME}/base/results
-# Thor reasons (needs upstream invalid patch): tail .../mma_${EXP_NAME}/base/invalid_reason.jsonl
+# Invalid stats (1 ep):
+#   python scripts/summarize_invalid_actions.py "${EB_ROOT}/running/eb_alfred/mma_${EXP_NAME}/base/results" \
+#     --invalid-log "${EB_ROOT}/running/eb_alfred/mma_${EXP_NAME}/base/invalid_reason.jsonl"
+# After job: EXP_NAME=$(grep -m1 '^EXP_NAME=' "${EB_ROOT}/embench_memcheck_${SLURM_JOB_ID}.log" | cut -d= -f2-)
 #
 # Optional env before sbatch:
 #   EXP_NAME=my_memcheck  ROOT=/data/group/zhaolab/project
@@ -37,8 +39,12 @@ export EXP_NAME="${EXP_NAME:-memcheck_smoke_$(date +%m%d_%H%M%S)}"
 export DOWNSAMPLE=1
 export EMBODIEDBENCH_SIM_INFO_LEVEL="${EMBODIEDBENCH_SIM_INFO_LEVEL:-off}"
 INVALID_JSONL="${EB_ROOT}/running/eb_alfred/mma_${EXP_NAME}/base/invalid_reason.jsonl"
+TRACE_LOG_DEFAULT="${EB_ROOT}/running/eb_alfred/mma_${EXP_NAME}/base/planner_trace.log"
 mkdir -p "$(dirname "${INVALID_JSONL}")"
 export EMBODIEDBENCH_INVALID_LOG_JSONL="${EMBODIEDBENCH_INVALID_LOG_JSONL:-${INVALID_JSONL}}"
+# Trace file: set explicitly to override. Default keeps invalid + trace under the same run dir.
+export EMBODIEDBENCH_TRACE_LOG="${EMBODIEDBENCH_TRACE_LOG:-${TRACE_LOG_DEFAULT}}"
+mkdir -p "$(dirname "${EMBODIEDBENCH_TRACE_LOG}")"
 
 cd "${PEV}"
 echo "=== GPU before server (expect one job using this card in exclusive mode) ==="
