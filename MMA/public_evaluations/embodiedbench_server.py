@@ -849,6 +849,36 @@ def _is_wet_station_action_desc(desc: str) -> bool:
     return bool(re.search(r"(?i)\bsink\b", d) or re.search(r"(?i)\bfaucet\b", d))
 
 
+def _enable_putdown_abuse_guard() -> bool:
+    return os.environ.get("EMBODIEDBENCH_DISABLE_PUTDOWN_GUARD", "").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def _is_putdown_object_in_hand_desc(desc: str) -> bool:
+    d = (desc or "").strip().lower()
+    return "put down" in d and "object in hand" in d
+
+
+def _feedback_suggests_putdown_failure(last_env_feedback: str) -> bool:
+    """Heuristic: env says last step invalid and wording points at put-down / empty hand."""
+    raw = (last_env_feedback or "").strip()
+    if not raw:
+        return False
+    low = raw.lower()
+    if "last action is invalid" not in low:
+        return False
+    if "put down" in low or "object in hand" in low:
+        return True
+    if "nothing to put" in low or ("nothing" in low and "put" in low):
+        return True
+    if "empty" in low and "hand" in low:
+        return True
+    return False
+
+
 def _failed_target_is_wet_station(fail_target: str) -> bool:
     ft = (fail_target or "").strip().lower()
     if not ft:
@@ -924,6 +954,7 @@ def _hard_filter_plan_to_target(
     ban_pick_target: bool = False,
     controller_target: str = "",
     find_fail_streak: int = 0,
+    ban_putdown_hand: bool = False,
 ) -> str:
     """
     Task-target hard constraint:
@@ -933,6 +964,9 @@ def _hard_filter_plan_to_target(
     When ban_pick_target is True (controller locked after cannot-find pickup),
     do NOT re-admit pickup steps for the task target even if they match the
     target string — otherwise we undo controller.rewrite_plan().
+
+    When ban_putdown_hand is True, drop ``put down the object in hand`` so
+    _is_target_related_desc cannot re-keep it (same pattern as pickup ban).
 
     controller_target: object name inferred from env feedback (same episode);
     merged so we never bail out with ``if not target`` while the controller
@@ -974,6 +1008,8 @@ def _hard_filter_plan_to_target(
                 continue
         if _should_skip_irrelevant_wet_station(desc, ctl_target, find_fail_streak):
             continue
+        if _enable_putdown_abuse_guard() and ban_putdown_hand and _is_putdown_object_in_hand_desc(desc):
+            continue
         if _is_target_related_desc(desc, target, sentence):
             filtered.append(step)
 
@@ -1006,6 +1042,17 @@ class EpisodeController:
         self.find_fail_streak = 0
         self.pick_fail_streak = 0
         self.ban_pick_target = False
+        self.putdown_fail_streak = 0
+        self.cooldown_putdown = 0
+        self.ban_putdown_hand = False
+        self._last_plan_first_was_putdown = False
+
+    def note_last_plan_first_step(self, json_text: str) -> None:
+        """Call before returning JSON so next feedback can attribute generic invalids."""
+        name = _extract_first_action_name(json_text)
+        self._last_plan_first_was_putdown = bool(
+            name and _is_putdown_object_in_hand_desc(name)
+        )
 
     def debug_state(self) -> dict[str, object]:
         return {
@@ -1013,9 +1060,13 @@ class EpisodeController:
             "mode": self.mode,
             "cooldown_pick": self.cooldown_pick,
             "cooldown_find": self.cooldown_find,
+            "cooldown_putdown": self.cooldown_putdown,
             "find_fail_streak": self.find_fail_streak,
             "pick_fail_streak": self.pick_fail_streak,
+            "putdown_fail_streak": self.putdown_fail_streak,
             "ban_pick_target": self.ban_pick_target,
+            "ban_putdown_hand": self.ban_putdown_hand,
+            "last_plan_first_was_putdown": self._last_plan_first_was_putdown,
         }
 
     def _set_target_if_missing(self, target: str) -> None:
@@ -1047,18 +1098,48 @@ class EpisodeController:
                 self.target = target_find
             self.ban_pick_target = True
 
+        if _enable_putdown_abuse_guard() and _feedback_suggests_putdown_failure(last_env_feedback):
+            self.putdown_fail_streak += 1
+            self.mode = "RECOVERY"
+            self.cooldown_putdown = max(self.cooldown_putdown, 4)
+            if self.putdown_fail_streak >= 2:
+                self.cooldown_putdown = max(self.cooldown_putdown, 6)
+            if self.putdown_fail_streak >= 3:
+                self.ban_putdown_hand = True
+        elif (
+            _enable_putdown_abuse_guard()
+            and "last action is invalid" in fb
+            and self._last_plan_first_was_putdown
+        ):
+            # EB often uses reason=other; feedback may omit "put down" wording.
+            self.putdown_fail_streak += 1
+            self.mode = "RECOVERY"
+            self.cooldown_putdown = max(self.cooldown_putdown, 4)
+            if self.putdown_fail_streak >= 2:
+                self.cooldown_putdown = max(self.cooldown_putdown, 6)
+            if self.putdown_fail_streak >= 3:
+                self.ban_putdown_hand = True
+        elif fb and _enable_putdown_abuse_guard() and "put down" not in fb:
+            self.putdown_fail_streak = max(0, self.putdown_fail_streak - 1)
+
         # Positive evidence: if no cannot-find signal and feedback indicates success,
         # allow pickup again.
         if ("cannot find" not in fb) and ("last action is invalid" not in fb) and ("success" in fb):
             self.ban_pick_target = False
+            self.ban_putdown_hand = False
+            self.putdown_fail_streak = 0
+            self.cooldown_putdown = 0
 
         # If feedback includes clear success wording, relax recovery quickly.
         if ("last action is invalid" not in fb) and ("success" in fb):
             self.mode = "NORMAL"
             self.find_fail_streak = 0
             self.pick_fail_streak = 0
+            self.putdown_fail_streak = 0
             self.cooldown_find = 0
             self.cooldown_pick = 0
+            self.cooldown_putdown = 0
+            self.ban_putdown_hand = False
 
         # Infer target from instruction/catalog if still unknown.
         if not self.target:
@@ -1083,6 +1164,9 @@ class EpisodeController:
         # Build pickup/find id sets for target.
         pickup_ids = {aid for aid, desc in catalog.items() if _is_pickup_desc_for_target(desc, target or "__unknown_pick_target__")}
         find_ids = {aid for aid, desc in catalog.items() if _is_find_desc_for_target(desc, target)}
+        putdown_ids = {
+            aid for aid, desc in catalog.items() if _is_putdown_object_in_hand_desc(desc)
+        }
 
         # 1) During pickup cooldown/ban, remove all pickup steps for target.
         filtered: list[dict] = []
@@ -1094,12 +1178,24 @@ class EpisodeController:
                 aid = int(aid)
             if (self.cooldown_pick > 0 or self.ban_pick_target) and isinstance(aid, int) and aid in pickup_ids:
                 continue
+            if (
+                _enable_putdown_abuse_guard()
+                and (self.cooldown_putdown > 0 or self.ban_putdown_hand)
+                and isinstance(aid, int)
+                and aid in putdown_ids
+            ):
+                continue
             filtered.append(step)
         if not filtered:
             nav = _choose_nav_replacement(catalog)
             if nav:
                 filtered = [nav]
-            elif self.ban_pick_target or self.cooldown_pick > 0:
+            elif (
+                self.ban_pick_target
+                or self.cooldown_pick > 0
+                or self.ban_putdown_hand
+                or self.cooldown_putdown > 0
+            ):
                 rep = _choose_find_or_nav_replacement(catalog, target)
                 if rep:
                     filtered = [rep]
@@ -1152,7 +1248,14 @@ class EpisodeController:
             self.cooldown_pick -= 1
         if self.cooldown_find > 0:
             self.cooldown_find -= 1
-        if self.cooldown_pick == 0 and self.cooldown_find == 0 and self.mode == "RECOVERY":
+        if self.cooldown_putdown > 0:
+            self.cooldown_putdown -= 1
+        if (
+            self.cooldown_pick == 0
+            and self.cooldown_find == 0
+            and self.cooldown_putdown == 0
+            and self.mode == "RECOVERY"
+        ):
             self.mode = "NORMAL"
 
         # Debug: verify pickup ban is respected in final plan when enabled.
@@ -1167,6 +1270,20 @@ class EpisodeController:
                     _trace_planner(
                         "controller_violation "
                         f"ban_pick_target=true but pickup_id still present: aid={aid}, target={target}"
+                    )
+                    break
+
+        if _enable_putdown_abuse_guard() and self.ban_putdown_hand and putdown_ids:
+            for step in filtered:
+                if not isinstance(step, dict):
+                    continue
+                aid = step.get("action_id")
+                if isinstance(aid, float) and aid == int(aid):
+                    aid = int(aid)
+                if isinstance(aid, int) and aid in putdown_ids:
+                    _trace_planner(
+                        "controller_violation "
+                        f"ban_putdown_hand=true but putdown_id still present: aid={aid}, target={target}"
                     )
                     break
 
@@ -1432,6 +1549,7 @@ def create_app():
                 ban_pick_target=controller.ban_pick_target,
                 controller_target=controller.target,
                 find_fail_streak=controller.find_fail_streak,
+                ban_putdown_hand=controller.ban_putdown_hand,
             )
             # Regex-based allowlists often miss ids or over-restrict; EB still validates actions.
             # Default: no id whitelist (set EMBODIEDBENCH_ENFORCE_ACTION_ALLOWLIST=1 to enable).
@@ -1447,6 +1565,7 @@ def create_app():
                     _remember_first_action(extracted, sentence)
                 _remember_first_action_name(extracted, sentence)
                 _trace_final_plan("pass1_ok", extracted)
+                controller.note_last_plan_first_step(extracted)
                 return jsonify({"response": extracted})
 
             _trace_planner(f"=== validate_fail pass1 reason={reason}\n{extracted[:2000]}")
@@ -1470,6 +1589,7 @@ def create_app():
                 )
                 # Fallback to first-pass extracted instead of "{}" so EmbodiedBench
                 # can still attempt json_to_action and not hard-fail on missing key.
+                controller.note_last_plan_first_step(extracted)
                 return jsonify({"response": extracted})
 
             extracted_retry = extract_json_from_response(retry_text)
@@ -1492,6 +1612,7 @@ def create_app():
                 ban_pick_target=controller.ban_pick_target,
                 controller_target=controller.target,
                 find_fail_streak=controller.find_fail_streak,
+                ban_putdown_hand=controller.ban_putdown_hand,
             )
             ok_retry, reason_retry = validate_executable_plan_json(
                 extracted_retry,
@@ -1505,11 +1626,13 @@ def create_app():
                     _remember_first_action(extracted_retry, sentence)
                 _remember_first_action_name(extracted_retry, sentence)
                 _trace_final_plan("retry_ok", extracted_retry)
+                controller.note_last_plan_first_step(extracted_retry)
                 return jsonify({"response": extracted_retry})
             _trace_planner(f"=== validate_fail retry reason={reason_retry}\n{extracted_retry[:2000]}")
             # Last fallback: return best-effort JSON instead of "{}" to avoid
             # planner_output_error spikes caused by missing executable_plan key.
             _trace_final_plan("retry_fallback", extracted_retry)
+            controller.note_last_plan_first_step(extracted_retry)
             return jsonify({"response": extracted_retry})
         except Exception as e:
             traceback.print_exc()
