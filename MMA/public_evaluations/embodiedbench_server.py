@@ -802,7 +802,9 @@ def _is_find_desc_for_target(desc: str, target: str) -> bool:
 
 
 def _extract_target_from_instruction(sentence: str, catalog: dict[int, str]) -> str:
-    text = (sentence or "").lower()
+    # Match task wording only — full `sentence` includes ACTION LIST lines like
+    # "find a Safe", which falsely appear "in the task" and steal target from ladle.
+    text = _prompt_before_action_catalog(sentence or "").lower()
     # Prefer object names that appear in find-actions and task text.
     cands: list[str] = []
     _find_obj = re.compile(
@@ -860,6 +862,24 @@ def _enable_putdown_abuse_guard() -> bool:
 def _is_putdown_object_in_hand_desc(desc: str) -> bool:
     d = (desc or "").strip().lower()
     return "put down" in d and "object in hand" in d
+
+
+def _feedback_thor_empty_hand_after_putdown(last_env_feedback: str) -> bool:
+    """
+    EmbodiedBench / Thor often returns plain English without the prefix
+    ``last action is invalid``. Detect empty-hand put-down failures so the
+    controller can ban before repeating env-invalid steps.
+    """
+    low = (last_env_feedback or "").strip().lower()
+    if not low:
+        return False
+    if "not holding" in low and ("object" in low or "any object" in low):
+        return True
+    if "robot is not holding" in low:
+        return True
+    if "dropped the object instead" in low:
+        return True
+    return False
 
 
 def _feedback_suggests_putdown_failure(last_env_feedback: str) -> bool:
@@ -1098,28 +1118,40 @@ class EpisodeController:
                 self.target = target_find
             self.ban_pick_target = True
 
-        if _enable_putdown_abuse_guard() and _feedback_suggests_putdown_failure(last_env_feedback):
+        putdown_signal = False
+        if _enable_putdown_abuse_guard():
+            # Thor-style feedback (no "last action is invalid" prefix) + prior plan put-down.
+            if (
+                _feedback_thor_empty_hand_after_putdown(last_env_feedback)
+                and self._last_plan_first_was_putdown
+            ):
+                putdown_signal = True
+            elif _feedback_suggests_putdown_failure(last_env_feedback):
+                putdown_signal = True
+            elif "last action is invalid" in fb and self._last_plan_first_was_putdown:
+                # EB reason=other; feedback may omit "put down" wording.
+                putdown_signal = True
+
+        if putdown_signal:
             self.putdown_fail_streak += 1
             self.mode = "RECOVERY"
-            self.cooldown_putdown = max(self.cooldown_putdown, 4)
-            if self.putdown_fail_streak >= 2:
-                self.cooldown_putdown = max(self.cooldown_putdown, 6)
-            if self.putdown_fail_streak >= 3:
+            thor = _feedback_thor_empty_hand_after_putdown(last_env_feedback)
+            if thor and self._last_plan_first_was_putdown:
+                # One confirmed empty-hand after we returned put-down first: stop repeating in sim.
+                self.cooldown_putdown = max(self.cooldown_putdown, 8)
                 self.ban_putdown_hand = True
+            else:
+                self.cooldown_putdown = max(self.cooldown_putdown, 4)
+                if self.putdown_fail_streak >= 2:
+                    self.cooldown_putdown = max(self.cooldown_putdown, 6)
+                if self.putdown_fail_streak >= 3:
+                    self.ban_putdown_hand = True
         elif (
-            _enable_putdown_abuse_guard()
-            and "last action is invalid" in fb
-            and self._last_plan_first_was_putdown
+            fb
+            and _enable_putdown_abuse_guard()
+            and "put down" not in fb
+            and not _feedback_thor_empty_hand_after_putdown(last_env_feedback)
         ):
-            # EB often uses reason=other; feedback may omit "put down" wording.
-            self.putdown_fail_streak += 1
-            self.mode = "RECOVERY"
-            self.cooldown_putdown = max(self.cooldown_putdown, 4)
-            if self.putdown_fail_streak >= 2:
-                self.cooldown_putdown = max(self.cooldown_putdown, 6)
-            if self.putdown_fail_streak >= 3:
-                self.ban_putdown_hand = True
-        elif fb and _enable_putdown_abuse_guard() and "put down" not in fb:
             self.putdown_fail_streak = max(0, self.putdown_fail_streak - 1)
 
         # Positive evidence: if no cannot-find signal and feedback indicates success,

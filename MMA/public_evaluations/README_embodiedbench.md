@@ -188,6 +188,12 @@ python MMA/public_evaluations/scripts/summarize_invalid_actions.py \
 | `EMBODIEDBENCH_SHORT_HORIZON_PLAN=1` | 未显式设置 `EMBODIEDBENCH_EXECUTABLE_PLAN_MAX_LEN` 时，把计划截断为 **2** 步。 |
 | `EMBODIEDBENCH_EXECUTABLE_PLAN_MAX_LEN` | 显式最大步数（覆盖短 horizon 默认值）。 |
 | `EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD` | 首步物体对齐 guard（`run_embench_mma_one_node.sh` 默认 `1`）。 |
+| `EMBODIEDBENCH_DISABLE_PUTDOWN_GUARD=1` | 关闭「空手 put down」冷却/禁止（仅 A/B 对照）。默认开启。 |
+
+### 8.5 减少 invalid、推动任务：server 侧在做什么
+
+- **Put-down**：若上一轮首步是 `put down the object in hand`，且反馈里出现 Thor 式 **「not holding / dropped the object」**（不一定带 `last action is invalid`），会立刻 **ban + 长 cooldown**，避免同一 episode 里连续占 env step 刷无效 put-down。
+- **错 `find`（Safe / KeyChain）**：从 TASK 里抽主物体时只使用 **ACTION LIST 之上的任务正文**，避免动作表里出现的物体名被当成「任务相关」，从而让 `_hard_filter_plan_to_target` 能滤掉无关 `find`。
 
 客户端（EmbodiedBench 打补丁后）可传 `last_env_feedback`，server 会插入 `[Simulator feedback from previous step]`。
 
