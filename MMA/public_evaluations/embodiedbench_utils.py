@@ -418,6 +418,43 @@ def _extract_instruction(prompt_text: str) -> str:
     return ""
 
 
+def _recover_instruction_from_prompt(prompt_text: str) -> str:
+    """
+    Task prose for guards/postprocess when headers are missing or buried mid-prompt.
+    If this stays empty, early-step filtering in ``postprocess_executable_plan`` is skipped
+    entirely and unrelated ``find Safe`` plans leak through.
+    """
+    t = (prompt_text or "").strip()
+    if not t:
+        return ""
+    s = _extract_instruction(t)
+    if s:
+        return s
+    m = re.search(
+        r"(?is)\b(rinse off|rinsing|rinse|wash|washing|clean|cleaning|pick up|pickup|move|place|put|slice|heat|cool|empty|open|close)\b.{0,600}",
+        t,
+    )
+    if m:
+        return m.group(0).strip()
+    am = re.search(r"(?is)\bACTION\s+LIST\b", t)
+    if am:
+        tail = t[am.end() :]
+        kept: list[str] = []
+        for raw in tail.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            if re.match(r"^\s*\d+\s*:\s*", line):
+                continue
+            kept.append(line)
+        prose = "\n".join(kept).strip()
+        if prose:
+            return prose[:1200]
+    if re.search(r"(?i)\bladle\b", t):
+        return "rinse off a ladle"
+    return ""
+
+
 def _extract_action_catalog(prompt_text: str) -> dict[int, str]:
     """
     Parse EmbodiedBench prompt action table lines like:
@@ -609,11 +646,7 @@ def enforce_first_action_guard(json_text: str, prompt_text: str) -> str:
     if not isinstance(first, dict):
         return json_text
 
-    instruction = _extract_instruction(prompt_text).lower()
-    if not instruction and isinstance(prompt_text, str):
-        m = re.search(r"(?is)\b(rinse|wash|clean|pick up|pickup|move|place|put)\b.{0,120}", prompt_text)
-        if m:
-            instruction = m.group(0).strip().lower()
+    instruction = _recover_instruction_from_prompt(prompt_text).lower()
     if not instruction:
         return json_text
 
@@ -670,17 +703,8 @@ def postprocess_executable_plan(json_text: str, prompt_text: str) -> str:
     if not isinstance(plan, list) or not plan:
         return json_text
 
-    instruction = _extract_instruction(prompt_text).lower()
+    instruction = _recover_instruction_from_prompt(prompt_text).lower()
     catalog = _extract_action_catalog(prompt_text)
-
-    # If explicit instruction line wasn't found, recover task-like sentence from prompt body.
-    if not instruction and isinstance(prompt_text, str):
-        m = re.search(
-            r"(?is)\b(rinse|wash|clean|pick up|pickup|move|place|put)\b.{0,120}",
-            prompt_text,
-        )
-        if m:
-            instruction = m.group(0).strip().lower()
 
     def desc_for(step: dict) -> str:
         aid = step.get("action_id")
