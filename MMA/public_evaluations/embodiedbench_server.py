@@ -88,6 +88,33 @@ _DEFAULT_PLANNER_HINT = """[EmbodiedBench / ALFRED planner — follow strictly]
 6) Keep executable_plan reasonably short (about 3–12 steps). Do not output dozens of identical steps.
 7) No markdown code fences; JSON only."""
 
+# Shorter single-purpose scaffold (OpenVLA-style: minimal tokens, one job — here JSON plan instead of free-form action).
+# Enable with EMBODIEDBENCH_ENABLE_PLANNER_HINTS=1 and EMBODIEDBENCH_PLANNER_HINT_STYLE=compact
+_PLANNER_HINT_COMPACT = """[Planner — JSON only]
+Return one JSON object with keys: reasoning_and_reflection (string), language_plan (array of strings), executable_plan (non-empty array).
+Each executable_plan step must be {"action_id": <int>, "action_name": "<string>"} using pairs only from ACTION LIST below.
+Prioritize the object class named in the TASK (e.g. ladle, mug); do not start with unrelated furniture unless the TASK requires it.
+If a find/navigation step would likely fail, prefer another legal action (move / look / turn) instead of repeating the same step.
+Keep about 3–12 steps. No markdown fences; JSON only."""
+
+
+def _planner_hint_style() -> str:
+    """default | compact — compact is shorter A/B variant inspired by OpenVLA fixed prompts."""
+    raw = os.environ.get("EMBODIEDBENCH_PLANNER_HINT_STYLE", "").strip().lower()
+    if raw in ("compact", "openvla", "openvla_style", "short"):
+        return "compact"
+    return "default"
+
+
+def _select_planner_hint_text() -> str:
+    """User override > compact variant > long default."""
+    extra = os.environ.get("EMBODIEDBENCH_PLANNER_HINT_TEXT", "").strip()
+    if extra:
+        return extra
+    if _planner_hint_style() == "compact":
+        return _PLANNER_HINT_COMPACT
+    return _DEFAULT_PLANNER_HINT
+
 
 def _enable_action_catalog_object_hint() -> bool:
     """Optional: prepend find-target vocabulary parsed from the ACTION LIST (RoboAgent-style narrowing)."""
@@ -113,8 +140,7 @@ def _augment_planner_sentence(sentence: str) -> str:
         "yes",
     ):
         return sentence
-    extra = os.environ.get("EMBODIEDBENCH_PLANNER_HINT_TEXT", "").strip()
-    hint = extra if extra else _DEFAULT_PLANNER_HINT
+    hint = _select_planner_hint_text()
     return f"{hint}\n\n---\n\n{sentence}"
 
 

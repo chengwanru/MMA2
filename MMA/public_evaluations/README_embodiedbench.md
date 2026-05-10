@@ -128,7 +128,8 @@ pip install -r requirements.txt
 | 变量 | 作用 |
 |------|------|
 | `EMBODIEDBENCH_ENABLE_PLANNER_HINTS=1` | 显式开启规划提示（默认关闭）。 |
-| `EMBODIEDBENCH_PLANNER_HINT_TEXT='...'` | 自定义整段提示（覆盖默认；勿写 `数字: 描述` 行，以免干扰动作表解析）。 |
+| `EMBODIEDBENCH_PLANNER_HINT_STYLE=compact` | 使用更短的「固定骨架」英文提示（受 OpenVLA 类短 prompt 启发）；仍要求 JSON，与 `PLANNER_HINT_TEXT` 互斥优先级见下。未设置则为长版编号列表（`_DEFAULT_PLANNER_HINT`）。 |
+| `EMBODIEDBENCH_PLANNER_HINT_TEXT='...'` | 自定义整段提示（**覆盖** `HINT_STYLE` 与默认；勿写 `数字: 描述` 行，以免干扰动作表解析）。 |
 | `EMBODIEDBENCH_DISABLE_LOOP_BREAKER=1` | 关闭“避免重复上一轮首步 action_id”的断环逻辑（用于 A/B 对照定位根因）。 |
 | `EMBODIEDBENCH_DISABLE_FAILURE_FEEDBACK_HINT=1` | 关闭“把上一轮失败首步写入下一轮提示”的反馈机制（默认开启）。 |
 | `EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD=1` | 开启“首步硬约束”：首步若是与任务无关的物体（如 Safe/KeyChain）会尽量换成 `find` 任务物体或导航。`embodiedbench_server` 默认关闭；`run_embench_mma_one_node.sh` 默认导出为 `1`（可用 `EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD=0` 关掉）。 |
