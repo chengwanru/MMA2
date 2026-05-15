@@ -1,6 +1,6 @@
 # EmbodiedBench + MMA Server 常见错误与修复
 
-**集群分拆（请勿混用命令）**：[**LTU（Slurm）**](CLUSTER_LTU.md) · [**NCI Gadi（PBS）**](CLUSTER_NCI_GADI.md) · [**GPU 显存 / 可复现核对**](RUNBOOK_GPU_MEMORY.md)
+**集群分拆（请勿混用命令）**：[**LTU（Slurm）**](CLUSTER_LTU.md)（`run_embench_memory_smoke.sh`）· [**NCI Gadi（PBS）**](CLUSTER_NCI_GADI.md)（`run_embench_memory_smoke_gadi.sh` / `submit_embench_memory_smoke_gadi.pbs`）· [**GPU 显存 / 可复现核对**](RUNBOOK_GPU_MEMORY.md)
 
 ---
 

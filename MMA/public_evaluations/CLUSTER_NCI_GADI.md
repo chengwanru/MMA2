@@ -15,7 +15,9 @@
 
 | 文件 | 说明 |
 |------|------|
-| `run_embench_mma_one_node_gadi.sh` | 无 `#SBATCH`，供 PBS 包裹调用；`ROOT` 默认 `/g/data/mv44/$USER` |
+| `run_embench_mma_one_node_gadi.sh` | 无 `#SBATCH`，供 PBS 包裹调用；需事先 `export ROOT=...`（或 `MMA_ROOT` / `EB_ROOT`） |
+| `run_embench_memory_smoke_gadi.sh` | 对齐 LTU 的 `run_embench_memory_smoke.sh`：1 episode、`+selected_indexes=[0]`、`eval_sets=[base]`、`DOWNSAMPLE=1` |
+| `submit_embench_memory_smoke_gadi.pbs` | 对上述 smoke 的示例 `qsub`（`gpuvolta`、1h walltime） |
 | `submit_embodiedbench_gadi.pbs` | 示例 `qsub`：`gpuhopper`、`MODULE_CUDA`、`conda` |
 | `MMA/MMA/speculative_memory/run_speculative_speedup_gadi.pbs` | 加速比 micro-benchmark |
 
@@ -35,6 +37,23 @@ cd /scratch/mv44/$USER/logs   # 或你可写目录
 module avail cuda | head
 cd /g/data/mv44/$USER/MMA2 && git pull
 qsub -v MODULE_CUDA=cuda/12.6.2 /g/data/mv44/$USER/MMA2/MMA/public_evaluations/submit_embodiedbench_gadi.pbs
+```
+
+### GPU smoke（与 LTU `run_embench_memory_smoke.sh` 等价）
+
+```bash
+mkdir -p /scratch/mv44/$USER/logs && cd /scratch/mv44/$USER/logs
+cd /g/data/mv44/$USER/MMA2 && git pull
+qsub -v MODULE_CUDA=cuda/12.6.2 /g/data/mv44/$USER/MMA2/MMA/public_evaluations/submit_embench_memory_smoke_gadi.pbs
+```
+
+交互 GPU 上直接跑（不 `qsub`）：
+
+```bash
+export ROOT=/g/data/mv44/$USER
+export CONDA_ENV=/g/data/mv44/$USER/envs/embench   # 若与 .pbs 默认一致可省略
+cd /g/data/mv44/$USER/MMA2/MMA/public_evaluations
+bash run_embench_memory_smoke_gadi.sh
 ```
 
 ## LTU 脚本不要直接搬到 Gadi

@@ -11,6 +11,7 @@
 #SBATCH -e /data/group/zhaolab/project/EmbodiedBench/embench_memcheck_%j.err
 #
 # LTU / Slurm only — see CLUSTER_LTU.md (not for NCI Gadi PBS).
+# Gadi 等价脚本：run_embench_memory_smoke_gadi.sh + submit_embench_memory_smoke_gadi.pbs — CLUSTER_NCI_GADI.md
 # Quick GPU smoke: 1 episode (index 0), sim-info off, ~few minutes when GPU is clean.
 # Use to verify no "CUDA out of memory" before long regression.
 #
