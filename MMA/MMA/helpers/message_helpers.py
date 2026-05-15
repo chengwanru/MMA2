@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from mma import system
 from mma.schemas.enums import MessageRole
 from mma.schemas.mma_message_content import TextContent, ImageContent, FileContent, CloudFileContent

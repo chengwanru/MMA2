@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import time
 import os
@@ -1062,14 +1064,14 @@ class LocalClient(AbstractClient):
     def send_messages(
         self,
         agent_id: str,
-        messages: List[Union[Message | MessageCreate]],
+        messages: List[Union[Message, MessageCreate]],
     ):
         """
         Send pre-packed messages to an agent.
 
         Args:
             agent_id (str): ID of the agent
-            messages (List[Union[Message | MessageCreate]]): List of messages to send
+            messages (List[Union[Message, MessageCreate]]): List of messages to send
 
         Returns:
             response (MMAResponse): Response from the agent
