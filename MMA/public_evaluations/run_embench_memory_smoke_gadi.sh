@@ -24,6 +24,7 @@ set -euo pipefail
 ROOT="${ROOT:-/g/data/mv44/${USER}}"
 EB_ROOT="${EB_ROOT:-${ROOT}/EmbodiedBench}"
 MMA_ROOT="${MMA_ROOT:-${ROOT}/MMA2}"
+export ROOT EB_ROOT MMA_ROOT
 PEV="${MMA_ROOT}/MMA/public_evaluations"
 
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"

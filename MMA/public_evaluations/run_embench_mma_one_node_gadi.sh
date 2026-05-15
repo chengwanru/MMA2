@@ -16,7 +16,9 @@
 #
 # HF cache defaults to ${TMPDIR}/hf_cache (job-local); override with HF_HOME.
 #
-set -euo pipefail
+# Do not use nounset (-u): sourcing ~/.bashrc on Gadi PBS often trips on BASHRCSOURCED etc.
+# (CLUSTER_NCI_GADI.md — same class of issue as PBS prologues.)
+set -eo pipefail
 
 ROOT="${ROOT:-}"
 if [[ -z "${ROOT}" ]] && [[ -z "${MMA_ROOT:-}" ]]; then
