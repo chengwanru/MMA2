@@ -29,6 +29,25 @@
 | CUDA | `module load cuda/12.6.2` 等；见 `module avail cuda` | 通常 Conda torch 自带；一般不用 `module load cuda` |
 | Bash | PBS 脚本**不要用** `set -u` 再 `source ~/.bashrc`（会触发 `BASHRCSOURCED`） | Slurm 脚本若用 `set -u` 也需同样注意 |
 | 日志 | `qsub` 时当前目录生成 `*.o<jobid>` | `embench_one_node_%j.log` 固定路径 |
+| **AI2-THOR / Thor** | 计算节点上需 **Vulkan**（`CloudRendering`）或 **Xvfb**；`run_embench_mma_one_node_gadi.sh` 会自动检测并回退到 `Xvfb :99` | `run_embench_mma_one_node.sh` 依赖节点上的 Vulkan；旧流程可用 `run_embench.sh` + `module load Xvfb` |
+
+### Thor：`Invalid DISPLAY :1` / `xdpyinfo`
+
+MMA server 能 ready，但 EmbodiedBench 在 `EBAlfEnv` 起 Thor 时报 `Invalid DISPLAY :1`：说明 **CloudRendering 未选中**（常见原因：作业里找不到 `libvulkan`），EmbodiedBench 又默认 `X_DISPLAY=:1`，而 Gadi GPU 节点没有 X server。
+
+`run_embench_mma_one_node_gadi.sh`（pull 最新）会：
+
+1. 检测 `libvulkan` → 有则 `unset DISPLAY`（与 LTU one-node 一致）  
+2. 否则尝试 `module load` Vulkan / Xvfb，再启动 **Xvfb** 并 `export X_DISPLAY=:99` `DISPLAY=:99`
+
+若仍失败，在 **GPU 节点**（或作业日志）检查：
+
+```bash
+module avail Xvfb
+python -c "import ctypes.util; print(ctypes.util.find_library('vulkan'))"
+```
+
+可选：在 `embench` 环境安装 Vulkan 加载器：`conda install -c conda-forge libvulkan-loader`
 
 ## 提交示例
 

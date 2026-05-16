@@ -4,7 +4,31 @@
 
 ---
 
-## 1. `No module named 'httpx_sse'`
+## 1. Thor / AI2-THOR：`Invalid DISPLAY :1` / `xdpyinfo`（Gadi 等无头节点）
+
+**现象**（MMA server 已 `Server ready`，EmbodiedBench 在 `EBAlfEnv` / `ThorConnector` 失败）：
+
+```text
+xdpyinfo:  unable to open display ":1".
+AssertionError: Invalid DISPLAY :1 - cannot find X server with xdpyinfo
+```
+
+**原因**：AI2-THOR 优先 **CloudRendering**（需 `libvulkan`）；若 Vulkan 不可用会退回 **Linux64（X11）**。EmbodiedBench 在未设置环境变量时默认 `X_DISPLAY=:1`，而 PBS GPU 节点通常没有 X server。
+
+**修复（Gadi）**：使用最新 `run_embench_mma_one_node_gadi.sh`（自动 Vulkan 检测 + Xvfb 回退）。详见 [CLUSTER_NCI_GADI.md](CLUSTER_NCI_GADI.md) 中 “Thor: Invalid DISPLAY”。
+
+**手动**（交互 GPU 节点上调试）：
+
+```bash
+module load Xvfb   # 名称以 module avail 为准
+Xvfb :99 -screen 0 1024x768x24 &
+export DISPLAY=:99 X_DISPLAY=:99
+# 或：conda install -c conda-forge libvulkan-loader  后 unset DISPLAY
+```
+
+---
+
+## 2. `No module named 'httpx_sse'`
 
 **现象**：EmbodiedBench 客户端收到：
 ```text
@@ -29,7 +53,7 @@ python check_embodiedbench_deps.py
 
 ---
 
-## 2. `No module named 'opentelemetry.instrumentation.requests'`
+## 3. `No module named 'opentelemetry.instrumentation.requests'`
 
 **现象**：客户端收到：
 ```text
@@ -46,7 +70,7 @@ pip install opentelemetry-instrumentation-requests
 
 ---
 
-## 3. `cannot import name 'PreTrainedConfig' from 'transformers.configuration_utils'`
+## 4. `cannot import name 'PreTrainedConfig' from 'transformers.configuration_utils'`
 
 **现象**：客户端收到：
 ```text
@@ -72,7 +96,7 @@ pip install "transformers>=4.30,<4.46"
 
 ---
 
-## 4. `An unexpected error occurred: 'executable_plan'` 与 `Planner Output Action: -1`
+## 5. `An unexpected error occurred: 'executable_plan'` 与 `Planner Output Action: -1`
 
 **现象**：客户端报 `'executable_plan'`、`Planner Output Action: -1`，且每条都伴随服务端返回的 error（如 `httpx_sse`、`opentelemetry.instrumentation.requests` 等）。
 
@@ -82,7 +106,7 @@ pip install "transformers>=4.30,<4.46"
 
 ---
 
-## 5. 推荐：在 server 环境一次性装齐依赖
+## 6. 推荐：在 server 环境一次性装齐依赖
 
 在运行 `embodiedbench_server.py` 的环境里建议安装 MMA 的依赖（包含 `httpx-sse`）：
 
@@ -97,7 +121,7 @@ pip install -r requirements.txt
 
 ---
 
-## 6. `summary.json` 里 `planner_output_error` 很高、`num_steps` 为 0
+## 7. `summary.json` 里 `planner_output_error` 很高、`num_steps` 为 0
 
 **现象**：EmbodiedBench 能跑完 episode，但 `planner_output_error` 接近 planner 调用次数，且 `num_steps` 为 0。
 
@@ -119,7 +143,7 @@ pip install -r requirements.txt
 
 ---
 
-## 7. 减少「选错物体 / 重复 find」类 invalid action（服务端规划提示）
+## 8. 减少「选错物体 / 重复 find」类 invalid action（服务端规划提示）
 
 `embodiedbench_server.py` 支持在转发给模型前前置英文规划规则（对齐 TASK、只用动作表里的 id、避免无关家具、少重复同一步）。
 
@@ -157,7 +181,7 @@ test -f "${BASE}/planner_trace.log" && grep -c "put down the object in hand" "${
 
 ---
 
-## 8. Invalid action 专项：回归集、诊断、可行性门控、短闭环（实施清单）
+## 9. Invalid action 专项：回归集、诊断、可行性门控、短闭环（实施清单）
 
 ### 8.1 上游 EmbodiedBench 补丁（invalid 原因 JSONL + 反馈字段）
 

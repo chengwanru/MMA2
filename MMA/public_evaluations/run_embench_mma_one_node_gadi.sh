@@ -51,9 +51,6 @@ mkdir -p "${JOB_TMP}"
 export HF_HOME="${HF_HOME:-${JOB_TMP}/hf_cache}"
 mkdir -p "${HF_HOME}"
 
-unset DISPLAY || true
-unset X_DISPLAY || true
-
 _activate_conda() {
   if [[ -n "${CONDA_ACTIVATE_SCRIPT:-}" ]]; then
     # shellcheck source=/dev/null
@@ -72,6 +69,60 @@ _activate_conda() {
 }
 
 _activate_conda
+
+_has_vulkan() {
+  python - <<'PY'
+import ctypes.util
+import sys
+sys.exit(0 if ctypes.util.find_library("vulkan") else 1)
+PY
+}
+
+# AI2-THOR: CloudRendering needs libvulkan; else Linux64 needs a real X display.
+# EmbodiedBench defaults X_DISPLAY to :1 — without Xvfb that fails on headless Gadi.
+_setup_thor_rendering() {
+  if [[ "${EMBODIEDBENCH_FORCE_XVFB:-0}" == "1" ]]; then
+    :
+  elif _has_vulkan; then
+    unset DISPLAY || true
+    unset X_DISPLAY || true
+    echo "AI2-THOR: libvulkan found — CloudRendering (DISPLAY unset)."
+    return 0
+  fi
+
+  set +e
+  for _m in Vulkan vulkan libvulkan-loader; do
+    module load "${_m}" 2>/dev/null && echo "Loaded module: ${_m}" && break
+  done
+  for _m in Xvfb/21.1.3-GCCcore-11.3.0 Xvfb; do
+    module load "${_m}" 2>/dev/null && echo "Loaded module: ${_m}" && break
+  done
+  set -e
+
+  if [[ "${EMBODIEDBENCH_FORCE_XVFB:-0}" != "1" ]] && _has_vulkan; then
+    unset DISPLAY || true
+    unset X_DISPLAY || true
+    echo "AI2-THOR: libvulkan available after modules — CloudRendering."
+    return 0
+  fi
+
+  local xd="${EMBODIEDBENCH_X_DISPLAY:-:99}"
+  if ! command -v Xvfb >/dev/null 2>&1; then
+    echo "ERROR: No libvulkan for CloudRendering and no Xvfb in PATH." >&2
+    echo "  On Gadi: module avail Xvfb Vulkan; or in embench: conda install -c conda-forge libvulkan-loader" >&2
+    echo "  Then re-run, or: export EMBODIEDBENCH_FORCE_XVFB=1 after starting Xvfb manually." >&2
+    exit 1
+  fi
+  rm -f "/tmp/.X${xd#:}-lock" 2>/dev/null || true
+  echo "AI2-THOR: starting Xvfb on ${xd} (override with EMBODIEDBENCH_X_DISPLAY)."
+  Xvfb "${xd}" -screen 0 1024x768x24 &
+  XVFB_PID=$!
+  sleep 2
+  export DISPLAY="${xd}"
+  export X_DISPLAY="${xd}"
+}
+
+_setup_thor_rendering
 
 _health() {
   if command -v curl >/dev/null 2>&1; then
@@ -99,6 +150,10 @@ cleanup() {
   if [[ -n "${SERVER_PID:-}" ]] && kill -0 "${SERVER_PID}" 2>/dev/null; then
     kill "${SERVER_PID}" 2>/dev/null || true
     wait "${SERVER_PID}" 2>/dev/null || true
+  fi
+  if [[ -n "${XVFB_PID:-}" ]] && kill -0 "${XVFB_PID}" 2>/dev/null; then
+    kill "${XVFB_PID}" 2>/dev/null || true
+    wait "${XVFB_PID}" 2>/dev/null || true
   fi
   _archive_server_log
 }
