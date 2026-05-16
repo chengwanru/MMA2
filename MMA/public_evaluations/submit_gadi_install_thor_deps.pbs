@@ -1,0 +1,26 @@
+#!/bin/bash
+# Install libvulkan-loader into embench on a compute node (login OOM-kills conda metadata).
+#
+#   mkdir -p /scratch/mv44/$USER/logs && cd /scratch/mv44/$USER/logs
+#   qsub /g/data/mv44/$USER/MMA2/MMA/public_evaluations/submit_gadi_install_thor_deps.pbs
+#   tail -f install_vulkan.o<JOBID>
+
+#PBS -P mv44
+#PBS -q normal
+#PBS -l ncpus=1,mem=16GB,walltime=00:30:00
+#PBS -l storage=scratch/mv44+gdata/mv44
+#PBS -N install_vulkan
+#PBS -j oe
+
+set -eo pipefail
+cd "${PBS_O_WORKDIR:-.}"
+
+export ROOT="${ROOT:-/g/data/mv44/${USER}}"
+export MMA_ROOT="${MMA_ROOT:-${ROOT}/MMA2}"
+export CONDA_ENV="${CONDA_ENV:-/g/data/mv44/${USER}/envs/embench}"
+export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-/g/data/mv44/${USER}/conda_pkgs}"
+export TMPDIR="${TMPDIR:-/scratch/mv44/${USER}/tmp}"
+mkdir -p "${CONDA_PKGS_DIRS}" "${TMPDIR}"
+
+source "${HOME}/.bashrc" 2>/dev/null || true
+bash "${MMA_ROOT}/MMA/public_evaluations/scripts/gadi_install_thor_deps.sh" "${CONDA_ENV}"

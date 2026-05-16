@@ -17,10 +17,22 @@ Gadi **gpuvolta** 节点通常**没有**系统 `Xvfb` / `Vulkan` module。在 **
 
 ```bash
 export CONDA_ENV=/g/data/mv44/$USER/envs/embench
-cd /g/data/mv44/$USER/MMA2
-git pull
+export TMPDIR=/scratch/mv44/$USER/tmp
+export CONDA_PKGS_DIRS=/g/data/mv44/$USER/conda_pkgs
+mkdir -p "$TMPDIR" "$CONDA_PKGS_DIRS"
+cd /g/data/mv44/$USER/MMA2 && git pull
 bash MMA/public_evaluations/scripts/gadi_install_thor_deps.sh
 ```
+
+**若 login 上 `conda` 在 `Collecting package metadata` 时被 `Killed`**（内存不足），改在 **normal 队列 1 CPU** 上装（不占 GPU）：
+
+```bash
+mkdir -p /scratch/mv44/$USER/logs && cd /scratch/mv44/$USER/logs
+qsub /g/data/mv44/$USER/MMA2/MMA/public_evaluations/submit_gadi_install_thor_deps.pbs
+tail -f install_vulkan.o<JOBID>
+```
+
+日志末尾应为 `libvulkan OK: True`。
 
 或手动：
 
