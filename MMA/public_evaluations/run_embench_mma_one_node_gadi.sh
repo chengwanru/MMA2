@@ -48,8 +48,10 @@ export MMA_TARGET_MODEL_PATH="${MMA_TARGET_MODEL_PATH:-Qwen/Qwen3-VL-8B-Instruct
 export PYTHONPATH="${MMA_ROOT}/MMA:${PYTHONPATH:-}"
 
 mkdir -p "${JOB_TMP}"
-export HF_HOME="${HF_HOME:-${JOB_TMP}/hf_cache}"
+# Persistent HF cache on gdata (compute nodes have no internet). Override with HF_HOME=...
+export HF_HOME="${HF_HOME:-${ROOT}/hf_cache}"
 mkdir -p "${HF_HOME}"
+export PYTHONUNBUFFERED=1
 
 _activate_conda() {
   if [[ -n "${CONDA_ACTIVATE_SCRIPT:-}" ]]; then
@@ -158,15 +160,24 @@ _setup_thor_rendering() {
 
 _setup_thor_rendering
 
+if [[ "${GADI_SMOKE_DEBUG:-0}" == "1" ]] && [[ -f "${PEV_DIR}/scripts/gadi_smoke_debug.sh" ]]; then
+  # shellcheck source=scripts/gadi_smoke_debug.sh
+  source "${PEV_DIR}/scripts/gadi_smoke_debug.sh"
+  gadi_smoke_debug_vulkan 2>/dev/null || true
+fi
+
 _health() {
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsS "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1
-  else
-    python - <<PY
+  local py="${CONDA_PREFIX:-}/bin/python"
+  [[ -x "${py}" ]] || py="python"
+  "${py}" - <<PY
 import urllib.request
-urllib.request.urlopen("http://127.0.0.1:${PORT}/health", timeout=3)
+urllib.request.urlopen("http://127.0.0.1:${PORT}/health", timeout=5)
 PY
-  fi
+}
+
+_server_log_ready() {
+  [[ -f "${EMBENCH_SRV_LOG}" ]] || return 1
+  grep -qE "Running on http://0\\.0\\.0\\.0:${PORT}/|listening on 0\\.0\\.0\\.0:${PORT}" "${EMBENCH_SRV_LOG}" 2>/dev/null
 }
 
 _archive_server_log() {
@@ -196,34 +207,73 @@ trap cleanup EXIT
 cd "${PEV_DIR}"
 export EMBODIEDBENCH_SERVER_PORT="${PORT}"
 export EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD="${EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD:-1}"
-python embodiedbench_server.py >"${EMBENCH_SRV_LOG}" 2>&1 &
+# Line-buffer server log on PBS_JOBFS; curl /health often fails on Gadi GPU nodes even when Flask is up.
+if command -v stdbuf >/dev/null 2>&1; then
+  stdbuf -oL -eL python -u embodiedbench_server.py >"${EMBENCH_SRV_LOG}" 2>&1 &
+else
+  python -u embodiedbench_server.py >"${EMBENCH_SRV_LOG}" 2>&1 &
+fi
 SERVER_PID=$!
 
-echo "Waiting for MMA server on port ${PORT}..."
+READY_SECS="${EMBODIEDBENCH_SERVER_READY_SECS:-600}"
+echo "Waiting for MMA server on port ${PORT} (up to ${READY_SECS}s)..."
 ready=0
-for i in $(seq 1 120); do
+for i in $(seq 1 "${READY_SECS}"); do
   if _health; then
-    echo "Server ready after ${i}s"
+    echo "Server ready after ${i}s (/health)"
+    ready=1
+    break
+  fi
+  if _server_log_ready; then
+    echo "Server ready after ${i}s (Flask log on port ${PORT})"
     ready=1
     break
   fi
   if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
     echo "Server exited early. Tail log:"
-    tail -n 120 "${EMBENCH_SRV_LOG}" || true
+    tail -n 200 "${EMBENCH_SRV_LOG}" || true
     exit 1
+  fi
+  if [[ "${GADI_SMOKE_DEBUG:-0}" == "1" ]] && (( i % 60 == 0 )); then
+    echo "DEBUG: still waiting for server (${i}/${READY_SECS}s) log=$(wc -l <"${EMBENCH_SRV_LOG}" 2>/dev/null || echo 0) lines"
   fi
   sleep 1
 done
 if [[ "${ready}" -ne 1 ]]; then
-  echo "Server did not become ready in time."
-  tail -n 120 "${EMBENCH_SRV_LOG}" || true
+  echo "Server did not become ready in ${READY_SECS}s."
+  tail -n 200 "${EMBENCH_SRV_LOG}" || true
   exit 1
+fi
+
+if [[ "${GADI_SMOKE_DEBUG:-0}" == "1" ]] && declare -f gadi_smoke_debug_after_server >/dev/null 2>&1; then
+  gadi_smoke_debug_after_server
 fi
 
 export server_url="http://127.0.0.1:${PORT}/process"
 export exp_name="${EXP_NAME}"
 
 cd "${EB_ROOT}"
+# EBAlfEnv uses os.environ.get("X_DISPLAY", ":1") — unset alone still defaults to :1 in Python.
+# Patch EBAlfEnv on Gadi once (see CLUSTER_NCI_GADI.md). Ensure loader path for Thor CloudRendering.
+export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+unset DISPLAY || true
+unset X_DISPLAY || true
+
+if [[ "${GADI_SMOKE_DEBUG:-0}" == "1" ]]; then
+  {
+    echo "=== before embodiedbench.main ==="
+    echo "python=$(command -v python) CONDA_PREFIX=${CONDA_PREFIX}"
+    echo "DISPLAY=${DISPLAY-<unset>} X_DISPLAY=${X_DISPLAY-<unset>}"
+    echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}"
+    echo "HF_HOME=${HF_HOME:-} server_url=${server_url}"
+    EB_PY="${EB_ROOT}/embodiedbench/envs/eb_alfred/EBAlfEnv.py"
+    if [[ -f "${EB_PY}" ]]; then
+      echo "EBAlfEnv X_DISPLAY lines:"
+      grep -n 'X_DISPLAY' "${EB_PY}" | head -5 || true
+    fi
+  } | tee -a "${GADI_SMOKE_DEBUG_DIR:-/tmp}/02_pre_eb.txt" 2>/dev/null || cat
+fi
+
 set +e
 python -m embodiedbench.main \
   env=eb-alf \

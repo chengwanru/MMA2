@@ -43,5 +43,10 @@ set -e
 
 gadi_activate_conda "${CONDA_ENV}"
 
+export GADI_SMOKE_DEBUG="${GADI_SMOKE_DEBUG:-1}"
+export HF_HOME="${HF_HOME:-/g/data/mv44/${USER}/hf_cache}"
+export MMA_SKIP_GIT_PULL="${MMA_SKIP_GIT_PULL:-1}"
+
 cd "${MMA_ROOT}/MMA/public_evaluations"
+echo "PBS_JOBID=${PBS_JOBID} PBS_O_WORKDIR=${PBS_O_WORKDIR} HF_HOME=${HF_HOME}"
 bash run_embench_memory_smoke_gadi.sh

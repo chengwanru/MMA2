@@ -28,6 +28,10 @@ MMA_ROOT="${MMA_ROOT:-${ROOT}/MMA2}"
 export ROOT EB_ROOT MMA_ROOT
 PEV="${MMA_ROOT}/MMA/public_evaluations"
 
+export GADI_SMOKE_DEBUG="${GADI_SMOKE_DEBUG:-1}"
+# shellcheck source=scripts/gadi_smoke_debug.sh
+source "${PEV}/scripts/gadi_smoke_debug.sh"
+
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 export EXP_NAME="${EXP_NAME:-memcheck_smoke_gadi_$(date +%m%d_%H%M%S)}"
 export DOWNSAMPLE=1
@@ -39,12 +43,31 @@ export EMBODIEDBENCH_INVALID_LOG_JSONL="${EMBODIEDBENCH_INVALID_LOG_JSONL:-${INV
 export EMBODIEDBENCH_TRACE_LOG="${EMBODIEDBENCH_TRACE_LOG:-${TRACE_LOG_DEFAULT}}"
 mkdir -p "$(dirname "${EMBODIEDBENCH_TRACE_LOG}")"
 
+if [[ "${GADI_SMOKE_DEBUG}" == "1" ]]; then
+  gadi_smoke_debug_init
+fi
+
 cd "${PEV}"
 echo "=== GPU before server (expect one job using this card) ==="
 nvidia-smi || true
 echo "PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF}"
 echo "EXP_NAME=${EXP_NAME}"
 echo "EMBODIEDBENCH_SIM_INFO_LEVEL=${EMBODIEDBENCH_SIM_INFO_LEVEL}"
-echo "ROOT=${ROOT} EB_ROOT=${EB_ROOT}"
+echo "ROOT=${ROOT} EB_ROOT=${EB_ROOT} MMA_ROOT=${MMA_ROOT}"
+echo "EMBODIEDBENCH_INVALID_LOG_JSONL=${EMBODIEDBENCH_INVALID_LOG_JSONL}"
+echo "EMBODIEDBENCH_TRACE_LOG=${EMBODIEDBENCH_TRACE_LOG}"
+[[ -n "${GADI_SMOKE_DEBUG_DIR:-}" ]] && echo "GADI_SMOKE_DEBUG_DIR=${GADI_SMOKE_DEBUG_DIR}"
 
+if [[ "${GADI_SMOKE_DEBUG}" == "1" ]]; then
+  gadi_smoke_debug_vulkan
+fi
+
+set +e
 bash run_embench_mma_one_node_gadi.sh "+selected_indexes=[0]" "eval_sets=[base]"
+SMOKE_EXIT=$?
+set -e
+
+if [[ "${GADI_SMOKE_DEBUG}" == "1" ]]; then
+  gadi_smoke_debug_after_eb "${SMOKE_EXIT}"
+fi
+exit "${SMOKE_EXIT}"
