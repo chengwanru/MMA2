@@ -35,7 +35,13 @@ if not re.search(needle, text):
 block = r'''\1import os as _eb_os
 \1_thor_plat = _eb_os.environ.get("EMBODIEDBENCH_THOR_PLATFORM", "").strip()
 \1if _thor_plat == "CloudRendering":
-\1    from ai2thor.platform import CloudRendering as _EBCloudRendering
+\1    try:
+\1        from ai2thor.platform import CloudRendering as _EBCloudRendering
+\1    except ImportError as _e:
+\1        raise ImportError(
+\1            "CloudRendering requires ai2thor>=5 with ai2thor.platform; "
+\1            "on login run: pip install -U 'ai2thor>=5.0' && bash gadi_check_ai2thor.sh"
+\1        ) from _e
 \1    super().__init__(quality=quality, platform=_EBCloudRendering)
 \1else:
 \1    super().__init__(quality=quality)'''

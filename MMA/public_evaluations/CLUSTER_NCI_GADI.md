@@ -113,10 +113,11 @@ grep -n X_DISPLAY "$EB_ROOT/embodiedbench/envs/eb_alfred/EBAlfEnv.py" | head -5
 有 Vulkan 仍可能报 `Invalid DISPLAY :0.0`：ai2thor 未选 **CloudRendering** 时会退回 Linux64。在 login 上：
 
 ```bash
+conda activate /g/data/mv44/$USER/envs/embench
+bash .../scripts/gadi_check_ai2thor.sh    # 若失败: pip install -U 'ai2thor>=5.0'
 bash .../scripts/gadi_patch_ebalf_xdisplay.sh "$EB_ROOT"
 bash .../scripts/gadi_patch_eb_thor_cloud.sh "$EB_ROOT"
-# 需联网，下载 CloudRendering 二进制到 gdata：
-bash .../scripts/gadi_prefetch_ai2thor_cloud.sh
+bash .../scripts/gadi_prefetch_ai2thor_cloud.sh   # login 联网，下载到 /g/data/mv44/$USER/ai2thor
 ```
 
 smoke 会设 `EMBODIEDBENCH_THOR_PLATFORM=CloudRendering` 并 `env -u DISPLAY` 启动 EmbodiedBench。

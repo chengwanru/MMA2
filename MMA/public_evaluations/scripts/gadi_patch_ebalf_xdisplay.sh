@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# One-time fix on Gadi (login OK) for headless Thor on PBS:
-#   1) X_DISPLAY='1' → os.environ.get("X_DISPLAY")  (None → CloudRendering)
-#   2) Pop DISPLAY before ThorConnector when X_DISPLAY is None (PBS sets DISPLAY=:0.0)
+# One-time fix on Gadi (login OK) for headless Thor on PBS.
 set -eo pipefail
 
 EB_ROOT="${1:-${EB_ROOT:-/g/data/mv44/${USER}/EmbodiedBench}}"
@@ -25,8 +23,7 @@ text = open(path, encoding="utf-8").read()
 orig = text
 changed = False
 
-xdisplay_helper = '''
-def _eb_x_display_from_env():
+xdisplay_helper = '''def _eb_x_display_from_env():
     """Ignore PBS defaults (:0.0, 1); None enables CloudRendering when platform is set."""
     v = os.environ.get("X_DISPLAY")
     if v is None:
@@ -37,54 +34,62 @@ def _eb_x_display_from_env():
     return v
 
 
-X_DISPLAY = _eb_x_display_from_env()
-'''
+X_DISPLAY = _eb_x_display_from_env()'''
 
-# 1) Module-level X_DISPLAY
+pop_block = """        if X_DISPLAY is None:
+            os.environ.pop("DISPLAY", None)
+            os.environ.pop("X_DISPLAY", None)"""
+
+# 1) Module-level X_DISPLAY helper
 if "_eb_x_display_from_env" not in text:
     text2, n1 = re.subn(
         r"^X_DISPLAY\s*=\s*os\.environ\.get\([^\n]+\)\s*(#.*)?$",
-        xdisplay_helper.strip(),
+        xdisplay_helper,
         text,
         count=1,
         flags=re.MULTILINE,
     )
     if n1 == 0:
-        text2, n1b = re.subn(
+        text2, n1 = re.subn(
             r"^X_DISPLAY\s*=\s*['\"]1['\"]\s*$",
-            xdisplay_helper.strip(),
+            xdisplay_helper,
             text,
             count=1,
             flags=re.MULTILINE,
         )
-        n1 = n1b
     if n1:
         text = text2
         changed = True
         print("Patched X_DISPLAY helper")
 
-# 2) Pop DISPLAY / X_DISPLAY before ThorConnector
-pop_block = """        if X_DISPLAY is None:
-            os.environ.pop("DISPLAY", None)
-            os.environ.pop("X_DISPLAY", None)"""
-if pop_block.strip() not in text.replace(" ", ""):
-    needle = r"(\n)(\s*)(self\.env = ThorConnector\(x_display=X_DISPLAY)"
-    if re.search(needle, text):
-        text, n3 = re.subn(
-            needle,
-            "\n" + pop_block + r"\n\2\3",
-            text,
-            count=1,
-        )
-        if n3:
-            changed = True
-            print("Patched ThorConnector: pop DISPLAY/X_DISPLAY when X_DISPLAY is None")
-    else:
-        print("WARN: could not find ThorConnector line", file=sys.stderr)
-elif "_eb_x_display_from_env" in text:
-    print("ThorConnector pop block already present")
+# 2) Deduplicate pop blocks and ensure exactly one block before ThorConnector
+thor_needle = r"self\.env = ThorConnector\(x_display=X_DISPLAY"
+if re.search(thor_needle, text):
+  text2, n2 = re.subn(
+      r"(?:[ \t]*if X_DISPLAY is None:\n[ \t]*os\.environ\.pop\(\"DISPLAY\", None\)\n(?:[ \t]*os\.environ\.pop\(\"X_DISPLAY\", None\)\n)?)+"
+      r"([ \t]*self\.env = ThorConnector\(x_display=X_DISPLAY)",
+      pop_block + r"\n\1",
+      text,
+      count=1,
+  )
+  if n2:
+      if text2 != text:
+          changed = True
+          print("Normalized ThorConnector pop DISPLAY block")
+      text = text2
+  elif pop_block not in text:
+      text2, n3 = re.subn(
+          r"(\n)([ \t]*)(self\.env = ThorConnector\(x_display=X_DISPLAY)",
+          "\n" + pop_block + r"\n\2\3",
+          text,
+          count=1,
+      )
+      if n3:
+          text = text2
+          changed = True
+          print("Inserted ThorConnector pop DISPLAY block")
 
-if not changed and "_eb_x_display_from_env" in text and "pop(\"DISPLAY\"" in text:
+if not changed and "_eb_x_display_from_env" in text and pop_block in text:
     print("Already fully patched:", path)
     sys.exit(0)
 
