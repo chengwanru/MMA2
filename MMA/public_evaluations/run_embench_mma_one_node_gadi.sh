@@ -262,7 +262,7 @@ export EMBODIEDBENCH_THOR_PLATFORM="${EMBODIEDBENCH_THOR_PLATFORM:-CloudRenderin
 unset DISPLAY || true
 unset X_DISPLAY || true
 # Reuse ai2thor binaries from gdata (prefetch on login: scripts/gadi_prefetch_ai2thor_cloud.sh).
-if [[ -d "/g/data/mv44/${USER}/ai2thor" ]] && [[ ! -e "${HOME}/.ai2thor" ]]; then
+if [[ -d "/g/data/mv44/${USER}/ai2thor" ]]; then
   ln -sfn "/g/data/mv44/${USER}/ai2thor" "${HOME}/.ai2thor" 2>/dev/null || true
 fi
 
@@ -274,7 +274,7 @@ if [[ "${GADI_SMOKE_DEBUG:-0}" == "1" ]]; then
     echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}"
     echo "HF_HOME=${HF_HOME:-} server_url=${server_url}"
     echo "EMBODIEDBENCH_THOR_PLATFORM=${EMBODIEDBENCH_THOR_PLATFORM:-}"
-    echo "AI2THOR_HOME=${HOME}/.ai2thor -> $(readlink -f "${HOME}/.ai2thor" 2>/dev/null || echo missing)"
+    echo "AI2THOR_HOME=${HOME}/.ai2thor -> $(readlink -f "${HOME}/.ai2thor" 2>/dev/null || echo missing) size=$(du -sh "${HOME}/.ai2thor" 2>/dev/null | cut -f1 || echo ?)"
     EB_PY="${EB_ROOT}/embodiedbench/envs/eb_alfred/EBAlfEnv.py"
     if [[ -f "${EB_PY}" ]]; then
       echo "EBAlfEnv X_DISPLAY lines:"
