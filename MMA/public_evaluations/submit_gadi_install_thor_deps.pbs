@@ -25,5 +25,5 @@ source "${PEV}/scripts/gadi_pbs_common.sh"
 gadi_ensure_paths
 gadi_git_pull_mma
 
-source "${HOME}/.bashrc" 2>/dev/null || true
+gadi_activate_conda "${CONDA_ENV}"
 bash "${PEV}/scripts/gadi_install_thor_deps.sh" "${CONDA_ENV}"

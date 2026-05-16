@@ -20,8 +20,9 @@ fi
 gadi_ensure_paths
 mkdir -p "${CONDA_PKGS_DIRS}" "${TMPDIR}"
 
-source "${HOME}/.bashrc" 2>/dev/null || true
-conda activate "${ENV_PATH}"
+if [[ -z "${CONDA_PREFIX:-}" ]]; then
+  gadi_activate_conda "${ENV_PATH}"
+fi
 
 _verify_vulkan() {
   export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"

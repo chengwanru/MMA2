@@ -44,8 +44,7 @@ else
 fi
 set -e
 
-source "${HOME}/.bashrc"
-conda activate "${CONDA_ENV}"
+gadi_activate_conda "${CONDA_ENV}"
 
 cd "${MMA_ROOT}/MMA/public_evaluations"
 

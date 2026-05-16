@@ -22,6 +22,66 @@ gadi_ensure_paths() {
   mkdir -p "${CONDA_PKGS_DIRS}" "${TMPDIR}"
 }
 
+# PBS jobs are non-interactive; ~/.bashrc often returns early and skips conda init.
+gadi_find_conda_base() {
+  local candidate base env_path="${CONDA_ENV:-}"
+  if [[ -n "${CONDA_BASE:-}" && -f "${CONDA_BASE}/etc/profile.d/conda.sh" ]]; then
+    echo "${CONDA_BASE}"
+    return 0
+  fi
+  if [[ -n "${CONDA_EXE:-}" ]]; then
+    base="$(dirname "$(dirname "${CONDA_EXE}")")"
+    if [[ -f "${base}/etc/profile.d/conda.sh" ]]; then
+      echo "${base}"
+      return 0
+    fi
+  fi
+  if [[ "${env_path}" == */envs/* ]]; then
+    candidate="${env_path%/envs/*}"
+    if [[ -f "${candidate}/etc/profile.d/conda.sh" ]]; then
+      echo "${candidate}"
+      return 0
+    fi
+    if [[ -f "${candidate}/miniconda3/etc/profile.d/conda.sh" ]]; then
+      echo "${candidate}/miniconda3"
+      return 0
+    fi
+  fi
+  for candidate in \
+    "/g/data/mv44/${USER}/miniconda3" \
+    "/g/data/mv44/${USER}/anaconda3" \
+    "${HOME}/miniconda3" \
+    "${HOME}/anaconda3"; do
+    if [[ -f "${candidate}/etc/profile.d/conda.sh" ]]; then
+      echo "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+gadi_activate_conda() {
+  local env_path="${1:-${CONDA_ENV}}"
+  if [[ -z "${env_path}" ]]; then
+    echo "ERROR: CONDA_ENV not set." >&2
+    exit 1
+  fi
+  if [[ -n "${CONDA_PREFIX:-}" ]] && [[ "${CONDA_PREFIX}" == "${env_path}" || "${CONDA_PREFIX}" == "${env_path}/" ]]; then
+    echo "Conda env already active: ${CONDA_PREFIX}"
+    return 0
+  fi
+  local base
+  base="$(gadi_find_conda_base)" || {
+    echo "ERROR: cannot find conda.sh (set CONDA_BASE to your miniconda root)." >&2
+    exit 1
+  }
+  echo "Sourcing conda.sh from ${base}"
+  # shellcheck source=/dev/null
+  source "${base}/etc/profile.d/conda.sh"
+  conda activate "${env_path}"
+  echo "Activated: CONDA_PREFIX=${CONDA_PREFIX} python=$(command -v python)"
+}
+
 # Pull latest MMA2 on the compute node (not on login).
 gadi_git_pull_mma() {
   if [[ "${MMA_SKIP_GIT_PULL:-0}" == "1" ]]; then

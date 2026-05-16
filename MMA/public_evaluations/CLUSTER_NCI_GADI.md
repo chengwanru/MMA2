@@ -57,6 +57,12 @@ tail -n 30 /scratch/mv44/$USER/logs/install_vulkan.o<JOBID>
 
 日志末尾应为 **`libvulkan OK: True`**。脚本会在计算节点上 `git pull` + `conda install`（**不要在 login 上跑** `gadi_install_thor_deps.sh`）。
 
+PBS 是非交互 shell，`~/.bashrc` 往往**不会**初始化 conda；脚本用 `gadi_activate_conda` 直接 `source …/conda.sh`。若仍失败，在 login 上查 conda 根目录后 `qsub -v CONDA_BASE=/g/data/mv44/$USER/miniconda3 ...`：
+
+```bash
+ls /g/data/mv44/$USER/*/etc/profile.d/conda.sh /g/data/mv44/$USER/miniconda3/etc/profile.d/conda.sh 2>/dev/null
+```
+
 ### 2）GPU smoke（memcheck）
 
 ```bash
