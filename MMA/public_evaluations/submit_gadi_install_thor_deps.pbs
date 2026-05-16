@@ -6,7 +6,8 @@
 #   mkdir -p /scratch/mv44/$USER/{logs,tmp}
 #   cd /scratch/mv44/$USER/logs
 #   qsub /g/data/mv44/$USER/MMA2/MMA/public_evaluations/submit_gadi_install_thor_deps.pbs
-#   tail -n 40 /scratch/mv44/$USER/logs/install_vulkan.o<JOBID>
+#   qstat -u $USER
+#   tail -n 40 /scratch/mv44/$USER/logs/install_vulkan.o*   # or full job id from qsub stdout
 
 #PBS -P mv44
 #PBS -q normal
