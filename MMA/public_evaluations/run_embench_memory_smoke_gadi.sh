@@ -19,7 +19,8 @@
 #
 # After job (PBS): parse EXP_NAME from stdout or from EmbodiedBench run dir under EB_ROOT.
 
-set -euo pipefail
+# Avoid nounset (-u): same Gadi/bashrc pitfalls as one_node_gadi (CLUSTER_NCI_GADI.md).
+set -eo pipefail
 
 ROOT="${ROOT:-/g/data/mv44/${USER}}"
 EB_ROOT="${EB_ROOT:-${ROOT}/EmbodiedBench}"

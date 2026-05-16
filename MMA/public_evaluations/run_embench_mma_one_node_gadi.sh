@@ -41,6 +41,7 @@ DOWNSAMPLE="${DOWNSAMPLE:-0.01}"
 
 JOB_ID="${PBS_JOBID:-${SLURM_JOB_ID:-local}}"
 JOB_TMP="${PBS_JOBFS:-${SLURM_TMPDIR:-${TMPDIR:-/tmp}}}"
+EMBENCH_SRV_LOG="${JOB_TMP}/embench_server_${JOB_ID}.log"
 
 export MMA_DRAFT_MODEL_PATH="${MMA_DRAFT_MODEL_PATH:-Qwen/Qwen3-VL-2B-Instruct}"
 export MMA_TARGET_MODEL_PATH="${MMA_TARGET_MODEL_PATH:-Qwen/Qwen3-VL-8B-Instruct}"
@@ -83,18 +84,30 @@ PY
   fi
 }
 
+_archive_server_log() {
+  # PBS_JOBFS is ephemeral; keep a copy next to mm_memcheck.o* for post-mortem.
+  if [[ -z "${PBS_O_WORKDIR:-}" ]]; then
+    return 0
+  fi
+  if [[ -f "${EMBENCH_SRV_LOG}" ]]; then
+    cp -f "${EMBENCH_SRV_LOG}" "${PBS_O_WORKDIR}/" 2>/dev/null || true
+    echo "Saved server log copy: ${PBS_O_WORKDIR}/$(basename "${EMBENCH_SRV_LOG}")" >&2
+  fi
+}
+
 cleanup() {
   if [[ -n "${SERVER_PID:-}" ]] && kill -0 "${SERVER_PID}" 2>/dev/null; then
     kill "${SERVER_PID}" 2>/dev/null || true
     wait "${SERVER_PID}" 2>/dev/null || true
   fi
+  _archive_server_log
 }
 trap cleanup EXIT
 
 cd "${PEV_DIR}"
 export EMBODIEDBENCH_SERVER_PORT="${PORT}"
 export EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD="${EMBODIEDBENCH_ENABLE_FIRST_ACTION_GUARD:-1}"
-python embodiedbench_server.py >"${JOB_TMP}/embench_server_${JOB_ID}.log" 2>&1 &
+python embodiedbench_server.py >"${EMBENCH_SRV_LOG}" 2>&1 &
 SERVER_PID=$!
 
 echo "Waiting for MMA server on port ${PORT}..."
@@ -107,14 +120,14 @@ for i in $(seq 1 120); do
   fi
   if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
     echo "Server exited early. Tail log:"
-    tail -n 120 "${JOB_TMP}/embench_server_${JOB_ID}.log" || true
+    tail -n 120 "${EMBENCH_SRV_LOG}" || true
     exit 1
   fi
   sleep 1
 done
 if [[ "${ready}" -ne 1 ]]; then
   echo "Server did not become ready in time."
-  tail -n 120 "${JOB_TMP}/embench_server_${JOB_ID}.log" || true
+  tail -n 120 "${EMBENCH_SRV_LOG}" || true
   exit 1
 fi
 
