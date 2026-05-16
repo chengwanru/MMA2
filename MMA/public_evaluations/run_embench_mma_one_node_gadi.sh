@@ -256,11 +256,15 @@ cd "${EB_ROOT}"
 # EBAlfEnv may hardcode X_DISPLAY='1' or default ":1" — bash unset is not enough; patch once on Gadi:
 #   bash ${PEV_DIR}/scripts/gadi_patch_ebalf_xdisplay.sh "${EB_ROOT}"
 export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
-# PBS often exports DISPLAY=:0.0; ai2thor uses it when x_display is None (blocks CloudRendering).
+# Force Thor CloudRendering on Gadi (requires gadi_patch_eb_thor_cloud.sh + prefetched ~/.ai2thor).
+export EMBODIEDBENCH_THOR_PLATFORM="${EMBODIEDBENCH_THOR_PLATFORM:-CloudRendering}"
+# PBS often exports DISPLAY=:0.0; Linux64 fallback would xdpyinfo-fail without Xvfb.
 unset DISPLAY || true
 unset X_DISPLAY || true
-export DISPLAY=
-export X_DISPLAY=
+# Reuse ai2thor binaries from gdata (prefetch on login: scripts/gadi_prefetch_ai2thor_cloud.sh).
+if [[ -d "/g/data/mv44/${USER}/ai2thor" ]] && [[ ! -e "${HOME}/.ai2thor" ]]; then
+  ln -sfn "/g/data/mv44/${USER}/ai2thor" "${HOME}/.ai2thor" 2>/dev/null || true
+fi
 
 if [[ "${GADI_SMOKE_DEBUG:-0}" == "1" ]]; then
   {
@@ -269,6 +273,8 @@ if [[ "${GADI_SMOKE_DEBUG:-0}" == "1" ]]; then
     echo "DISPLAY=${DISPLAY-<unset>} X_DISPLAY=${X_DISPLAY-<unset>}"
     echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}"
     echo "HF_HOME=${HF_HOME:-} server_url=${server_url}"
+    echo "EMBODIEDBENCH_THOR_PLATFORM=${EMBODIEDBENCH_THOR_PLATFORM:-}"
+    echo "AI2THOR_HOME=${HOME}/.ai2thor -> $(readlink -f "${HOME}/.ai2thor" 2>/dev/null || echo missing)"
     EB_PY="${EB_ROOT}/embodiedbench/envs/eb_alfred/EBAlfEnv.py"
     if [[ -f "${EB_PY}" ]]; then
       echo "EBAlfEnv X_DISPLAY lines:"

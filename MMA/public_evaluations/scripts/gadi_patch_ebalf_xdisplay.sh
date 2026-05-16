@@ -25,48 +25,66 @@ text = open(path, encoding="utf-8").read()
 orig = text
 changed = False
 
+xdisplay_helper = '''
+def _eb_x_display_from_env():
+    """Ignore PBS defaults (:0.0, 1); None enables CloudRendering when platform is set."""
+    v = os.environ.get("X_DISPLAY")
+    if v is None:
+        return None
+    v = str(v).strip()
+    if v in ("", ":0.0", ":0", "0.0", "1"):
+        return None
+    return v
+
+
+X_DISPLAY = _eb_x_display_from_env()
+'''
+
 # 1) Module-level X_DISPLAY
-if not re.search(r'^X_DISPLAY\s*=\s*os\.environ\.get\("X_DISPLAY"\)', text, re.MULTILINE):
+if "_eb_x_display_from_env" not in text:
     text2, n1 = re.subn(
-        r"^X_DISPLAY\s*=\s*['\"]1['\"]\s*$",
-        'X_DISPLAY = os.environ.get("X_DISPLAY")  # None → CloudRendering when unset',
+        r"^X_DISPLAY\s*=\s*os\.environ\.get\([^\n]+\)\s*(#.*)?$",
+        xdisplay_helper.strip(),
         text,
         count=1,
         flags=re.MULTILINE,
     )
     if n1 == 0:
-        text2, n2 = re.subn(
-            r'os\.environ\.get\(\s*["\']X_DISPLAY["\']\s*,\s*["\']:1["\']\s*\)',
-            'os.environ.get("X_DISPLAY")',
+        text2, n1b = re.subn(
+            r"^X_DISPLAY\s*=\s*['\"]1['\"]\s*$",
+            xdisplay_helper.strip(),
             text,
             count=1,
+            flags=re.MULTILINE,
         )
-    else:
-        n2 = 0
-    if text2 != text:
+        n1 = n1b
+    if n1:
         text = text2
         changed = True
-        print("Patched X_DISPLAY constant")
+        print("Patched X_DISPLAY helper")
 
-# 2) Pop DISPLAY before ThorConnector (PBS DISPLAY=:0.0 breaks CloudRendering)
-if 'os.environ.pop("DISPLAY", None)' not in text:
+# 2) Pop DISPLAY / X_DISPLAY before ThorConnector
+pop_block = """        if X_DISPLAY is None:
+            os.environ.pop("DISPLAY", None)
+            os.environ.pop("X_DISPLAY", None)"""
+if pop_block.strip() not in text.replace(" ", ""):
     needle = r"(\n)(\s*)(self\.env = ThorConnector\(x_display=X_DISPLAY)"
     if re.search(needle, text):
         text, n3 = re.subn(
             needle,
-            r'\1\2if X_DISPLAY is None:\n\2    os.environ.pop("DISPLAY", None)\n\2\3',
+            "\n" + pop_block + r"\n\2\3",
             text,
             count=1,
         )
         if n3:
             changed = True
-            print("Patched ThorConnector: pop DISPLAY when X_DISPLAY is None")
+            print("Patched ThorConnector: pop DISPLAY/X_DISPLAY when X_DISPLAY is None")
     else:
-        print("WARN: could not find ThorConnector line; add pop DISPLAY manually", file=sys.stderr)
+        print("WARN: could not find ThorConnector line", file=sys.stderr)
+elif "_eb_x_display_from_env" in text:
+    print("ThorConnector pop block already present")
 
-if not changed and 'os.environ.pop("DISPLAY", None)' in text and re.search(
-    r'^X_DISPLAY\s*=\s*os\.environ\.get\("X_DISPLAY"\)', text, re.MULTILINE
-):
+if not changed and "_eb_x_display_from_env" in text and "pop(\"DISPLAY\"" in text:
     print("Already fully patched:", path)
     sys.exit(0)
 
