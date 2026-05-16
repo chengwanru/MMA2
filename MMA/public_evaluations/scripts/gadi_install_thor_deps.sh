@@ -50,12 +50,11 @@ fi
 echo "Installing libvulkan-loader into ${CONDA_PREFIX} (TMPDIR=${TMPDIR}) on $(hostname -s) ..."
 
 export CONDA_NO_PLUGINS=true
+# Gadi embench may set solver=libmamba in .condarc but lack conda-libmamba-solver — force classic.
 if command -v mamba >/dev/null 2>&1; then
   mamba install -y -c conda-forge libvulkan-loader
-elif conda install --help 2>/dev/null | grep -q libmamba; then
-  conda install -y --solver libmamba -c conda-forge libvulkan-loader
 else
-  conda install -y -c conda-forge --override-channels libvulkan-loader
+  conda install -y --solver classic -c conda-forge libvulkan-loader
 fi
 
 _verify_vulkan

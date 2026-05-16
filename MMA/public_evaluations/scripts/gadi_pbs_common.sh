@@ -92,8 +92,10 @@ gadi_git_pull_mma() {
     return 0
   fi
   echo "git pull in ${MMA_ROOT} ..."
-  (cd "${MMA_ROOT}" && git pull --ff-only origin main) || {
-    echo "WARN: git pull failed (continuing with existing tree)."
+  if (cd "${MMA_ROOT}" && git pull --ff-only origin main); then
     return 0
-  }
+  fi
+  echo "WARN: git pull failed (compute nodes often cannot reach github.com; continuing)."
+  echo "  Update MMA2 on a machine with GitHub access, or: qsub -v MMA_SKIP_GIT_PULL=1 ..."
+  return 0
 }
