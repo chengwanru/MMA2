@@ -9,11 +9,11 @@
 **现象**（MMA server 已 `Server ready`，EmbodiedBench 在 `EBAlfEnv` / `ThorConnector` 失败）：
 
 ```text
-xdpyinfo:  unable to open display ":1".
+xdpyinfo:  unable to open display ":1".   # or ":0.0" when PBS sets DISPLAY
 AssertionError: Invalid DISPLAY :1 - cannot find X server with xdpyinfo
 ```
 
-**原因**：AI2-THOR 优先 **CloudRendering**（需 `libvulkan`）；若 Vulkan 不可用会退回 **Linux64（X11）**。部分 EmbodiedBench 克隆在 `EBAlfEnv.py` 里 **写死** `X_DISPLAY = '1'`（或默认 `":1"`），与 shell `unset` 无关，PBS GPU 节点上仍会 `xdpyinfo :1` 失败。
+**原因**：AI2-THOR 优先 **CloudRendering**（需 `libvulkan`）；若 Vulkan 不可用会退回 **Linux64（X11）**。部分 EmbodiedBench 克隆在 `EBAlfEnv.py` 里 **写死** `X_DISPLAY = '1'`（或默认 `":1"`），与 shell `unset` 无关。另外 PBS 常导出 **`DISPLAY=:0.0`**：当 `x_display` 为 `None` 时 ai2thor 仍会采用 `DISPLAY`，导致 `Invalid DISPLAY :0.0`。
 
 **修复（Gadi）**：
 

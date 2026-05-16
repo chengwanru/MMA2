@@ -256,9 +256,11 @@ cd "${EB_ROOT}"
 # EBAlfEnv may hardcode X_DISPLAY='1' or default ":1" — bash unset is not enough; patch once on Gadi:
 #   bash ${PEV_DIR}/scripts/gadi_patch_ebalf_xdisplay.sh "${EB_ROOT}"
 export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
-export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+# PBS often exports DISPLAY=:0.0; ai2thor uses it when x_display is None (blocks CloudRendering).
 unset DISPLAY || true
 unset X_DISPLAY || true
+export DISPLAY=
+export X_DISPLAY=
 
 if [[ "${GADI_SMOKE_DEBUG:-0}" == "1" ]]; then
   {
@@ -276,7 +278,8 @@ if [[ "${GADI_SMOKE_DEBUG:-0}" == "1" ]]; then
 fi
 
 set +e
-python -m embodiedbench.main \
+# env -u: PBS DISPLAY=:0.0 must not reach Thor when X_DISPLAY is unset (CloudRendering).
+env -u DISPLAY -u X_DISPLAY python -m embodiedbench.main \
   env=eb-alf \
   model_name=mma \
   model_type=custom \

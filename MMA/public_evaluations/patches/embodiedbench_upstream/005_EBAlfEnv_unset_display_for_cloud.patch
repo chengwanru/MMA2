@@ -1,0 +1,11 @@
+--- a/embodiedbench/envs/eb_alfred/EBAlfEnv.py
++++ b/embodiedbench/envs/eb_alfred/EBAlfEnv.py
+@@ -102,6 +102,8 @@
+         self.episode_language_instruction = None
+         self._current_step = 0
+         self._cur_invalid_actions = 0
++        if X_DISPLAY is None:
++            os.environ.pop("DISPLAY", None)
+         self.env = ThorConnector(x_display=X_DISPLAY, player_screen_height=resolution, player_screen_width=resolution)
+ 
+     def reset(self, **kwargs):

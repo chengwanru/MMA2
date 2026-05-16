@@ -10,7 +10,8 @@ for p in \
   "${DIR}/001_EBAlfEnv_invalid_jsonl.patch" \
   "${DIR}/002_custom_model_feedback.patch" \
   "${DIR}/003_vlm_planner_feedback.patch" \
-  "${DIR}/004_EBAlfEnv_x_display_env.patch"
+  "${DIR}/004_EBAlfEnv_x_display_env.patch" \
+  "${DIR}/005_EBAlfEnv_unset_display_for_cloud.patch"
 do
   echo "Applying $(basename "$p") ..."
   patch -p1 --forward < "$p" || {

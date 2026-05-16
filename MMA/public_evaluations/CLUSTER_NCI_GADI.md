@@ -110,7 +110,7 @@ grep -n X_DISPLAY "$EB_ROOT/embodiedbench/envs/eb_alfred/EBAlfEnv.py" | head -5
 # 期望: X_DISPLAY = os.environ.get("X_DISPLAY")
 ```
 
-有 Vulkan 时 smoke 脚本会 `unset X_DISPLAY` → Python 为 `None` → **CloudRendering**。
+有 Vulkan 时 smoke 会 `env -u DISPLAY` 启动 EmbodiedBench（PBS 常设 `DISPLAY=:0.0`，否则 ai2thor 仍走 X11）。补丁脚本会同时改 `X_DISPLAY` 并在 `ThorConnector` 前 `pop("DISPLAY")`。
 
 ## 与 LTU（Slurm）勿混
 

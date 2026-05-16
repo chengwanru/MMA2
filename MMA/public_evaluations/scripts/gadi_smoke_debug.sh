@@ -6,7 +6,7 @@ gadi_smoke_debug_init() {
   export PYTHONFAULTHANDLER="${PYTHONFAULTHANDLER:-1}"
   export EMBODIEDBENCH_DEBUG_FEEDBACK="${EMBODIEDBENCH_DEBUG_FEEDBACK:-1}"
 
-  local log_root="${PBS_O_WORKDIR:-${EB_ROOT}/running/eb_alfred}}"
+  local log_root="${PBS_O_WORKDIR:-${EB_ROOT}/running/eb_alfred}"
   export GADI_SMOKE_DEBUG_DIR="${GADI_SMOKE_DEBUG_DIR:-${log_root}/smoke_debug_${EXP_NAME}}"
   mkdir -p "${GADI_SMOKE_DEBUG_DIR}"
 
