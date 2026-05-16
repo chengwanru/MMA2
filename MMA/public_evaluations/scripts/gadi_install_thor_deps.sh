@@ -49,13 +49,10 @@ fi
 
 echo "Installing libvulkan-loader into ${CONDA_PREFIX} (TMPDIR=${TMPDIR}) on $(hostname -s) ..."
 
+# embench .condarc may set solver=libmamba without conda-libmamba-solver — force classic only.
 export CONDA_NO_PLUGINS=true
-# Gadi embench may set solver=libmamba in .condarc but lack conda-libmamba-solver — force classic.
-if command -v mamba >/dev/null 2>&1; then
-  mamba install -y -c conda-forge libvulkan-loader
-else
-  conda install -y --solver classic -c conda-forge libvulkan-loader
-fi
+export CONDA_SOLVER=classic
+conda install -y --solver classic -c conda-forge libvulkan-loader
 
 _verify_vulkan
 echo "Done. On login, submit smoke only: qsub .../submit_embench_memory_smoke_gadi.pbs"
