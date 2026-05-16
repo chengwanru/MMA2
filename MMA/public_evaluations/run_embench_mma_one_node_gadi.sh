@@ -70,12 +70,43 @@ _activate_conda() {
 
 _activate_conda
 
+# Conda-installed libvulkan is often under $CONDA_PREFIX/lib but not on default loader path.
+if [[ -n "${CONDA_PREFIX:-}" ]] && [[ -d "${CONDA_PREFIX}/lib" ]]; then
+  export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+fi
+
 _has_vulkan() {
   python - <<'PY'
 import ctypes.util
+import os
 import sys
-sys.exit(0 if ctypes.util.find_library("vulkan") else 1)
+
+def found():
+    if ctypes.util.find_library("vulkan"):
+        return True
+    prefix = os.environ.get("CONDA_PREFIX", "")
+    if not prefix:
+        return False
+    libdir = os.path.join(prefix, "lib")
+    for name in ("libvulkan.so.1", "libvulkan.so"):
+        if os.path.isfile(os.path.join(libdir, name)):
+            return True
+    return False
+
+sys.exit(0 if found() else 1)
 PY
+}
+
+_xvfb_bin() {
+  if command -v Xvfb >/dev/null 2>&1; then
+    command -v Xvfb
+    return 0
+  fi
+  if [[ -n "${CONDA_PREFIX:-}" ]] && [[ -x "${CONDA_PREFIX}/bin/Xvfb" ]]; then
+    echo "${CONDA_PREFIX}/bin/Xvfb"
+    return 0
+  fi
+  return 1
 }
 
 # AI2-THOR: CloudRendering needs libvulkan; else Linux64 needs a real X display.
@@ -94,7 +125,7 @@ _setup_thor_rendering() {
   for _m in Vulkan vulkan libvulkan-loader; do
     module load "${_m}" 2>/dev/null && echo "Loaded module: ${_m}" && break
   done
-  for _m in Xvfb/21.1.3-GCCcore-11.3.0 Xvfb; do
+  for _m in Xvfb/21.1.3-GCCcore-11.3.0 Xvfb xorg-x11-server-xvfb; do
     module load "${_m}" 2>/dev/null && echo "Loaded module: ${_m}" && break
   done
   set -e
@@ -107,15 +138,21 @@ _setup_thor_rendering() {
   fi
 
   local xd="${EMBODIEDBENCH_X_DISPLAY:-:99}"
-  if ! command -v Xvfb >/dev/null 2>&1; then
-    echo "ERROR: No libvulkan for CloudRendering and no Xvfb in PATH." >&2
-    echo "  On Gadi: module avail Xvfb Vulkan; or in embench: conda install -c conda-forge libvulkan-loader" >&2
-    echo "  Then re-run, or: export EMBODIEDBENCH_FORCE_XVFB=1 after starting Xvfb manually." >&2
+  local xvfb
+  xvfb="$(_xvfb_bin)" || true
+  if [[ -z "${xvfb}" ]]; then
+    echo "ERROR: No libvulkan for CloudRendering and no Xvfb in PATH or \$CONDA_PREFIX/bin." >&2
+    echo "  One-time in embench (recommended on Gadi — no system Xvfb module):" >&2
+    echo "    conda activate ${CONDA_PREFIX:-/g/data/mv44/\$USER/envs/embench}" >&2
+    echo "    conda install -y -c conda-forge libvulkan-loader" >&2
+    echo "  Or Xvfb fallback: conda install -y -c conda-forge xorg-x11-server-xvfb-cos7-x86_64" >&2
+    echo "  Or: bash ${MMA_ROOT}/MMA/public_evaluations/scripts/gadi_install_thor_deps.sh" >&2
+    echo "  Discover site modules: module avail 2>&1 | grep -iE 'vulkan|xvfb|X11'" >&2
     exit 1
   fi
   rm -f "/tmp/.X${xd#:}-lock" 2>/dev/null || true
-  echo "AI2-THOR: starting Xvfb on ${xd} (override with EMBODIEDBENCH_X_DISPLAY)."
-  Xvfb "${xd}" -screen 0 1024x768x24 &
+  echo "AI2-THOR: starting Xvfb on ${xd} via ${xvfb}"
+  "${xvfb}" "${xd}" -screen 0 1024x768x24 &
   XVFB_PID=$!
   sleep 2
   export DISPLAY="${xd}"

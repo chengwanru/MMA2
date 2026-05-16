@@ -11,11 +11,33 @@
 | GPU 队列 | `gpuvolta`（V100）、`gpuhopper`（H200） |
 | 存储 | `/scratch/mv44/<user>`、`/g/data/mv44/<user>`（勿占满 **home**） |
 
+## 首次跑 smoke 前：Thor 依赖（必做一次）
+
+Gadi **gpuvolta** 节点通常**没有**系统 `Xvfb` / `Vulkan` module。在 **login** 上对 `embench` 环境安装 **libvulkan**（推荐，走 CloudRendering，与 LTU one-node 一致）：
+
+```bash
+export CONDA_ENV=/g/data/mv44/$USER/envs/embench
+cd /g/data/mv44/$USER/MMA2
+git pull
+bash MMA/public_evaluations/scripts/gadi_install_thor_deps.sh
+```
+
+或手动：
+
+```bash
+conda activate /g/data/mv44/$USER/envs/embench
+conda install -y -c conda-forge libvulkan-loader
+python -c "import ctypes.util, os; p=os.environ['CONDA_PREFIX']; print(ctypes.util.find_library('vulkan') or list(__import__('glob').glob(p+'/lib/libvulkan*')))"
+```
+
+若日志仍报 `No libvulkan ... no Xvfb`，可再装 Xvfb 回退包：`conda install -y -c conda-forge xorg-x11-server-xvfb-cos7-x86_64`
+
 ## 仓库内专用脚本（只给 Gadi 用）
 
 | 文件 | 说明 |
 |------|------|
 | `run_embench_mma_one_node_gadi.sh` | 无 `#SBATCH`，供 PBS 包裹调用；需事先 `export ROOT=...`（或 `MMA_ROOT` / `EB_ROOT`） |
+| `scripts/gadi_install_thor_deps.sh` | 一次性安装 `libvulkan-loader`（Thor CloudRendering） |
 | `run_embench_memory_smoke_gadi.sh` | 对齐 LTU 的 `run_embench_memory_smoke.sh`：1 episode、`+selected_indexes=[0]`、`eval_sets=[base]`、`DOWNSAMPLE=1` |
 | `submit_embench_memory_smoke_gadi.pbs` | 对上述 smoke 的示例 `qsub`（`gpuvolta`、1h walltime） |
 | `submit_embodiedbench_gadi.pbs` | 示例 `qsub`：`gpuhopper`、`MODULE_CUDA`、`conda` |
@@ -47,7 +69,7 @@ module avail Xvfb
 python -c "import ctypes.util; print(ctypes.util.find_library('vulkan'))"
 ```
 
-可选：在 `embench` 环境安装 Vulkan 加载器：`conda install -c conda-forge libvulkan-loader`
+必做（首次）：`bash MMA/public_evaluations/scripts/gadi_install_thor_deps.sh`（见上文「首次跑 smoke 前」）
 
 ## 提交示例
 
