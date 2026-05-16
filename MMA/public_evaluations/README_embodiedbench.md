@@ -13,16 +13,26 @@ xdpyinfo:  unable to open display ":1".
 AssertionError: Invalid DISPLAY :1 - cannot find X server with xdpyinfo
 ```
 
-**原因**：AI2-THOR 优先 **CloudRendering**（需 `libvulkan`）；若 Vulkan 不可用会退回 **Linux64（X11）**。EmbodiedBench 在未设置环境变量时默认 `X_DISPLAY=:1`，而 PBS GPU 节点通常没有 X server。
+**原因**：AI2-THOR 优先 **CloudRendering**（需 `libvulkan`）；若 Vulkan 不可用会退回 **Linux64（X11）**。部分 EmbodiedBench 克隆在 `EBAlfEnv.py` 里 **写死** `X_DISPLAY = '1'`（或默认 `":1"`），与 shell `unset` 无关，PBS GPU 节点上仍会 `xdpyinfo :1` 失败。
 
-**修复（Gadi）**：**不要在 login 上 `conda install`**。在 login 只 `qsub`：
+**修复（Gadi）**：
+
+1. **Vulkan**（login 只 `qsub`，勿 `conda install`）：
 
 ```bash
 cd /scratch/mv44/$USER/logs
 qsub /g/data/mv44/$USER/MMA2/MMA/public_evaluations/submit_gadi_install_thor_deps.pbs
 ```
 
-成功后再 `qsub submit_embench_memory_smoke_gadi.pbs`。详见 [CLUSTER_NCI_GADI.md](CLUSTER_NCI_GADI.md)。
+成功后再 `qsub submit_embench_memory_smoke_gadi.pbs`。
+
+2. **EBAlfEnv**（login 上改一个文件即可）：
+
+```bash
+bash /g/data/mv44/$USER/MMA2/MMA/public_evaluations/scripts/gadi_patch_ebalf_xdisplay.sh /g/data/mv44/$USER/EmbodiedBench
+```
+
+详见 [CLUSTER_NCI_GADI.md](CLUSTER_NCI_GADI.md)。
 
 **交互调试**须先 `qsub -I -P mv44 -q gpuvolta ...` 进入 **计算节点**，再跑脚本；勿在 login 上 `bash run_embench_*_gadi.sh`。
 

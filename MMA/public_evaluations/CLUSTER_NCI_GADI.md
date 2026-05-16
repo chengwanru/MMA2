@@ -98,7 +98,19 @@ bash run_embench_memory_smoke_gadi.sh
 
 ## Thor：`Invalid DISPLAY :1`
 
-MMA server 已 ready 但 Thor 报 `xdpyinfo` / `DISPLAY :1`：计算节点无 X11，且未装 **libvulkan**。按上文 **步骤 1** 用 `qsub submit_gadi_install_thor_deps.pbs` 安装；勿在 login 上 `conda install`。
+MMA server 已 ready 但 Thor 报 `xdpyinfo` / `DISPLAY :1`：
+
+1. **libvulkan** — 计算节点无网，用 `qsub submit_gadi_install_thor_deps.pbs` 安装（勿在 login 上 `conda install`）。
+2. **EBAlfEnv 写死 `X_DISPLAY = '1'`** — 与 bash `unset` 无关，Thor 仍会走 `:1`。在 **login** 上一次性改 EmbodiedBench（只改文件，不算重活）：
+
+```bash
+export EB_ROOT=/g/data/mv44/$USER/EmbodiedBench
+bash /g/data/mv44/$USER/MMA2/MMA/public_evaluations/scripts/gadi_patch_ebalf_xdisplay.sh "$EB_ROOT"
+grep -n X_DISPLAY "$EB_ROOT/embodiedbench/envs/eb_alfred/EBAlfEnv.py" | head -5
+# 期望: X_DISPLAY = os.environ.get("X_DISPLAY")
+```
+
+有 Vulkan 时 smoke 脚本会 `unset X_DISPLAY` → Python 为 `None` → **CloudRendering**。
 
 ## 与 LTU（Slurm）勿混
 

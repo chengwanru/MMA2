@@ -1,0 +1,12 @@
+--- a/embodiedbench/envs/eb_alfred/EBAlfEnv.py
++++ b/embodiedbench/envs/eb_alfred/EBAlfEnv.py
+@@ -27,7 +27,8 @@
+ # Constants and Configuration
+ # =============================================================================
+ 
+-X_DISPLAY = '1'
++# None when unset → CloudRendering (Vulkan). Export X_DISPLAY=:99 only for Xvfb fallback.
++X_DISPLAY = os.environ.get("X_DISPLAY")
+ 
+ # =============================================================================
+ # Environment Class

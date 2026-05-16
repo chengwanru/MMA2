@@ -253,8 +253,9 @@ export server_url="http://127.0.0.1:${PORT}/process"
 export exp_name="${EXP_NAME}"
 
 cd "${EB_ROOT}"
-# EBAlfEnv uses os.environ.get("X_DISPLAY", ":1") — unset alone still defaults to :1 in Python.
-# Patch EBAlfEnv on Gadi once (see CLUSTER_NCI_GADI.md). Ensure loader path for Thor CloudRendering.
+# EBAlfEnv may hardcode X_DISPLAY='1' or default ":1" — bash unset is not enough; patch once on Gadi:
+#   bash ${PEV_DIR}/scripts/gadi_patch_ebalf_xdisplay.sh "${EB_ROOT}"
+export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
 export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
 unset DISPLAY || true
 unset X_DISPLAY || true
