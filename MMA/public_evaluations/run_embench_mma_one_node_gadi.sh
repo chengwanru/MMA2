@@ -142,12 +142,9 @@ _setup_thor_rendering() {
   xvfb="$(_xvfb_bin)" || true
   if [[ -z "${xvfb}" ]]; then
     echo "ERROR: No libvulkan for CloudRendering and no Xvfb in PATH or \$CONDA_PREFIX/bin." >&2
-    echo "  One-time in embench (recommended on Gadi — no system Xvfb module):" >&2
-    echo "    conda activate ${CONDA_PREFIX:-/g/data/mv44/\$USER/envs/embench}" >&2
-    echo "    conda install -y -c conda-forge libvulkan-loader" >&2
-    echo "  Or Xvfb fallback: conda install -y -c conda-forge xorg-x11-server-xvfb-cos7-x86_64" >&2
-    echo "  Or: bash ${MMA_ROOT}/MMA/public_evaluations/scripts/gadi_install_thor_deps.sh" >&2
-    echo "  Discover site modules: module avail 2>&1 | grep -iE 'vulkan|xvfb|X11'" >&2
+    echo "  On login, submit (do not conda install on login):" >&2
+    echo "    qsub ${MMA_ROOT}/MMA/public_evaluations/submit_gadi_install_thor_deps.pbs" >&2
+    echo "  Then re-submit submit_embench_memory_smoke_gadi.pbs" >&2
     exit 1
   fi
   rm -f "/tmp/.X${xd#:}-lock" 2>/dev/null || true

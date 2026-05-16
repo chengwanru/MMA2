@@ -15,16 +15,16 @@ AssertionError: Invalid DISPLAY :1 - cannot find X server with xdpyinfo
 
 **原因**：AI2-THOR 优先 **CloudRendering**（需 `libvulkan`）；若 Vulkan 不可用会退回 **Linux64（X11）**。EmbodiedBench 在未设置环境变量时默认 `X_DISPLAY=:1`，而 PBS GPU 节点通常没有 X server。
 
-**修复（Gadi）**：使用最新 `run_embench_mma_one_node_gadi.sh`（自动 Vulkan 检测 + Xvfb 回退）。详见 [CLUSTER_NCI_GADI.md](CLUSTER_NCI_GADI.md) 中 “Thor: Invalid DISPLAY”。
-
-**手动**（交互 GPU 节点上调试）：
+**修复（Gadi）**：**不要在 login 上 `conda install`**。在 login 只 `qsub`：
 
 ```bash
-module load Xvfb   # 名称以 module avail 为准
-Xvfb :99 -screen 0 1024x768x24 &
-export DISPLAY=:99 X_DISPLAY=:99
-# 或：conda install -c conda-forge libvulkan-loader  后 unset DISPLAY
+cd /scratch/mv44/$USER/logs
+qsub /g/data/mv44/$USER/MMA2/MMA/public_evaluations/submit_gadi_install_thor_deps.pbs
 ```
+
+成功后再 `qsub submit_embench_memory_smoke_gadi.pbs`。详见 [CLUSTER_NCI_GADI.md](CLUSTER_NCI_GADI.md)。
+
+**交互调试**须先 `qsub -I -P mv44 -q gpuvolta ...` 进入 **计算节点**，再跑脚本；勿在 login 上 `bash run_embench_*_gadi.sh`。
 
 ---
 

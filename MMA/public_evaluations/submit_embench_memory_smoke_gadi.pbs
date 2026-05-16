@@ -3,8 +3,12 @@
 #
 # EDIT: -P, -q, -l storage, paths, CONDA_ENV if your embench prefix differs.
 #
-# Submit (from a writable log dir, e.g. scratch):
-#   mkdir -p /scratch/mv44/$USER/logs && cd /scratch/mv44/$USER/logs
+# On login ONLY: mkdir logs, qsub, qstat/tail — no conda/python/git pull here.
+# First time: qsub submit_gadi_install_thor_deps.pbs (install libvulkan on compute).
+#
+#   mkdir -p /scratch/mv44/$USER/{logs,tmp}
+#   export TMPDIR=/scratch/mv44/$USER/tmp
+#   cd /scratch/mv44/$USER/logs
 #   qsub -v MODULE_CUDA=cuda/12.6.2 /g/data/mv44/$USER/MMA2/MMA/public_evaluations/submit_embench_memory_smoke_gadi.pbs
 #
 # Do not use set -u before source ~/.bashrc on Gadi PBS.
@@ -21,6 +25,12 @@
 set -eo pipefail
 cd "${PBS_O_WORKDIR:-.}"
 
+PEV_DEFAULT="/g/data/mv44/${USER}/MMA2/MMA/public_evaluations"
+# shellcheck source=scripts/gadi_pbs_common.sh
+source "${PEV_DEFAULT}/scripts/gadi_pbs_common.sh"
+gadi_ensure_paths
+gadi_git_pull_mma
+
 set +e
 if [[ -n "${MODULE_CUDA:-}" ]]; then
   module load "${MODULE_CUDA}"
@@ -30,15 +40,6 @@ else
   done
 fi
 set -e
-
-export ROOT="${ROOT:-/g/data/mv44/${USER}}"
-export MMA_ROOT="${MMA_ROOT:-${ROOT}/MMA2}"
-export EB_ROOT="${EB_ROOT:-${ROOT}/EmbodiedBench}"
-# Prefer absolute env path if conda name "embench" is ambiguous (scratch vs gdata).
-export CONDA_ENV="${CONDA_ENV:-/g/data/mv44/${USER}/envs/embench}"
-export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-/g/data/mv44/${USER}/conda_pkgs}"
-export TMPDIR="${TMPDIR:-/g/data/mv44/${USER}/tmp}"
-mkdir -p "${CONDA_PKGS_DIRS}" "${TMPDIR}"
 
 source "${HOME}/.bashrc"
 conda activate "${CONDA_ENV}"

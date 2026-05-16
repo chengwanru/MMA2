@@ -1,30 +1,24 @@
 #!/usr/bin/env bash
-# One-time Thor deps for NCI Gadi (headless GPU nodes): libvulkan for CloudRendering.
+# Install libvulkan-loader for AI2-THOR CloudRendering on Gadi compute nodes only.
 #
-# Login nodes often OOM-kill `conda install` during repodata.json — use scratch TMPDIR
-# or: qsub submit_gadi_install_thor_deps.pbs
-#
-# Usage:
-#   export CONDA_ENV=/g/data/mv44/$USER/envs/embench
-#   export TMPDIR=/scratch/mv44/$USER/tmp
-#   bash MMA/public_evaluations/scripts/gadi_install_thor_deps.sh
+# Do NOT run on login — use:
+#   qsub .../submit_gadi_install_thor_deps.pbs
 #
 set -eo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/gadi_pbs_common.sh
+source "${SCRIPT_DIR}/gadi_pbs_common.sh"
+gadi_refuse_login
+
 ENV_PATH="${1:-${CONDA_ENV:-}}"
 if [[ -z "${ENV_PATH}" ]]; then
-  echo "Set CONDA_ENV or pass env path: bash $0 /g/data/mv44/\$USER/envs/embench" >&2
+  echo "Set CONDA_ENV or pass env path: qsub submit_gadi_install_thor_deps.pbs" >&2
   exit 1
 fi
 
-export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-/g/data/mv44/${USER}/conda_pkgs}"
-export TMPDIR="${TMPDIR:-/scratch/mv44/${USER}/tmp}"
+gadi_ensure_paths
 mkdir -p "${CONDA_PKGS_DIRS}" "${TMPDIR}"
-
-if [[ "$(hostname -s 2>/dev/null || hostname)" == *login* ]]; then
-  echo "NOTE: Installing on login node — if conda is Killed, use:" >&2
-  echo "  qsub ${MMA_ROOT:-/g/data/mv44/\$USER/MMA2}/MMA/public_evaluations/submit_gadi_install_thor_deps.pbs" >&2
-fi
 
 source "${HOME}/.bashrc" 2>/dev/null || true
 conda activate "${ENV_PATH}"
@@ -52,19 +46,16 @@ if _verify_vulkan 2>/dev/null; then
   exit 0
 fi
 
-echo "Installing libvulkan-loader into ${CONDA_PREFIX} (TMPDIR=${TMPDIR}) ..."
+echo "Installing libvulkan-loader into ${CONDA_PREFIX} (TMPDIR=${TMPDIR}) on $(hostname -s) ..."
 
 export CONDA_NO_PLUGINS=true
 if command -v mamba >/dev/null 2>&1; then
-  echo "+ mamba install -y -c conda-forge libvulkan-loader"
   mamba install -y -c conda-forge libvulkan-loader
 elif conda install --help 2>/dev/null | grep -q libmamba; then
-  echo "+ conda install -y --solver libmamba -c conda-forge libvulkan-loader"
   conda install -y --solver libmamba -c conda-forge libvulkan-loader
 else
-  echo "+ conda install -y -c conda-forge --override-channels libvulkan-loader"
   conda install -y -c conda-forge --override-channels libvulkan-loader
 fi
 
 _verify_vulkan
-echo "Done. Re-submit smoke: qsub ... submit_embench_memory_smoke_gadi.pbs"
+echo "Done. On login, submit smoke only: qsub .../submit_embench_memory_smoke_gadi.pbs"

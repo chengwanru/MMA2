@@ -2,117 +2,103 @@
 
 **仅用本文档内的路径与命令**；不要用 [CLUSTER_LTU.md](CLUSTER_LTU.md) 里的 Slurm / `/data/group/zhaolab/project` 默认路径。
 
-## 调度与环境
+本页对齐组内 **NCI-LTU Server** 说明（Gadi 部分）：存储、`mv44` 项目、队列与 **不在 login 上跑计算/conda**。
 
-| 项 | 典型值 |
-|----|--------|
-| 调度 | **PBS**（`qsub` / `qstat` / `qdel`） |
-| 项目码 | `-P mv44`（以组内为准） |
-| GPU 队列 | `gpuvolta`（V100）、`gpuhopper`（H200） |
-| 存储 | `/scratch/mv44/<user>`、`/g/data/mv44/<user>`（勿占满 **home**） |
+## Login 节点 vs 计算节点（必读）
 
-## 首次跑 smoke 前：Thor 依赖（必做一次）
+| 允许在 **login**（`gadi-login-*） | **禁止**在 login（会 OOM / 违规） |
+|----------------------------------|----------------------------------|
+| `qsub` / `qstat` / `qdel` | `conda install` / `mamba install` |
+| `mkdir` 日志目录、`cd` 到 scratch logs | `python` / Thor / EmbodiedBench / MMA server |
+| `tail` / `grep` 已完成的 `*.o<jobid>` | `bash run_embench_*_gadi.sh` |
+| `export TMPDIR=...` 后 **只提交**作业 | `git pull`（改在 PBS 作业里拉，见下） |
 
-Gadi **gpuvolta** 节点通常**没有**系统 `Xvfb` / `Vulkan` module。在 **login** 上对 `embench` 环境安装 **libvulkan**（推荐，走 CloudRendering，与 LTU one-node 一致）：
+**所有安装、评测、调试命令都在计算节点上执行**：通过 **PBS 脚本** 或 **`qsub -I` 交互 GPU 分配**。
 
-```bash
-export CONDA_ENV=/g/data/mv44/$USER/envs/embench
-export TMPDIR=/scratch/mv44/$USER/tmp
-export CONDA_PKGS_DIRS=/g/data/mv44/$USER/conda_pkgs
-mkdir -p "$TMPDIR" "$CONDA_PKGS_DIRS"
-cd /g/data/mv44/$USER/MMA2 && git pull
-bash MMA/public_evaluations/scripts/gadi_install_thor_deps.sh
-```
+## 存储与项目（组内 PDF）
 
-**若 login 上 `conda` 在 `Collecting package metadata` 时被 `Killed`**（内存不足），改在 **normal 队列 1 CPU** 上装（不占 GPU）：
-
-```bash
-mkdir -p /scratch/mv44/$USER/logs && cd /scratch/mv44/$USER/logs
-qsub /g/data/mv44/$USER/MMA2/MMA/public_evaluations/submit_gadi_install_thor_deps.pbs
-tail -f install_vulkan.o<JOBID>
-```
-
-日志末尾应为 `libvulkan OK: True`。
-
-或手动：
-
-```bash
-conda activate /g/data/mv44/$USER/envs/embench
-conda install -y -c conda-forge libvulkan-loader
-python -c "import ctypes.util, os; p=os.environ['CONDA_PREFIX']; print(ctypes.util.find_library('vulkan') or list(__import__('glob').glob(p+'/lib/libvulkan*')))"
-```
-
-若日志仍报 `No libvulkan ... no Xvfb`，可再装 Xvfb 回退包：`conda install -y -c conda-forge xorg-x11-server-xvfb-cos7-x86_64`
-
-## 仓库内专用脚本（只给 Gadi 用）
-
-| 文件 | 说明 |
+| 路径 | 用途 |
 |------|------|
-| `run_embench_mma_one_node_gadi.sh` | 无 `#SBATCH`，供 PBS 包裹调用；需事先 `export ROOT=...`（或 `MMA_ROOT` / `EB_ROOT`） |
-| `scripts/gadi_install_thor_deps.sh` | 一次性安装 `libvulkan-loader`（Thor CloudRendering） |
-| `run_embench_memory_smoke_gadi.sh` | 对齐 LTU 的 `run_embench_memory_smoke.sh`：1 episode、`+selected_indexes=[0]`、`eval_sets=[base]`、`DOWNSAMPLE=1` |
-| `submit_embench_memory_smoke_gadi.pbs` | 对上述 smoke 的示例 `qsub`（`gpuvolta`、1h walltime） |
-| `submit_embodiedbench_gadi.pbs` | 示例 `qsub`：`gpuhopper`、`MODULE_CUDA`、`conda` |
-| `MMA/MMA/speculative_memory/run_speculative_speedup_gadi.pbs` | 加速比 micro-benchmark |
+| **home** | 约 **10GB**，**不要**放大代码/conda/数据 |
+| `/scratch/mv44/$USER` | 约 **1TB**，日志、`tmp`、`qsub` 工作目录 |
+| `/g/data/mv44/$USER` | 约 **10TB**，`MMA2`、`EmbodiedBench`、`envs/embench` |
+| PBS 项目 | `-P mv44` |
+| `#PBS -l storage=` | `scratch/mv44+gdata/mv44` |
 
-## 与 LTU 的差异（勿混）
+**inode 爆满**是红线：删**文件数量最多**的目录（不是体积最大）；存储满删**占用最大**的目录。用前检查：`lquota`、`quota -s`、`nci_account -P mv44`。
 
-| 项 | Gadi | LTU |
-|----|------|-----|
-| 提交 | `qsub …pbs` | `sbatch …sh` |
-| CUDA | `module load cuda/12.6.2` 等；见 `module avail cuda` | 通常 Conda torch 自带；一般不用 `module load cuda` |
-| Bash | PBS 脚本**不要用** `set -u` 再 `source ~/.bashrc`（会触发 `BASHRCSOURCED`） | Slurm 脚本若用 `set -u` 也需同样注意 |
-| 日志 | `qsub` 时当前目录生成 `*.o<jobid>` | `embench_one_node_%j.log` 固定路径 |
-| **AI2-THOR / Thor** | 计算节点上需 **Vulkan**（`CloudRendering`）或 **Xvfb**；`run_embench_mma_one_node_gadi.sh` 会自动检测并回退到 `Xvfb :99` | `run_embench_mma_one_node.sh` 依赖节点上的 Vulkan；旧流程可用 `run_embench.sh` + `module load Xvfb` |
+## 队列（组内 PDF）
 
-### Thor：`Invalid DISPLAY :1` / `xdpyinfo`
+| 队列 | GPU | 说明 |
+|------|-----|------|
+| **gpuvolta** | V100 32GB | **优先使用**（排队快、KSU 较少） |
+| **gpuhopper** | H200 140GB | 需要时再切；单作业勿超 1 node 规则 |
 
-MMA server 能 ready，但 EmbodiedBench 在 `EBAlfEnv` 起 Thor 时报 `Invalid DISPLAY :1`：说明 **CloudRendering 未选中**（常见原因：作业里找不到 `libvulkan`），EmbodiedBench 又默认 `X_DISPLAY=:1`，而 Gadi GPU 节点没有 X server。
+- V100 作业：`#PBS -l ncpus=12,ngpus=1,...`（每 GPU 12 CPU）
+- 示例 CUDA：`module load cuda/12.6.2`（以 `module avail cuda` 为准）
 
-`run_embench_mma_one_node_gadi.sh`（pull 最新）会：
+## 标准工作流（全程不在 login 上装包/跑评测）
 
-1. 检测 `libvulkan` → 有则 `unset DISPLAY`（与 LTU one-node 一致）  
-2. 否则尝试 `module load` Vulkan / Xvfb，再启动 **Xvfb** 并 `export X_DISPLAY=:99` `DISPLAY=:99`
-
-若仍失败，在 **GPU 节点**（或作业日志）检查：
+在 **login** 上只做目录 + 提交：
 
 ```bash
-module avail Xvfb
-python -c "import ctypes.util; print(ctypes.util.find_library('vulkan'))"
+mkdir -p /scratch/mv44/$USER/{logs,tmp}
+export TMPDIR=/scratch/mv44/$USER/tmp
+cd /scratch/mv44/$USER/logs
 ```
 
-必做（首次）：`bash MMA/public_evaluations/scripts/gadi_install_thor_deps.sh`（见上文「首次跑 smoke 前」）
-
-## 提交示例
+### 1）一次性：在 **compute** 上安装 Thor 依赖（libvulkan）
 
 ```bash
-cd /scratch/mv44/$USER/logs   # 或你可写目录
-module avail cuda | head
-cd /g/data/mv44/$USER/MMA2 && git pull
-qsub -v MODULE_CUDA=cuda/12.6.2 /g/data/mv44/$USER/MMA2/MMA/public_evaluations/submit_embodiedbench_gadi.pbs
+qsub /g/data/mv44/$USER/MMA2/MMA/public_evaluations/submit_gadi_install_thor_deps.pbs
+# 完成后在 login 上看日志即可：
+tail -n 30 /scratch/mv44/$USER/logs/install_vulkan.o<JOBID>
 ```
 
-### GPU smoke（与 LTU `run_embench_memory_smoke.sh` 等价）
+日志末尾应为 **`libvulkan OK: True`**。脚本会在计算节点上 `git pull` + `conda install`（**不要在 login 上跑** `gadi_install_thor_deps.sh`）。
+
+### 2）GPU smoke（memcheck）
 
 ```bash
-mkdir -p /scratch/mv44/$USER/logs && cd /scratch/mv44/$USER/logs
-cd /g/data/mv44/$USER/MMA2 && git pull
-qsub -v MODULE_CUDA=cuda/12.6.2 /g/data/mv44/$USER/MMA2/MMA/public_evaluations/submit_embench_memory_smoke_gadi.pbs
+cd /scratch/mv44/$USER/logs
+qsub -v MODULE_CUDA=cuda/12.6.2 \
+  /g/data/mv44/$USER/MMA2/MMA/public_evaluations/submit_embench_memory_smoke_gadi.pbs
 ```
 
-交互 GPU 上直接跑（不 `qsub`）：
+PBS 脚本会在 **计算节点** 上 `git pull` 后再跑 smoke（可用 `qsub -v MMA_SKIP_GIT_PULL=1` 跳过）。
+
+### 3）交互调试（仍在 **compute**，不是 login）
 
 ```bash
-export ROOT=/g/data/mv44/$USER
-export CONDA_ENV=/g/data/mv44/$USER/envs/embench   # 若与 .pbs 默认一致可省略
-cd /g/data/mv44/$USER/MMA2/MMA/public_evaluations
+qsub -I -P mv44 -q gpuvolta -N debug \
+  -l ncpus=12,ngpus=1,mem=64GB,jobfs=20GB,walltime=02:00:00 \
+  -l storage=scratch/mv44+gdata/mv44
+# 进入 shell 后再：
+export ROOT=/g/data/mv44/$USER CONDA_ENV=/g/data/mv44/$USER/envs/embench
+cd $ROOT/MMA2/MMA/public_evaluations
 bash run_embench_memory_smoke_gadi.sh
 ```
 
-## LTU 脚本不要直接搬到 Gadi
+## 仓库内 Gadi 脚本
 
-- `run_embench_mma_one_node.sh` 顶部是 **`#SBATCH`**，给 **Slurm** 用；在 Gadi 应使用 **`run_embench_mma_one_node_gadi.sh` + PBS**，或自行写 `qsub` 包装。
+| 文件 | 说明 |
+|------|------|
+| `submit_gadi_install_thor_deps.pbs` | **normal** 队列 1 CPU：装 `libvulkan-loader`（首次必跑） |
+| `submit_embench_memory_smoke_gadi.pbs` | **gpuvolta** smoke：1 ep、`DOWNSAMPLE=1` |
+| `submit_embodiedbench_gadi.pbs` | 完整评测示例（可改 `gpuhopper`） |
+| `run_embench_mma_one_node_gadi.sh` | 被 PBS 调用；Thor Vulkan / Xvfb 自动检测 |
+| `run_embench_memory_smoke_gadi.sh` | smoke 入口 |
+| `scripts/gadi_install_thor_deps.sh` | 仅由 PBS 在 **compute** 上调用（login 会直接拒绝） |
+
+## Thor：`Invalid DISPLAY :1`
+
+MMA server 已 ready 但 Thor 报 `xdpyinfo` / `DISPLAY :1`：计算节点无 X11，且未装 **libvulkan**。按上文 **步骤 1** 用 `qsub submit_gadi_install_thor_deps.pbs` 安装；勿在 login 上 `conda install`。
+
+## 与 LTU（Slurm）勿混
+
+- 不用 `sbatch run_embench_mma_one_node.sh`、不用 `/data/group/zhaolab/project` 默认路径。
+- LTU 交互开发；Gadi 以 **qsub** 为主。
 
 ---
 
-显存与排队策略另见 [RUNBOOK_GPU_MEMORY.md](RUNBOOK_GPU_MEMORY.md)。通用故障见 [README_embodiedbench.md](README_embodiedbench.md)。
+显存与排队另见 [RUNBOOK_GPU_MEMORY.md](RUNBOOK_GPU_MEMORY.md)。通用故障见 [README_embodiedbench.md](README_embodiedbench.md)。

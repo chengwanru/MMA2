@@ -1,9 +1,12 @@
 #!/bin/bash
-# Install libvulkan-loader into embench on a compute node (login OOM-kills conda metadata).
+# One-time: install libvulkan-loader on a compute node (normal queue, no GPU).
+# Per group NCI doc: do not conda install on login nodes.
 #
-#   mkdir -p /scratch/mv44/$USER/logs && cd /scratch/mv44/$USER/logs
+# On login ONLY:
+#   mkdir -p /scratch/mv44/$USER/{logs,tmp}
+#   cd /scratch/mv44/$USER/logs
 #   qsub /g/data/mv44/$USER/MMA2/MMA/public_evaluations/submit_gadi_install_thor_deps.pbs
-#   tail -f install_vulkan.o<JOBID>
+#   tail -n 40 /scratch/mv44/$USER/logs/install_vulkan.o<JOBID>
 
 #PBS -P mv44
 #PBS -q normal
@@ -15,12 +18,11 @@
 set -eo pipefail
 cd "${PBS_O_WORKDIR:-.}"
 
-export ROOT="${ROOT:-/g/data/mv44/${USER}}"
-export MMA_ROOT="${MMA_ROOT:-${ROOT}/MMA2}"
-export CONDA_ENV="${CONDA_ENV:-/g/data/mv44/${USER}/envs/embench}"
-export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-/g/data/mv44/${USER}/conda_pkgs}"
-export TMPDIR="${TMPDIR:-/scratch/mv44/${USER}/tmp}"
-mkdir -p "${CONDA_PKGS_DIRS}" "${TMPDIR}"
+PEV="/g/data/mv44/${USER}/MMA2/MMA/public_evaluations"
+# shellcheck source=scripts/gadi_pbs_common.sh
+source "${PEV}/scripts/gadi_pbs_common.sh"
+gadi_ensure_paths
+gadi_git_pull_mma
 
 source "${HOME}/.bashrc" 2>/dev/null || true
-bash "${MMA_ROOT}/MMA/public_evaluations/scripts/gadi_install_thor_deps.sh" "${CONDA_ENV}"
+bash "${PEV}/scripts/gadi_install_thor_deps.sh" "${CONDA_ENV}"

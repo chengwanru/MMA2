@@ -7,8 +7,7 @@
 #   -o log path under /scratch/mv44/$USER/...
 #   ROOT / clones below
 #
-# Submit:
-#   qsub submit_embodiedbench_gadi.pbs
+# On login ONLY: cd /scratch/mv44/$USER/logs && qsub /path/to/submit_embodiedbench_gadi.pbs
 #
 # Smoke (1% data) is default in script; full regression override CMD below.
 
@@ -27,7 +26,13 @@
 set -eo pipefail
 cd "${PBS_O_WORKDIR:-.}"
 
-# CUDA: pdf may say cuda/12.1.1 but Gadi refreshes versions — run `module avail cuda` on login if this fails.
+PEV_DEFAULT="/g/data/mv44/${USER}/MMA2/MMA/public_evaluations"
+# shellcheck source=scripts/gadi_pbs_common.sh
+source "${PEV_DEFAULT}/scripts/gadi_pbs_common.sh"
+gadi_ensure_paths
+gadi_git_pull_mma
+
+# CUDA: group doc may use cuda/12.1.1; override with qsub -v MODULE_CUDA=cuda/12.6.2
 # Override: qsub -v MODULE_CUDA=cuda/12.6.2 ...
 set +e
 if [[ -n "${MODULE_CUDA:-}" ]]; then
@@ -38,12 +43,6 @@ else
   done
 fi
 set -e
-
-# --- clone layout: MMA2 and EmbodiedBench live under ROOT (g/data is typical on NCI) ---
-export ROOT="${ROOT:-/g/data/mv44/${USER}}"
-export MMA_ROOT="${MMA_ROOT:-${ROOT}/MMA2}"
-export EB_ROOT="${EB_ROOT:-${ROOT}/EmbodiedBench}"
-export CONDA_ENV="${CONDA_ENV:-embench}"
 
 source "${HOME}/.bashrc"
 conda activate "${CONDA_ENV}"
