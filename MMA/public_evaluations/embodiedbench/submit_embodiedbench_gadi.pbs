@@ -1,0 +1,62 @@
+#!/bin/bash
+# NCI Gadi / PBS — EmbodiedBench + MMA (see PDF "NCI-LTU Server": gpuvolta=V100, gpuhopper=H200).
+#
+# EDIT before qsub:
+#   -P project code (mv44 per group doc)
+#   -l storage=... must match your NCI project paths (scratch + gdata)
+#   -o log path under /scratch/mv44/$USER/...
+#   ROOT / clones below
+#
+# On login ONLY: cd /scratch/mv44/$USER/logs && qsub /path/to/submit_embodiedbench_gadi.pbs
+#
+# Smoke (1% data) is default in script; full regression override CMD below.
+
+#PBS -P mv44
+# H200 queue (often shorter wait than V100; higher KSU — see group PDF). V100: #PBS -q gpuvolta
+#PBS -q gpuhopper
+#PBS -l ncpus=12,ngpus=1,mem=64GB,jobfs=50GB,walltime=04:00:00
+#PBS -l storage=scratch/mv44+gdata/mv44
+#PBS -N embench_mma
+#PBS -j oe
+# Logs default to <job_name>.o<jobid> in the directory from which you ran qsub.
+# Prefer: mkdir -p /scratch/mv44/$USER/work && cd there && qsub /path/to/submit_embodiedbench_gadi.pbs
+
+# Do not use `set -u` here: sourcing ~/.bashrc pulls in /etc/bashrc which references
+# BASHRCSOURCED before set — under nounset the job exits immediately on Gadi PBS.
+set -eo pipefail
+cd "${PBS_O_WORKDIR:-.}"
+
+PEV_DEFAULT="/g/data/mv44/${USER}/MMA2/MMA/public_evaluations/embodiedbench"
+# shellcheck source=scripts/gadi_pbs_common.sh
+source "${PEV_DEFAULT}/scripts/gadi_pbs_common.sh"
+gadi_ensure_paths
+gadi_git_pull_mma
+
+# CUDA: group doc may use cuda/12.1.1; override with qsub -v MODULE_CUDA=cuda/12.6.2
+# Override: qsub -v MODULE_CUDA=cuda/12.6.2 ...
+set +e
+if [[ -n "${MODULE_CUDA:-}" ]]; then
+  module load "${MODULE_CUDA}"
+else
+  for _c in cuda/12.6.2 cuda/12.6.1 cuda/12.4.2 cuda/12.4.1 cuda/12.3.2 cuda/12.2.2 cuda/12.2.0 cuda/12.1.1 cuda; do
+    module load "${_c}" 2>/dev/null && echo "Loaded CUDA module: ${_c}" && break
+  done
+fi
+set -e
+
+gadi_activate_conda "${CONDA_ENV}"
+
+cd "${MMA_ROOT}/MMA/public_evaluations/embodiedbench"
+
+# Example: quick smoke (default DOWNSAMPLE=0.01 inside script)
+# bash run_embench_mma_one_node_gadi.sh
+
+# Example: full regression chunk C level (same as Slurm workflow)
+export EXP_NAME="${EXP_NAME:-simreg_C_gadi_$(date +%m%d_%H%M%S)_c0}"
+export DOWNSAMPLE=1
+export EMBODIEDBENCH_SIM_INFO_LEVEL=C
+INVALID="${EB_ROOT}/running/eb_alfred/mma_${EXP_NAME}/base/invalid_reason.jsonl"
+mkdir -p "$(dirname "${INVALID}")"
+export EMBODIEDBENCH_INVALID_LOG_JSONL="${INVALID}"
+
+bash run_embench_mma_one_node_gadi.sh "+selected_indexes=[0,1,2,3,4,5,6,7,8,9]" "eval_sets=[base]"

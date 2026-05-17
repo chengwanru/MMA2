@@ -58,8 +58,8 @@ DASHSCOPE_API_KEY="sk-..."        # For Qwen3-Max (Logic) & Qwen-Image-Plus (Vis
 
 **Option B: Dataset Preparation**
 
-- **LOCOMO**: Download `locomo10.json` and place it in `MMA/public_evaluations/data/`.
-- **FEVER**: Download `paper_dev.jsonl` and place it in `MMA/public_evaluations/data/`.
+- **LOCOMO**: Download `locomo10.json` and place it in `MMA/public_evaluations/locomo/data/`.
+- **FEVER**: Download `paper_dev.jsonl` and place it in `MMA/public_evaluations/fever/data/`.
 
 ## 🛠️ MMA-Bench: The Cognitive Robustness Benchmark
 
@@ -103,7 +103,7 @@ python -m src.grader --judge_model gpt-4o-mini
 Evaluate **Stability**. MMA matches baseline accuracy while reducing standard deviation by **35.2%**.
 
 ```bash
-cd MMA/public_evaluations
+cd MMA/public_evaluations/locomo
 
 # Run Ablation Study (Baseline vs. Full MMA vs. w/o Consensus)
 python run_fever_eval.py \
@@ -119,7 +119,7 @@ python run_fever_eval.py \
 Evaluate **Safety** in sparse retrieval. The `st` variant (Source + Time) achieves the highest Utility (609.0) by minimizing hallucinations.
 
 ```bash
-cd MMA/public_evaluations
+cd MMA/public_evaluations/locomo
 
 # Run LOCOMO Evaluation
 python run_instance.py \
@@ -142,7 +142,7 @@ python run_instance.py \
 ├── MMA/                    # [Agent Framework] Core implementation
 │   ├── MMA/                # Source code for the Agent (Memory, Confidence)
 │   ├── configs/            # Configuration YAMLs for different backends
-│   ├── public_evaluations/ # Evaluation scripts (FEVER, LOCOMO)
+│   ├── public_evaluations/ # Benchmark eval (locomo/, fever/, embodiedbench/, open_eqa/)
 │   ├── frontend/           # Web UI for the agent
 │   ├── scripts/            # Utility scripts (e.g., DB reset)
 │   ├── tests/              # Unit tests

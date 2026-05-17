@@ -7,9 +7,12 @@ This directory contains the implementation of the **Multimodal Memory Agent (MMA
 - **`MMA/`**: The core package directory (capital **MMA**). Code imports **`mma`** (lowercase). On **Linux** (case-sensitive disk), run once from this directory: `bash scripts/ensure_mma_import_symlink.sh` to create `mma -> MMA` if needed. On default **macOS** disks, names are case-insensitive so `import mma` resolves to `MMA/` without a separate symlink.
   - `services/confidence_module.py`: **[Core Contribution]** Implements Source, Time, and Consensus scoring.
   - `agent/meta_memory_agent.py`: Orchestrates memory retrieval and updates.
-- **`public_evaluations/`**: Evaluation scripts.
-  - `run_fever_eval.py`: For Fact Verification tasks.
-  - `run_instance.py`: For Long-context QA tasks (LOCOMO).
+- **`public_evaluations/`**: Benchmark evaluation (see `public_evaluations/README.md`).
+  - `locomo/`: LOCOMO / ScreenshotVQA (`run_instance.py`, `main.py`).
+  - `fever/`: FEVER (`run_fever_eval.py`).
+  - `embodiedbench/`: EmbodiedBench + Gadi scripts (`embodiedbench_server.py`, `run_embench_*.sh`).
+  - `open_eqa/`: Open-EQA multimodal eval.
+  - `common/`: Shared `AgentWrapper` and metrics.
 - **`configs/`**: Configuration files (YAML).
 
 ## 🔧 Configuration Details
