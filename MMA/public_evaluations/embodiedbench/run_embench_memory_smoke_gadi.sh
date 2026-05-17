@@ -63,7 +63,7 @@ if [[ "${GADI_SMOKE_DEBUG}" == "1" ]]; then
 fi
 
 set +e
-bash run_embench_mma_one_node_gadi.sh "+selected_indexes=[0]" "eval_sets=[base]"
+bash run_embench_mma_one_node_gadi.sh "+selected_indexes=[0]" "eval_sets=[base]" "resolution=300"
 SMOKE_EXIT=$?
 set -e
 

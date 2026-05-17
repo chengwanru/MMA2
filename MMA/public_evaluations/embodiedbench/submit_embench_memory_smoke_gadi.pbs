@@ -16,7 +16,7 @@
 #PBS -P mv44
 #PBS -q gpuvolta
 # gpuvolta: 12 CPUs per GPU (Gadi rule). gpuhopper may differ — check queue docs before changing.
-#PBS -l ncpus=12,ngpus=1,mem=64GB,jobfs=20GB,walltime=01:00:00
+#PBS -l ncpus=12,ngpus=1,mem=64GB,jobfs=20GB,walltime=02:00:00
 #PBS -l storage=scratch/mv44+gdata/mv44
 #PBS -N mm_memcheck
 #PBS -j oe
