@@ -908,6 +908,19 @@ def _extract_target_from_instruction(sentence: str, catalog: dict[int, str]) -> 
     # Do not use ``_instruction_key``'s legacy raw-prefix fallback here: the first
     # ~300 chars often still contain ACTION LIST lines like ``find a Safe``.
     text = (_instruction_focus_text(sentence) or "").lower()
+    # Fallback for prompt layouts where TASK is free-form (not explicitly tagged),
+    # e.g. "Rinse off a ladle and move it to the table."
+    if not text:
+        text = (sentence or "").lower()
+    for pat in (
+        r"(?is)\b(?:rinse(?:\s+off)?|wash|clean)\b.{0,120}?\b(?:a|an|the)\s+([a-z][a-z0-9_-]*)\b",
+        r"(?is)\b(?:pick\s*up|pickup|grab|take|move|place|put)\b.{0,120}?\b(?:a|an|the)\s+([a-z][a-z0-9_-]*)\b",
+    ):
+        m = re.search(pat, text)
+        if m:
+            freeform_obj = (m.group(1) or "").strip().lower()
+            if freeform_obj and freeform_obj in set(cands):
+                return freeform_obj
     if not text:
         return ""
     for c in sorted(set(cands), key=len, reverse=True):
@@ -1193,9 +1206,15 @@ class EpisodeController:
         fb = (last_env_feedback or "").strip().lower()
         if not fb:
             return
+        catalog = _parse_action_catalog_lines(sentence)
+        instr_target = _extract_target_from_instruction(sentence, catalog)
+        if instr_target and not self.target:
+            self.target = instr_target
         target_pick = _extract_pickup_target_from_feedback(last_env_feedback).lower()
         if target_pick and target_pick != "__unknown_pick_target__":
-            self.target = target_pick
+            # Keep task target stable when failure mentions unrelated object.
+            if not instr_target or target_pick == instr_target:
+                self.target = target_pick
 
         # cannot-find pickup failures: strongly suppress pickup for a few rounds
         if ("cannot find" in fb) and ("pick up" in fb):
@@ -1210,7 +1229,7 @@ class EpisodeController:
             self.mode = "RECOVERY"
             self.cooldown_find = max(self.cooldown_find, 2)
             target_find = _extract_find_target_from_feedback(last_env_feedback).lower()
-            if target_find:
+            if target_find and (not instr_target or target_find == instr_target):
                 self.target = target_find
             self.ban_pick_target = True
 
@@ -1271,8 +1290,7 @@ class EpisodeController:
 
         # Infer target from instruction/catalog if still unknown.
         if not self.target:
-            catalog = _parse_action_catalog_lines(sentence)
-            self.target = _extract_target_from_instruction(sentence, catalog)
+            self.target = instr_target
 
     def rewrite_plan(self, json_text: str, sentence: str) -> str:
         try:
