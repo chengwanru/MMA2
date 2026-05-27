@@ -564,6 +564,36 @@ def _choose_nav_replacement(catalog: dict[int, str]) -> dict[str, object] | None
     return None
 
 
+def _choose_exploration_steps(catalog: dict[int, str], max_steps: int = 2) -> list[dict[str, object]]:
+    """
+    Deterministic short exploration prefix before repeating target-find:
+    prefer look/turn actions, then move actions.
+    """
+    if max_steps <= 0:
+        return []
+    look_turn: list[dict[str, object]] = []
+    move: list[dict[str, object]] = []
+    for aid, desc in catalog.items():
+        d = (desc or "").strip().lower()
+        step = {"action_id": aid, "action_name": desc}
+        if d.startswith(("look up", "look down", "turn left", "turn right", "rotate left", "rotate right")):
+            look_turn.append(step)
+        elif d.startswith(("move ahead", "move forward", "move back", "move backward")):
+            move.append(step)
+    ordered = look_turn + move
+    out: list[dict[str, object]] = []
+    used_ids: set[int] = set()
+    for step in ordered:
+        aid = step.get("action_id")
+        if not isinstance(aid, int) or aid in used_ids:
+            continue
+        used_ids.add(aid)
+        out.append(step)
+        if len(out) >= max_steps:
+            break
+    return out
+
+
 def _is_pickup_desc_for_target(desc: str, target: str) -> bool:
     d = (desc or "").strip().lower()
     if not d.startswith("pick up"):
@@ -1363,6 +1393,27 @@ class EpisodeController:
             nav = _choose_nav_replacement(catalog)
             if nav:
                 filtered[0] = nav
+
+        # 2.5) If same task target repeatedly cannot be found, force 1-2 exploration
+        # actions before the first target-find to change camera pose / location.
+        first = filtered[0] if filtered and isinstance(filtered[0], dict) else None
+        first_aid = None
+        if first is not None:
+            first_aid = first.get("action_id")
+            if isinstance(first_aid, float) and first_aid == int(first_aid):
+                first_aid = int(first_aid)
+        if (
+            self.find_fail_streak >= 2
+            and target
+            and isinstance(first_aid, int)
+            and first_aid in find_ids
+        ):
+            explore_steps = _choose_exploration_steps(catalog, max_steps=2)
+            if explore_steps:
+                # Avoid duplicate when first step already equals chosen explore step.
+                first_id_cur = first_aid
+                prefix = [s for s in explore_steps if s.get("action_id") != first_id_cur]
+                filtered = prefix + filtered
 
         # 3) Precondition gate: if first step is pickup target and no find target
         # appears in the plan, force first step to find/nav.
