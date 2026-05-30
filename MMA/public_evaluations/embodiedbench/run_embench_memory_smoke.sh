@@ -53,5 +53,6 @@ echo "PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF}"
 # One variable per line so logs are easy to parse (avoid cut -d= -f2- swallowing SIM_INFO on same line).
 echo "EXP_NAME=${EXP_NAME}"
 echo "EMBODIEDBENCH_SIM_INFO_LEVEL=${EMBODIEDBENCH_SIM_INFO_LEVEL}"
+echo "EMBODIEDBENCH_TRACE_LOG=${EMBODIEDBENCH_TRACE_LOG:-}"
 
 bash run_embench_mma_one_node.sh "+selected_indexes=[0]" "eval_sets=[base]"

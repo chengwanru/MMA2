@@ -510,6 +510,92 @@ def _extract_find_target_from_feedback(last_env_feedback: str) -> str:
     return ""
 
 
+def _last_task_prose_from_prompt(sentence: str) -> str:
+    """Prefer the last TASK/Instruction line (current episode), not n-shot examples."""
+    if not isinstance(sentence, str) or not sentence.strip():
+        return ""
+    matches = list(
+        re.finditer(
+            r"(?mi)^\s*(?:task|instruction|goal)\s*[:=]\s*(.+?)\s*$",
+            sentence,
+        )
+    )
+    if matches:
+        return (matches[-1].group(1) or "").strip()
+    return _recover_instruction_from_prompt(sentence)
+
+
+def _find_action_ids_for_object(catalog: dict[int, str], obj_name: str) -> set[int]:
+    obj = (obj_name or "").strip().lower()
+    if not obj:
+        return set()
+    out: set[int] = set()
+    for aid, desc in catalog.items():
+        d = (desc or "").strip().lower()
+        if not re.search(r"(?i)\bfind\b", d):
+            continue
+        if re.search(rf"(?i)\b{re.escape(obj)}\b", d):
+            out.add(aid)
+    return out
+
+
+def _apply_banned_find_guard(
+    json_text: str,
+    sentence: str,
+    controller: "EpisodeController",
+) -> str:
+    """Drop banned find action_ids and force task-target find as first step when needed."""
+    banned = getattr(controller, "banned_find_action_ids", None) or set()
+    locked = (controller.locked_task_target or controller.target or "").strip().lower()
+    if not banned and not locked:
+        return json_text
+    try:
+        obj = json.loads(json_text)
+    except Exception:
+        return json_text
+    if not isinstance(obj, dict):
+        return json_text
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        return json_text
+    catalog = _parse_action_catalog_lines(sentence)
+    if not catalog:
+        return json_text
+
+    filtered: list[dict] = []
+    for step in plan:
+        if not isinstance(step, dict):
+            continue
+        aid = step.get("action_id")
+        if isinstance(aid, float) and aid == int(aid):
+            aid = int(aid)
+        if isinstance(aid, int) and aid in banned:
+            continue
+        filtered.append(step)
+    if not filtered:
+        rep = _choose_find_or_nav_replacement(catalog, locked) if locked else _choose_nav_replacement(catalog)
+        filtered = [rep] if rep else plan[:1]
+
+    if locked:
+        find_step = _choose_find_or_nav_replacement(catalog, locked)
+        if find_step:
+            first = filtered[0] if filtered else None
+            first_aid = None
+            if isinstance(first, dict):
+                raw = first.get("action_id")
+                if isinstance(raw, float) and raw == int(raw):
+                    first_aid = int(raw)
+                elif isinstance(raw, int):
+                    first_aid = raw
+            find_ids = _find_action_ids_for_object(catalog, locked)
+            if first_aid in banned or (isinstance(first_aid, int) and first_aid not in find_ids):
+                if not _is_nav_desc(_step_desc_from_plan_step(first or {}, catalog)):
+                    filtered[0] = dict(find_step)
+
+    obj["executable_plan"] = filtered
+    return json.dumps(obj, ensure_ascii=True)
+
+
 def _parse_action_catalog_lines(prompt_text: str) -> dict[int, str]:
     return _extract_action_catalog(prompt_text)
 
@@ -930,6 +1016,7 @@ def _extract_target_from_instruction(sentence: str, catalog: dict[int, str]) -> 
     # Do not use ``_instruction_key``'s legacy raw-prefix fallback here: the first
     # ~300 chars often still contain ACTION LIST lines like ``find a Safe``.
     text_sources = [
+        _last_task_prose_from_prompt(sentence),
         _recover_instruction_from_prompt(sentence),
         _instruction_focus_text(sentence),
     ]
@@ -1244,9 +1331,15 @@ def _anchor_plan_to_task_target(
     )
 
     if cooldown_find <= 0:
-        # Round 0: always start with catalog find-<target> (correct action_id for Thor).
-        if find_fail_streak == 0 and not first_is_nav:
-            if not first_is_find_task or id_name_mismatch or id_obj != target or name_obj != target:
+        # Always start with catalog find-<target> when task object is known.
+        if not first_is_nav and target:
+            if (
+                find_fail_streak == 0
+                or not first_is_find_task
+                or id_name_mismatch
+                or id_obj != target
+                or name_obj != target
+            ):
                 plan[0] = dict(find_step)
         elif not first_is_nav:
             wrong_object_first = bool(
@@ -1287,6 +1380,7 @@ def _finalize_executable_plan(json_text: str, sentence: str, controller: "Episod
         find_fail_streak=controller.find_fail_streak,
         cooldown_find=controller.cooldown_find,
     )
+    json_text = _apply_banned_find_guard(json_text, sentence, controller)
     json_text = sync_executable_plan_ids_from_prompt(json_text, sentence)
     _trace_returned_first_step("finalize", json_text)
     return json_text
@@ -1313,6 +1407,7 @@ class EpisodeController:
         self.cooldown_putdown = 0
         self.ban_putdown_hand = False
         self._last_plan_first_was_putdown = False
+        self.banned_find_action_ids: set[int] = set()
 
     def note_last_plan_first_step(self, json_text: str) -> None:
         """Call before returning JSON so next feedback can attribute generic invalids."""
@@ -1334,6 +1429,7 @@ class EpisodeController:
             "putdown_fail_streak": self.putdown_fail_streak,
             "ban_pick_target": self.ban_pick_target,
             "ban_putdown_hand": self.ban_putdown_hand,
+            "banned_find_action_ids": sorted(self.banned_find_action_ids),
             "last_plan_first_was_putdown": self._last_plan_first_was_putdown,
         }
 
@@ -1348,6 +1444,8 @@ class EpisodeController:
             instr = _recover_instruction_from_prompt(sentence)
             if instr:
                 t = _target_object_from_instruction(instr, catalog)
+        if not t:
+            t = _target_object_from_instruction(_last_task_prose_from_prompt(sentence), catalog)
         if not t and catalog:
             t = _target_object_from_instruction(sentence, catalog)
         if t:
@@ -1391,8 +1489,14 @@ class EpisodeController:
             self.mode = "RECOVERY"
             self.cooldown_find = max(self.cooldown_find, 2)
             target_find = _extract_find_target_from_feedback(last_env_feedback).lower()
-            if target_find and (not locked or target_find == locked):
-                self.target = target_find
+            if target_find:
+                for aid in _find_action_ids_for_object(catalog, target_find):
+                    if locked and target_find != locked:
+                        self.banned_find_action_ids.add(aid)
+                if locked and target_find != locked:
+                    self.target = locked
+                elif target_find and (not locked or target_find == locked):
+                    self.target = target_find
             self.ban_pick_target = True
 
         putdown_signal = False
