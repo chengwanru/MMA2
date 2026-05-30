@@ -85,7 +85,8 @@ def episodic_memory_insert(self: "Agent", items: List[EpisodicEventForLLM]):
             summary=item['summary'],
             details=item['details'],
             organization_id=self.user.organization_id,
-            tree_path=item.get('tree_path')
+            tree_path=item.get('tree_path'),
+            metadata_=item.get('metadata_') or {},
         )
     response = "Events inserted! Now you need to check if there are repeated events shown in the system prompt."
     return response

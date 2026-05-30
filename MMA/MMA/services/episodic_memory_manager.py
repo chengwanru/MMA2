@@ -325,7 +325,8 @@ class EpisodicMemoryManager:
                      details: str,
                      summary: str,
                      organization_id: str,
-                     tree_path: Optional[List[str]] = None) -> PydanticEpisodicEvent:
+                     tree_path: Optional[List[str]] = None,
+                     metadata_: Optional[Dict[str, Any]] = None) -> PydanticEpisodicEvent:
         try:
             from mma.services.embedding_utils import prepare_embeddings
             embeddings, embedding_config = prepare_embeddings(agent_state, {
@@ -341,6 +342,7 @@ class EpisodicMemoryManager:
                     details=details,
                     tree_path=tree_path or [],
                     organization_id=organization_id,
+                    metadata_=metadata_ or {},
                     summary_embedding=embeddings.get("summary"),
                     details_embedding=embeddings.get("details"),
                     embedding_config=embedding_config,

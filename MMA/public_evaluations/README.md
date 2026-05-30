@@ -10,7 +10,7 @@ Benchmark drivers are grouped by dataset. Shared agent/metrics code lives under 
 | `locomo/` | LOCOMO / ScreenshotVQA | `run_instance.py`, `main.py`, `run.sh` |
 | `fever/` | FEVER | `run_fever_eval.py` |
 | `embodiedbench/` | EmbodiedBench (eb-alf) | `embodiedbench_server.py`, `run_embench_mma_one_node*.sh`, `submit_*.pbs` |
-| `open_eqa/` | Open-EQA (multimodal) | `run_openeqa_eval.py`, `make_openeqa_multimodal.py` |
+| `open_eqa/` | Open-EQA | [`README.md`](open_eqa/README.md) |
 
 ## Quick start
 
@@ -28,9 +28,8 @@ cd MMA/public_evaluations/embodiedbench
 python check_embodiedbench_deps.py
 bash run_embench_memory_smoke_gadi.sh   # Gadi example
 
-# Open-EQA
+# Open-EQA → see open_eqa/README.md
 cd MMA/public_evaluations/open_eqa
-python run_openeqa_eval.py --input_file data/open-eqa-multimodal.json --output_file results/out.json
 ```
 
 ## Data paths

@@ -27,6 +27,10 @@ class EpisodicEventForLLM(EpisodicEventBase):
     """
     # TODO: make `occurred_at` optional
     occurred_at: str = Field(..., description="When the event happened (it should be mentioned in the user's response and it should be in the format of 'YYYY-MM-DD HH:MM:SS')")
+    metadata_: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Optional structured metadata (e.g. metadata_.embodied for robotics tasks)",
+    )
 
 class EpisodicEvent(EpisodicEventBase):
     """
