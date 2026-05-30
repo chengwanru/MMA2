@@ -349,13 +349,12 @@ def remap_executable_plan_ids_from_prompt(json_text: str, prompt_text: str) -> s
     if not isinstance(plan, list) or not plan:
         return json_text
 
-    catalog: list[tuple[int, str]] = []
-    for m in re.finditer(r"(?m)^\s*(\d{1,4})\s*:\s*(.+?)\s*$", prompt_text):
-        catalog.append((int(m.group(1)), m.group(2).strip()))
-    if not catalog:
+    catalog_map = _extract_action_catalog(prompt_text)
+    if not catalog_map:
         return json_text
+    catalog = list(catalog_map.items())
 
-    valid_ids = {a for a, _ in catalog}
+    valid_ids = set(catalog_map)
 
     def pick_id(aname: str, current_id: int) -> int | None:
         if current_id in valid_ids:
@@ -419,13 +418,12 @@ def sync_executable_plan_ids_from_prompt(json_text: str, prompt_text: str) -> st
     if not isinstance(plan, list) or not plan:
         return json_text
 
-    catalog: list[tuple[int, str]] = []
-    for m in re.finditer(r"(?m)^\s*(\d{1,4})\s*:\s*(.+?)\s*$", prompt_text):
-        catalog.append((int(m.group(1)), m.group(2).strip()))
-    if not catalog:
+    catalog_map = _extract_action_catalog(prompt_text)
+    if not catalog_map:
         return json_text
+    catalog = list(catalog_map.items())
 
-    valid_ids = {a for a, _ in catalog}
+    valid_ids = set(catalog_map)
     id_by_desc: dict[str, int] = {}
     desc_by_id: dict[int, str] = {}
     for aid, desc in catalog:
@@ -570,6 +568,16 @@ def _extract_action_catalog(prompt_text: str) -> dict[int, str]:
         except ValueError:
             continue
         catalog[aid] = m.group(2).strip()
+    # Space-separated without colon: "44 find a Safe"
+    for m in re.finditer(
+        r"(?m)^\s*(\d{1,4})\s+(?!:\s)([A-Za-z].+?)\s*$",
+        prompt_text,
+    ):
+        try:
+            aid = int(m.group(1))
+        except ValueError:
+            continue
+        catalog.setdefault(aid, m.group(2).strip())
     return catalog
 
 

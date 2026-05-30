@@ -51,8 +51,11 @@ except Exception:
     pass
 
 from embodiedbench_utils import (
+    _collapse_alnum,
+    _extract_action_catalog,
     _extract_object_from_action_desc,
     _recover_instruction_from_prompt,
+    _target_object_from_instruction,
     enforce_first_action_guard,
     extract_allowed_action_ids_from_prompt,
     extract_json_from_response,
@@ -508,22 +511,7 @@ def _extract_find_target_from_feedback(last_env_feedback: str) -> str:
 
 
 def _parse_action_catalog_lines(prompt_text: str) -> dict[int, str]:
-    catalog: dict[int, str] = {}
-    if not isinstance(prompt_text, str) or not prompt_text.strip():
-        return catalog
-    for m in re.finditer(r"(?m)^\s*(\d{1,4})\s*:\s*(.+?)\s*$", prompt_text):
-        try:
-            aid = int(m.group(1))
-        except ValueError:
-            continue
-        catalog[aid] = m.group(2).strip()
-    for m in re.finditer(r"(?m)^\s*\[\s*(\d{1,4})\s*\]\s*(.+?)\s*$", prompt_text):
-        try:
-            aid = int(m.group(1))
-        except ValueError:
-            continue
-        catalog[aid] = m.group(2).strip()
-    return catalog
+    return _extract_action_catalog(prompt_text)
 
 
 def _extract_pickup_target_from_action_name(action_name: str) -> str:
@@ -1241,26 +1229,35 @@ def _anchor_plan_to_task_target(
     if first is None:
         return json_text
     first_desc = _step_desc_from_plan_step(first, catalog)
-    first_obj = _extract_object_from_action_desc(first_desc)
     first_aid = first.get("action_id")
     if isinstance(first_aid, float) and first_aid == int(first_aid):
         first_aid = int(first_aid)
     first_is_find_task = isinstance(first_aid, int) and first_aid in find_ids
     first_is_nav = _is_nav_desc(first_desc)
-
-    wrong_object_first = bool(
-        first_obj
-        and first_obj != target
-        and not first_is_nav
+    first_name = str(first.get("action_name", "") or "")
+    name_obj = _extract_object_from_action_desc(first_name)
+    id_obj = _extract_object_from_action_desc(first_desc)
+    id_name_mismatch = bool(
+        isinstance(first_aid, int)
+        and first_name.strip()
+        and _collapse_alnum(first_desc) != _collapse_alnum(first_name)
     )
-    if not wrong_object_first and re.search(r"(?i)\bfind\b", first_desc):
-        wrong_object_first = target not in first_desc.lower()
 
     if cooldown_find <= 0:
-        if wrong_object_first:
-            plan[0] = find_step
-        elif find_fail_streak == 0 and not first_is_find_task and not first_is_nav:
-            plan[0] = find_step
+        # Round 0: always start with catalog find-<target> (correct action_id for Thor).
+        if find_fail_streak == 0 and not first_is_nav:
+            if not first_is_find_task or id_name_mismatch or id_obj != target or name_obj != target:
+                plan[0] = dict(find_step)
+        elif not first_is_nav:
+            wrong_object_first = bool(
+                (id_obj and id_obj != target)
+                or (name_obj and name_obj != target)
+                or id_name_mismatch
+            )
+            if not wrong_object_first and re.search(r"(?i)\bfind\b", first_desc):
+                wrong_object_first = target not in first_desc.lower()
+            if wrong_object_first or (not first_is_find_task and not first_is_nav):
+                plan[0] = dict(find_step)
 
     first = plan[0] if isinstance(plan[0], dict) else None
     if first is not None:
@@ -1347,6 +1344,12 @@ class EpisodeController:
     def seed_task_target(self, sentence: str) -> str:
         catalog = _parse_action_catalog_lines(sentence)
         t = _extract_target_from_instruction(sentence, catalog)
+        if not t:
+            instr = _recover_instruction_from_prompt(sentence)
+            if instr:
+                t = _target_object_from_instruction(instr, catalog)
+        if not t and catalog:
+            t = _target_object_from_instruction(sentence, catalog)
         if t:
             self.locked_task_target = t
             self.target = t
