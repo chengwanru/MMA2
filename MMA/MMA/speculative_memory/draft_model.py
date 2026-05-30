@@ -88,6 +88,7 @@ def generate_draft_tokens(
     eos_token_id: Optional[int] = None,
     pad_token_id: Optional[int] = None,
     return_draft_logits: bool = False,
+    ignore_eos: bool = False,
 ) -> DraftResult:
     """
     Run draft model to generate up to max_draft_steps tokens with memory bias.
@@ -102,6 +103,7 @@ def generate_draft_tokens(
         pixel_values, image_grid_thw, pixel_values_videos, video_grid_thw: Optional VL inputs.
         eos_token_id: Stop at this token. Default from tokenizer.
         pad_token_id: For generation. Default from tokenizer or eos_token_id.
+        ignore_eos: If True, do not trim draft tokens at EOS (fixed-length benchmarks).
         return_draft_logits: If True, also return per-position logits (for prob_diff verify).
             Requires running with a hook or extra forward; for now we set to False and leave
             draft_logits_per_position as None.
@@ -121,7 +123,7 @@ def generate_draft_tokens(
 
     if attention_mask is None:
         attention_mask = torch.ones_like(input_ids, dtype=torch.long, device=input_ids.device)
-    if eos_token_id is None:
+    if not ignore_eos and eos_token_id is None:
         eos_token_id = getattr(tokenizer, "eos_token_id", None)
     if pad_token_id is None:
         pad_token_id = getattr(tokenizer, "pad_token_id", None) or eos_token_id
@@ -143,9 +145,10 @@ def generate_draft_tokens(
         "min_new_tokens": 1,
         "do_sample": config.do_sample,
         "pad_token_id": pad_token_id,
-        "eos_token_id": eos_token_id,
         "logits_processor": logits_processor_list,
     }
+    if not ignore_eos and eos_token_id is not None:
+        gen_kwargs["eos_token_id"] = eos_token_id
     if config.do_sample:
         gen_kwargs["temperature"] = config.temperature
 
@@ -171,7 +174,7 @@ def generate_draft_tokens(
     # Trim at first EOS if present, but keep at least one token so num_draft >= 1 when
     # draft emitted EOS immediately (e.g. long agent prompt). Verify step will then
     # get one position; target can accept or correct.
-    if eos_token_id is not None and draft_token_ids:
+    if not ignore_eos and eos_token_id is not None and draft_token_ids:
         try:
             idx = draft_token_ids.index(eos_token_id)
             if idx > 0:

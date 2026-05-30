@@ -13,9 +13,10 @@ Env:
   MMA_SPEEDUP_REJECT_STRATEGY=prob_diff   # or threshold
   MMA_SPEEDUP_PROB_DIFF_THRESHOLD=0.3      # prob_diff mode
   MMA_SPEEDUP_ACCEPT_THRESHOLD=0.1       # threshold mode
+  MMA_BENCH_IGNORE_EOS=1                 # fixed token budget (default on)
 
 Speedup = t_baseline / t_speculative  (per wall-clock for generating up to N new tokens).
-If speculative hits EOS early, printed new_token counts may differ slightly.
+Reports speculative with_memory and without_memory vs the same target-only baseline.
 """
 
 from __future__ import annotations
@@ -46,6 +47,8 @@ from mma.speculative_memory import (
 )
 from mma.models.qwen3_vl import Qwen3VLForConditionalGeneration
 
+from mma.speculative_memory.bench_common import BENCH_MEMORY_ITEMS, BENCH_PROMPT_TEXT, bench_ignore_eos
+
 
 def _sync_cuda() -> None:
     if torch.cuda.is_available():
@@ -58,12 +61,15 @@ def target_only_greedy(
     prompt_input_ids: torch.Tensor,
     max_new_tokens: int,
     device: torch.device,
+    *,
+    ignore_eos: bool = False,
 ) -> torch.Tensor:
     """Greedy decode with target only (no draft). Text-only, no VL inputs."""
-    eos_id = getattr(tokenizer, "eos_token_id", None)
+    eos_id = None if ignore_eos else getattr(tokenizer, "eos_token_id", None)
     current = prompt_input_ids
+    generated = 0
     with torch.inference_mode():
-        for _ in range(max_new_tokens):
+        while generated < max_new_tokens:
             attn = torch.ones_like(current, dtype=torch.long, device=device)
             out = target_model(
                 input_ids=current,
@@ -78,9 +84,22 @@ def target_only_greedy(
                 logits = logits[-1:, :]
             next_id = logits.argmax(dim=-1, keepdim=True)
             current = torch.cat([current, next_id], dim=1)
+            generated += 1
             if eos_id is not None and next_id.item() == eos_id:
                 break
     return current
+
+
+def _print_spec_row(label: str, elapsed: float, n_new: int, stats: dict, t_base: float) -> None:
+    tok_s = n_new / elapsed if elapsed > 0 else 0.0
+    speedup = t_base / elapsed if elapsed > 0 else 0.0
+    acc = stats.get("acceptance_rate", 0.0)
+    print(f"  {label}:")
+    print(f"    time={elapsed:.3f}s  new_tokens={n_new}  ({tok_s:.2f} tok/s)  speedup={speedup:.3f}x")
+    print(
+        f"    acceptance_rate: {acc:.4f}  "
+        f"({stats.get('draft_tokens_accepted', 0)}/{stats.get('draft_tokens_proposed', 0)} draft tokens)"
+    )
 
 
 def main() -> None:
@@ -101,6 +120,7 @@ def main() -> None:
         "true",
         "yes",
     )
+    ignore_eos = bench_ignore_eos()
 
     config = SpeculativeMemoryConfig(
         draft_model_name_or_path=draft_path,
@@ -115,7 +135,7 @@ def main() -> None:
 
     device_s = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(device_s)
-    print(f"Device: {device_s}  max_new_tokens={max_new}  max_draft_steps={max_draft}")
+    print(f"Device: {device_s}  max_new_tokens={max_new}  max_draft_steps={max_draft}  ignore_eos={ignore_eos}")
     print(
         f"reject_strategy={config.reject_strategy}  "
         f"prob_diff_threshold={config.prob_diff_threshold}  "
@@ -144,12 +164,8 @@ def main() -> None:
     )
     target_model.eval()
 
-    prompt_text = (
-        "Write a short paragraph explaining what speculative decoding is and why it can speed up "
-        "inference. Be concrete but keep under 120 words."
-    )
     prompt_input_ids = tokenizer(
-        prompt_text,
+        BENCH_PROMPT_TEXT,
         return_tensors="pt",
         add_special_tokens=True,
     ).input_ids
@@ -161,26 +177,32 @@ def main() -> None:
         _sync_cuda()
         t0 = time.perf_counter()
         out = target_only_greedy(
-            target_model, tokenizer, prompt_input_ids, max_new, device
+            target_model,
+            tokenizer,
+            prompt_input_ids,
+            max_new,
+            device,
+            ignore_eos=ignore_eos,
         )
         _sync_cuda()
         elapsed = time.perf_counter() - t0
         n_new = out.size(1) - prompt_len
         return elapsed, int(n_new)
 
-    def run_speculative() -> tuple[float, int, dict]:
+    def run_speculative(memory_items: list) -> tuple[float, int, dict]:
         stats: dict = {}
         _sync_cuda()
         t0 = time.perf_counter()
         out = generate_with_speculative_memory(
             prompt_input_ids,
-            memory_items=[],
+            memory_items=memory_items,
             draft_model=draft_model,
             target_model=target_model,
             tokenizer=tokenizer,
             config=config,
             max_new_tokens=max_new,
             stats_out=stats,
+            ignore_eos=ignore_eos,
         )
         _sync_cuda()
         elapsed = time.perf_counter() - t0
@@ -189,7 +211,14 @@ def main() -> None:
 
     if do_warmup:
         print("Warmup (untimed) ...")
-        target_only_greedy(target_model, tokenizer, prompt_input_ids, min(8, max_new), device)
+        target_only_greedy(
+            target_model,
+            tokenizer,
+            prompt_input_ids,
+            min(8, max_new),
+            device,
+            ignore_eos=ignore_eos,
+        )
         generate_with_speculative_memory(
             prompt_input_ids,
             memory_items=[],
@@ -198,6 +227,7 @@ def main() -> None:
             tokenizer=tokenizer,
             config=config,
             max_new_tokens=min(8, max_new),
+            ignore_eos=ignore_eos,
         )
         _sync_cuda()
         print()
@@ -206,24 +236,19 @@ def main() -> None:
     t_base, n_base = run_baseline()
     tok_s_base = n_base / t_base if t_base > 0 else 0.0
 
-    print("Timing speculative (2B draft + 8B verify, empty memory) ...")
-    t_spec, n_spec, st = run_speculative()
-    tok_s_spec = n_spec / t_spec if t_spec > 0 else 0.0
+    print("Timing speculative without_memory ...")
+    t_spec0, n_spec0, st0 = run_speculative([])
 
-    speedup = t_base / t_spec if t_spec > 0 else 0.0
+    print("Timing speculative with_memory ...")
+    t_spec1, n_spec1, st1 = run_speculative(BENCH_MEMORY_ITEMS)
 
     print()
     print("=== RESULTS ===")
     print(f"  target_only:  time={t_base:.3f}s  new_tokens={n_base}  ({tok_s_base:.2f} tok/s)")
-    print(f"  speculative:  time={t_spec:.3f}s  new_tokens={n_spec}  ({tok_s_spec:.2f} tok/s)")
-    print(f"  wall_speedup: {speedup:.3f}x  (target_time / speculative_time)")
-    acc = st.get("acceptance_rate", 0.0)
-    print(
-        f"  acceptance_rate: {acc:.4f}  "
-        f"({st.get('draft_tokens_accepted', 0)}/{st.get('draft_tokens_proposed', 0)} draft tokens)"
-    )
+    _print_spec_row("speculative without_memory", t_spec0, n_spec0, st0, t_base)
+    _print_spec_row("speculative with_memory", t_spec1, n_spec1, st1, t_base)
     print()
-    print("Note: speedup > 1 means speculative was faster on this run.")
+    print("Note: speedup > 1 means speculative was faster than target-only on this run.")
     print("Done.")
 
 

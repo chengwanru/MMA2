@@ -122,6 +122,7 @@ def generate_with_speculative_memory(
     pixel_values_videos: Optional[torch.Tensor] = None,
     video_grid_thw: Optional[torch.Tensor] = None,
     stats_out: Optional[Dict[str, Any]] = None,
+    ignore_eos: bool = False,
 ) -> torch.Tensor:
     """
     Generate tokens using speculative decoding with memory.
@@ -147,6 +148,7 @@ def generate_with_speculative_memory(
         eos_token_id: Stop at this token; default from tokenizer.eos_token_id.
         max_new_tokens: Max new tokens to generate; default from config.max_new_tokens.
         pixel_values, image_grid_thw, pixel_values_videos, video_grid_thw: Optional VL inputs for draft/target.
+        ignore_eos: If True, decode exactly ``max_new_tokens`` steps (benchmarks); do not stop at EOS.
 
     Returns:
         Generated token ids (1, output_len); includes prompt + generated.
@@ -167,6 +169,8 @@ def generate_with_speculative_memory(
         config = SpeculativeMemoryConfig()
     if eos_token_id is None:
         eos_token_id = getattr(tokenizer, "eos_token_id", None)
+    if ignore_eos:
+        eos_token_id = None
     if max_new_tokens is None:
         max_new_tokens = config.max_new_tokens
 
@@ -240,6 +244,7 @@ def generate_with_speculative_memory(
             memory_items,
             config,
             eos_token_id=eos_token_id,
+            ignore_eos=ignore_eos,
             **gen_kwargs,
         )
         num_draft = draft_result.num_draft
@@ -423,5 +428,6 @@ def generate_with_speculative_memory(
         prop = int(stats_out["draft_tokens_proposed"])
         acc = int(stats_out["draft_tokens_accepted"])
         stats_out["acceptance_rate"] = (acc / prop) if prop > 0 else 0.0
+        stats_out["new_tokens_generated"] = int(total_generated)
 
     return current_ids
