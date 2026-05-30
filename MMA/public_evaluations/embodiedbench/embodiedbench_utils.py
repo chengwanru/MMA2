@@ -400,6 +400,89 @@ def remap_executable_plan_ids_from_prompt(json_text: str, prompt_text: str) -> s
     return json.dumps(obj, ensure_ascii=True)
 
 
+def sync_executable_plan_ids_from_prompt(json_text: str, prompt_text: str) -> str:
+    """
+    Force action_id to match action_name when the name resolves in the catalog,
+    even if action_id is already a valid catalog id (e.g. id=44 Safe with name
+    \"find a Ladle\"). EmbodiedBench executes by action_id, so mismatches cause
+    wrong Thor actions despite correct-looking planner traces.
+    """
+    if not prompt_text or not json_text or not json_text.strip():
+        return json_text
+    try:
+        obj = json.loads(json_text)
+    except json.JSONDecodeError:
+        return json_text
+    if not isinstance(obj, dict):
+        return json_text
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        return json_text
+
+    catalog: list[tuple[int, str]] = []
+    for m in re.finditer(r"(?m)^\s*(\d{1,4})\s*:\s*(.+?)\s*$", prompt_text):
+        catalog.append((int(m.group(1)), m.group(2).strip()))
+    if not catalog:
+        return json_text
+
+    valid_ids = {a for a, _ in catalog}
+    id_by_desc: dict[str, int] = {}
+    desc_by_id: dict[int, str] = {}
+    for aid, desc in catalog:
+        desc_by_id[aid] = desc
+        id_by_desc[_collapse_alnum(desc)] = aid
+
+    def resolve_id_from_name(aname: str) -> int | None:
+        na = _collapse_alnum(aname)
+        if not na:
+            return None
+        if na in id_by_desc:
+            return id_by_desc[na]
+        best: int | None = None
+        best_score = 0
+        for aid, desc in catalog:
+            nd = _collapse_alnum(desc)
+            if not nd:
+                continue
+            if na in nd or nd in na:
+                score = min(len(na), len(nd))
+                if score > best_score:
+                    best_score = score
+                    best = aid
+        return best
+
+    changed = False
+    for step in plan:
+        if not isinstance(step, dict):
+            continue
+        aname = step.get("action_name")
+        if not isinstance(aname, str):
+            continue
+        name_id = resolve_id_from_name(aname)
+        if name_id is None:
+            continue
+        raw_aid = step.get("action_id")
+        cur = _to_int(raw_aid)
+        if cur is None:
+            step["action_id"] = name_id
+            changed = True
+            continue
+        if cur == name_id:
+            continue
+        if cur in valid_ids:
+            cur_desc = desc_by_id.get(cur, "")
+            if _collapse_alnum(cur_desc) != _collapse_alnum(aname):
+                step["action_id"] = name_id
+                changed = True
+        else:
+            step["action_id"] = name_id
+            changed = True
+
+    if not changed:
+        return json_text
+    return json.dumps(obj, ensure_ascii=True)
+
+
 def _extract_instruction(prompt_text: str) -> str:
     if not isinstance(prompt_text, str):
         return ""

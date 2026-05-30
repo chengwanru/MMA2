@@ -51,12 +51,15 @@ except Exception:
     pass
 
 from embodiedbench_utils import (
+    _extract_object_from_action_desc,
+    _recover_instruction_from_prompt,
     enforce_first_action_guard,
     extract_allowed_action_ids_from_prompt,
     extract_json_from_response,
     format_action_catalog_object_hint,
     postprocess_executable_plan,
     remap_executable_plan_ids_from_prompt,
+    sync_executable_plan_ids_from_prompt,
     validate_executable_plan_json,
 )
 from embodied_memory import embodied_memory_enabled, get_embodied_store
@@ -935,27 +938,29 @@ def _extract_target_from_instruction(sentence: str, catalog: dict[int, str]) -> 
             cands.append(m.group(1).lower())
     if not cands:
         return ""
+    cand_set = set(cands)
     # Do not use ``_instruction_key``'s legacy raw-prefix fallback here: the first
     # ~300 chars often still contain ACTION LIST lines like ``find a Safe``.
-    text = (_instruction_focus_text(sentence) or "").lower()
-    # Fallback for prompt layouts where TASK is free-form (not explicitly tagged),
-    # e.g. "Rinse off a ladle and move it to the table."
-    if not text:
-        text = (sentence or "").lower()
-    for pat in (
-        r"(?is)\b(?:rinse(?:\s+off)?|wash|clean)\b.{0,120}?\b(?:a|an|the)\s+([a-z][a-z0-9_-]*)\b",
-        r"(?is)\b(?:pick\s*up|pickup|grab|take|move|place|put)\b.{0,120}?\b(?:a|an|the)\s+([a-z][a-z0-9_-]*)\b",
-    ):
-        m = re.search(pat, text)
-        if m:
-            freeform_obj = (m.group(1) or "").strip().lower()
-            if freeform_obj and freeform_obj in set(cands):
-                return freeform_obj
-    if not text:
-        return ""
-    for c in sorted(set(cands), key=len, reverse=True):
-        if re.search(rf"(?i)\b{re.escape(c)}\b", text):
-            return c
+    text_sources = [
+        _recover_instruction_from_prompt(sentence),
+        _instruction_focus_text(sentence),
+    ]
+    for raw in text_sources:
+        text = (raw or "").lower()
+        if not text:
+            continue
+        for pat in (
+            r"(?is)\b(?:rinse(?:\s+off)?|wash|clean)\b.{0,120}?\b(?:a|an|the)\s+([a-z][a-z0-9_-]*)\b",
+            r"(?is)\b(?:pick\s*up|pickup|grab|take|move|place|put)\b.{0,120}?\b(?:a|an|the)\s+([a-z][a-z0-9_-]*)\b",
+        ):
+            m = re.search(pat, text)
+            if m:
+                freeform_obj = (m.group(1) or "").strip().lower()
+                if freeform_obj and freeform_obj in cand_set:
+                    return freeform_obj
+        for c in sorted(cand_set, key=len, reverse=True):
+            if re.search(rf"(?i)\b{re.escape(c)}\b", text):
+                return c
     return ""
 
 
@@ -1185,6 +1190,111 @@ def _hard_filter_plan_to_target(
     return json.dumps(obj, ensure_ascii=True)
 
 
+def _step_desc_from_plan_step(step: dict, catalog: dict[int, str]) -> str:
+    aid = step.get("action_id")
+    if isinstance(aid, float) and aid == int(aid):
+        aid = int(aid)
+    if isinstance(aid, int):
+        desc = catalog.get(aid, "")
+        if desc:
+            return desc
+    return str(step.get("action_name", "") or "")
+
+
+def _anchor_plan_to_task_target(
+    json_text: str,
+    sentence: str,
+    task_target: str,
+    *,
+    find_fail_streak: int = 0,
+    cooldown_find: int = 0,
+) -> str:
+    """
+    Ensure the first executable step aligns with the locked task object on early
+    plans, and prepend short exploration after repeated find failures.
+    """
+    target = (task_target or "").strip().lower()
+    if not target:
+        return json_text
+    try:
+        obj = json.loads(json_text)
+    except Exception:
+        return json_text
+    if not isinstance(obj, dict):
+        return json_text
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        return json_text
+    catalog = _parse_action_catalog_lines(sentence)
+    if not catalog:
+        return json_text
+
+    find_step = _choose_find_or_nav_replacement(catalog, target)
+    if not find_step:
+        return json_text
+
+    find_ids = {
+        aid for aid, desc in catalog.items() if _is_find_desc_for_target(desc, target)
+    }
+
+    first = plan[0] if isinstance(plan[0], dict) else None
+    if first is None:
+        return json_text
+    first_desc = _step_desc_from_plan_step(first, catalog)
+    first_obj = _extract_object_from_action_desc(first_desc)
+    first_aid = first.get("action_id")
+    if isinstance(first_aid, float) and first_aid == int(first_aid):
+        first_aid = int(first_aid)
+    first_is_find_task = isinstance(first_aid, int) and first_aid in find_ids
+    first_is_nav = _is_nav_desc(first_desc)
+
+    wrong_object_first = bool(
+        first_obj
+        and first_obj != target
+        and not first_is_nav
+    )
+    if not wrong_object_first and re.search(r"(?i)\bfind\b", first_desc):
+        wrong_object_first = target not in first_desc.lower()
+
+    if cooldown_find <= 0:
+        if wrong_object_first:
+            plan[0] = find_step
+        elif find_fail_streak == 0 and not first_is_find_task and not first_is_nav:
+            plan[0] = find_step
+
+    first = plan[0] if isinstance(plan[0], dict) else None
+    if first is not None:
+        first_aid = first.get("action_id")
+        if isinstance(first_aid, float) and first_aid == int(first_aid):
+            first_aid = int(first_aid)
+        first_is_find_task = isinstance(first_aid, int) and first_aid in find_ids
+
+    if find_fail_streak >= 2 and first_is_find_task:
+        explore_steps = _choose_exploration_steps(catalog, max_steps=2)
+        if explore_steps:
+            first_id_cur = first_aid if isinstance(first_aid, int) else None
+            prefix = [s for s in explore_steps if s.get("action_id") != first_id_cur]
+            if prefix:
+                plan = prefix + plan
+
+    obj["executable_plan"] = plan
+    return json.dumps(obj, ensure_ascii=True)
+
+
+def _finalize_executable_plan(json_text: str, sentence: str, controller: "EpisodeController") -> str:
+    task_target = controller.locked_task_target or controller.target
+    json_text = _anchor_plan_to_task_target(
+        json_text,
+        sentence,
+        task_target,
+        find_fail_streak=controller.find_fail_streak,
+        cooldown_find=controller.cooldown_find,
+    )
+    json_text = sync_executable_plan_ids_from_prompt(json_text, sentence)
+    _trace_returned_first_step("finalize", json_text)
+    return json_text
+
+
 class EpisodeController:
     """
     Lightweight embodied-agent style controller:
@@ -1195,6 +1305,7 @@ class EpisodeController:
 
     def __init__(self):
         self.target = ""
+        self.locked_task_target = ""
         self.mode = "NORMAL"  # NORMAL | RECOVERY
         self.cooldown_pick = 0
         self.cooldown_find = 0
@@ -1216,6 +1327,7 @@ class EpisodeController:
     def debug_state(self) -> dict[str, object]:
         return {
             "target": self.target,
+            "locked_task_target": self.locked_task_target,
             "mode": self.mode,
             "cooldown_pick": self.cooldown_pick,
             "cooldown_find": self.cooldown_find,
@@ -1232,18 +1344,35 @@ class EpisodeController:
         if target and not self.target:
             self.target = target.lower()
 
+    def seed_task_target(self, sentence: str) -> str:
+        catalog = _parse_action_catalog_lines(sentence)
+        t = _extract_target_from_instruction(sentence, catalog)
+        if t:
+            self.locked_task_target = t
+            self.target = t
+        elif self.locked_task_target:
+            self.target = self.locked_task_target
+        return self.locked_task_target or t
+
+    def apply_locked_target(self) -> None:
+        if self.locked_task_target:
+            self.target = self.locked_task_target
+
     def update_from_feedback(self, last_env_feedback: str, sentence: str) -> None:
         fb = (last_env_feedback or "").strip().lower()
         if not fb:
             return
         catalog = _parse_action_catalog_lines(sentence)
         instr_target = _extract_target_from_instruction(sentence, catalog)
-        if instr_target and not self.target:
-            self.target = instr_target
+        if instr_target and not self.locked_task_target:
+            self.locked_task_target = instr_target
+        locked = self.locked_task_target or instr_target
+        if locked and not self.target:
+            self.target = locked
         target_pick = _extract_pickup_target_from_feedback(last_env_feedback).lower()
         if target_pick and target_pick != "__unknown_pick_target__":
             # Keep task target stable when failure mentions unrelated object.
-            if not instr_target or target_pick == instr_target:
+            if not locked or target_pick == locked:
                 self.target = target_pick
 
         # cannot-find pickup failures: strongly suppress pickup for a few rounds
@@ -1259,7 +1388,7 @@ class EpisodeController:
             self.mode = "RECOVERY"
             self.cooldown_find = max(self.cooldown_find, 2)
             target_find = _extract_find_target_from_feedback(last_env_feedback).lower()
-            if target_find and (not instr_target or target_find == instr_target):
+            if target_find and (not locked or target_find == locked):
                 self.target = target_find
             self.ban_pick_target = True
 
@@ -1319,7 +1448,9 @@ class EpisodeController:
             self.ban_putdown_hand = False
 
         # Infer target from instruction/catalog if still unknown.
-        if not self.target:
+        if self.locked_task_target:
+            self.target = self.locked_task_target
+        elif not self.target:
             self.target = instr_target
 
     def rewrite_plan(self, json_text: str, sentence: str) -> str:
@@ -1335,7 +1466,7 @@ class EpisodeController:
         catalog = _parse_action_catalog_lines(sentence)
         if not catalog:
             return json_text
-        target = (self.target or "").lower()
+        target = (self.locked_task_target or self.target or "").lower()
 
         # Build pickup/find id sets for target.
         pickup_ids = {aid for aid, desc in catalog.items() if _is_pickup_desc_for_target(desc, target or "__unknown_pick_target__")}
@@ -1672,6 +1803,32 @@ def _repair_prompt(sentence: str, bad_response: str, reason: str) -> str:
     )
 
 
+def _trace_returned_first_step(tag: str, json_text: str) -> None:
+    """Log first returned step id/name whenever EMBODIEDBENCH_TRACE_LOG is set."""
+    if not os.environ.get("EMBODIEDBENCH_TRACE_LOG", "").strip():
+        return
+    try:
+        obj = json.loads(json_text)
+    except Exception as e:
+        _trace_planner(f"return_first_step tag={tag} parse_error={e}")
+        return
+    if not isinstance(obj, dict):
+        return
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        _trace_planner(f"return_first_step tag={tag} empty_plan")
+        return
+    step0 = plan[0]
+    if not isinstance(step0, dict):
+        _trace_planner(f"return_first_step tag={tag} first_not_dict raw={step0!r}")
+        return
+    _trace_planner(
+        "return_first_step "
+        f"tag={tag} action_id={step0.get('action_id')} "
+        f"action_name={step0.get('action_name')!r}"
+    )
+
+
 def _trace_final_plan(tag: str, json_text: str) -> None:
     """
     Debug helper: log first few executable steps from final payload returned to EB.
@@ -1746,7 +1903,9 @@ def create_app():
             image.save(image_path)
             agent = get_agent()
             controller = _get_controller(sentence)
+            controller.seed_task_target(sentence)
             controller.update_from_feedback(last_env_feedback, sentence)
+            controller.apply_locked_target()
             planner_message = _augment_planner_sentence(sentence)
             catalog_hint = _optional_action_catalog_object_hint(sentence)
             if catalog_hint:
@@ -1797,10 +1956,11 @@ def create_app():
                 extracted,
                 sentence,
                 ban_pick_target=controller.ban_pick_target,
-                controller_target=controller.target,
+                controller_target=controller.locked_task_target or controller.target,
                 find_fail_streak=controller.find_fail_streak,
                 ban_putdown_hand=controller.ban_putdown_hand,
             )
+            extracted = _finalize_executable_plan(extracted, sentence, controller)
             # Regex-based allowlists often miss ids or over-restrict; EB still validates actions.
             # Default: no id whitelist (set EMBODIEDBENCH_ENFORCE_ACTION_ALLOWLIST=1 to enable).
             aids = None
@@ -1861,10 +2021,11 @@ def create_app():
                 extracted_retry,
                 sentence,
                 ban_pick_target=controller.ban_pick_target,
-                controller_target=controller.target,
+                controller_target=controller.locked_task_target or controller.target,
                 find_fail_streak=controller.find_fail_streak,
                 ban_putdown_hand=controller.ban_putdown_hand,
             )
+            extracted_retry = _finalize_executable_plan(extracted_retry, sentence, controller)
             ok_retry, reason_retry = validate_executable_plan_json(
                 extracted_retry,
                 allowed_action_ids=aids,
