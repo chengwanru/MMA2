@@ -668,13 +668,16 @@ def _scan_imperative_task_lines(body: str) -> list[str]:
     return out
 
 
-def _primary_task_text(sentence: str) -> str:
+def _primary_task_text(sentence: str, episode_instruction: str = "") -> str:
     """
     Current-episode task prose only — exclude n-shot boilerplate and ACTION LIST lines.
 
     Wrong locks (e.g. remotecontrol instead of ladle) came from scanning the full prompt
     or system header where unrelated catalog objects appear in few-shot examples.
     """
+    ep = (episode_instruction or "").strip()
+    if ep and _is_plausible_task_prose(ep):
+        return ep
     if not isinstance(sentence, str) or not sentence.strip():
         return ""
     body = sentence or ""
@@ -1202,9 +1205,14 @@ def _instruction_focus_text(sentence: str) -> str:
     return "\n".join(parts).strip()
 
 
-def _extract_target_from_instruction(sentence: str, catalog: dict[int, str]) -> str:
+def _extract_target_from_instruction(
+    sentence: str,
+    catalog: dict[int, str],
+    *,
+    episode_instruction: str = "",
+) -> str:
     """Resolve task object from current-episode task text only."""
-    text = _primary_task_text(sentence)
+    text = _primary_task_text(sentence, episode_instruction)
     if not text:
         return ""
     text_l = text.lower()
@@ -1633,6 +1641,13 @@ class EpisodeController:
         self.ban_putdown_hand = False
         self._last_plan_first_was_putdown = False
         self.banned_find_action_ids: set[int] = set()
+        self._episode_instruction: str = ""
+
+    def set_episode_instruction(self, instruction: str) -> None:
+        self._episode_instruction = (instruction or "").strip()
+
+    def _resolved_primary_task_text(self, sentence: str) -> str:
+        return _primary_task_text(sentence, self._episode_instruction)
 
     def note_last_plan_first_step(self, json_text: str) -> None:
         """Call before returning JSON so next feedback can attribute generic invalids."""
@@ -1664,18 +1679,22 @@ class EpisodeController:
 
     def seed_task_target(self, sentence: str) -> str:
         catalog = _parse_action_catalog_lines(sentence)
-        primary = _primary_task_text(sentence)
+        primary = self._resolved_primary_task_text(sentence)
         t = ""
         if primary:
             t = _target_object_from_instruction(primary, catalog)
         if not t:
-            t = _extract_target_from_instruction(sentence, catalog)
+            t = _extract_target_from_instruction(
+                sentence, catalog, episode_instruction=self._episode_instruction
+            )
         if t:
             t = t.strip().lower()
             self.locked_task_target = t
             self.target = t
             _trace_planner(
-                f"seed_task_target primary={primary!r} locked={self.locked_task_target!r}"
+                f"seed_task_target "
+                f"episode_instruction={self._episode_instruction!r} "
+                f"primary={primary!r} locked={self.locked_task_target!r}"
             )
         elif self.locked_task_target:
             self.target = self.locked_task_target
@@ -1690,12 +1709,14 @@ class EpisodeController:
         if not fb:
             return
         catalog = _parse_action_catalog_lines(sentence)
-        primary = _primary_task_text(sentence)
+        primary = self._resolved_primary_task_text(sentence)
         instr_target = ""
         if primary:
             instr_target = _target_object_from_instruction(primary, catalog)
         if not instr_target:
-            instr_target = _extract_target_from_instruction(sentence, catalog)
+            instr_target = _extract_target_from_instruction(
+                sentence, catalog, episode_instruction=self._episode_instruction
+            )
         if instr_target:
             instr_target = instr_target.strip().lower()
             self.locked_task_target = instr_target
@@ -2226,6 +2247,11 @@ def create_app():
         image = request.files["image"]
         sentence = request.form["sentence"]
         last_env_feedback = (request.form.get("last_env_feedback") or "").strip()
+        episode_instruction = (
+            request.form.get("instruction")
+            or request.form.get("episode_language_instruction")
+            or ""
+        ).strip()
         if os.environ.get("EMBODIEDBENCH_DEBUG_FEEDBACK", "").strip().lower() in ("1", "true", "yes"):
             snippet = last_env_feedback.replace("\n", " ")[:180]
             _trace_planner(
@@ -2247,6 +2273,7 @@ def create_app():
             image.save(image_path)
             agent = get_agent()
             controller = _get_controller(sentence)
+            controller.set_episode_instruction(episode_instruction)
             controller.seed_task_target(sentence)
             controller.update_from_feedback(last_env_feedback, sentence)
             controller.apply_locked_target()

@@ -1,0 +1,20 @@
+--- a/embodiedbench/planner/vlm_planner.py
++++ b/embodiedbench/planner/vlm_planner.py
+@@ -205,9 +205,14 @@ class VLMPlanner():
+             prompt = prompt + template_lang if self.language_only else prompt + template
+ 
+         if self.model_type == 'custom':
+-            extra = None
++            extra = {}
++            instr = getattr(self, "episode_language_instruction", None) or getattr(
++                self, "language_instruction", None
++            )
++            if isinstance(instr, str) and instr.strip():
++                extra["instruction"] = instr.strip()
+             if len(self.episode_act_feedback) > 0:
+                 fb = self.episode_act_feedback[-1][1]
+-                extra = {"last_env_feedback": fb}
++                extra["last_env_feedback"] = fb
+                 if isinstance(fb, str):
+                     low = fb.lower()
+                     if ("not visible" in low) or ("not_visible" in low):
