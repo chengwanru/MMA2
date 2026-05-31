@@ -6,9 +6,7 @@
          if self.model_type == 'custom':
 -            extra = None
 +            extra = {}
-+            instr = getattr(self, "episode_language_instruction", None) or getattr(
-+                self, "language_instruction", None
-+            )
++            instr = user_instruction
 +            if isinstance(instr, str) and instr.strip():
 +                extra["instruction"] = instr.strip()
              if len(self.episode_act_feedback) > 0:
