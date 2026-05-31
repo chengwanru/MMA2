@@ -540,6 +540,58 @@ def _is_plausible_task_prose(text: str) -> bool:
     return True
 
 
+def _current_episode_prompt_segment(sentence: str) -> str:
+    """
+    Live-episode prompt text only: strip n-shot ``## Example N:`` blocks.
+
+    EB ``n_shots=10`` repeats ``Human instruction:`` in ICL examples; taking the
+    last such line globally locks the wrong object (e.g. desk) while Thor runs
+    a different task (e.g. ladle) — see invalid_reason.jsonl instruction field.
+    """
+    body = sentence or ""
+    mlist = re.search(r"(?is)\bACTION\s+LIST\b", body)
+    head = body[: mlist.start()] if mlist else body
+    without_examples = re.sub(
+        r"(?is)^\s*##\s*Example\s+\d+\s*:.*?(?=^\s*##\s*Example\s+\d+\s*:|\Z)",
+        "",
+        head,
+    )
+    return without_examples.strip()
+
+
+def _task_text_before_action_catalog(sentence: str) -> str:
+    """Task line closest to ACTION LIST (current turn), not buried in n-shot examples."""
+    body = sentence or ""
+    mlist = re.search(r"(?is)\bACTION\s+LIST\b", body)
+    if not mlist:
+        return ""
+    window = body[max(0, mlist.start() - 1500) : mlist.start()]
+    for raw in reversed(window.splitlines()):
+        s = raw.strip()
+        if not s or _is_skill_rule_prose(s):
+            continue
+        if re.match(r"^\s*\d+\s*:\s*", s):
+            continue
+        if re.match(r"(?is)^Output\s*:", s):
+            continue
+        if s.startswith("{") or '"executable_plan"' in s:
+            continue
+        m = re.match(
+            r"(?is)^(?:human instruction|task|instruction|goal)\s*[:=]\s*(.+)$",
+            s,
+        )
+        if m:
+            seg = (m.group(1) or "").strip()
+            if seg and _is_plausible_task_prose(seg):
+                return seg
+        if re.search(
+            r"(?i)^(rinse(?:\s+off)?|wash|clean|pick\s*up|pickup|move|put|place|slice|heat|cool|empty)\b",
+            s,
+        ) and re.search(r"(?i)\b(?:a|an|the)\s+[a-z]", s):
+            return s
+    return ""
+
+
 def _scan_imperative_task_lines(body: str) -> list[str]:
     """Collect likely task sentences; skip EB skill bullets and catalog lines."""
     out: list[str] = []
@@ -576,37 +628,33 @@ def _primary_task_text(sentence: str) -> str:
     if not isinstance(sentence, str) or not sentence.strip():
         return ""
     body = sentence or ""
-    scanned = _scan_imperative_task_lines(body)
+    current_seg = _current_episode_prompt_segment(sentence)
+
+    before_cat = _task_text_before_action_catalog(sentence)
+    if before_cat:
+        return before_cat
+
+    scanned = _scan_imperative_task_lines(current_seg or body)
     if scanned:
         return scanned[-1]
-    prose = _last_task_prose_from_prompt(sentence).strip()
+
+    prose = _last_task_prose_from_prompt(current_seg or sentence).strip()
     if prose and _is_plausible_task_prose(prose) and len(prose) <= 400:
         return prose
-    instr = (_extract_instruction(sentence) or "").strip()
+    instr = (_extract_instruction(current_seg or sentence) or "").strip()
     if instr and _is_plausible_task_prose(instr):
         return instr
     task_lines: list[str] = []
     for m in re.finditer(
         r"(?mi)(?:^|\n)\s*(?:human instruction|task|instruction|goal)\s*[:=]+\s*(.+?)(?=\n\s*(?:human instruction|task|instruction|goal|ACTION|AVAILABLE)\b|\Z)",
-        body,
+        current_seg or body,
     ):
         seg = (m.group(1) or "").strip()
         if seg and _is_plausible_task_prose(seg):
             task_lines.append(seg)
     if task_lines:
         return task_lines[-1]
-    mlist = re.search(r"(?is)\bACTION\s+LIST\b", body)
-    if mlist:
-        kept: list[str] = []
-        for raw in body[mlist.end() :].splitlines():
-            s = raw.strip()
-            if not s or re.match(r"^\s*\d+\s*:\s*", s) or _is_skill_rule_prose(s):
-                continue
-            kept.append(s)
-        tail = "\n".join(kept).strip()
-        if tail and _is_plausible_task_prose(tail):
-            return tail[:800]
-    recovered = (_recover_instruction_from_prompt(sentence) or "").strip()
+    recovered = (_recover_instruction_from_prompt(current_seg or sentence) or "").strip()
     if recovered and _is_plausible_task_prose(recovered):
         if len(recovered) <= 240:
             return recovered
