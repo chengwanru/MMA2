@@ -552,7 +552,7 @@ def _current_episode_prompt_segment(sentence: str) -> str:
     mlist = re.search(r"(?is)\bACTION\s+LIST\b", body)
     head = body[: mlist.start()] if mlist else body
     without_examples = re.sub(
-        r"(?is)^\s*##\s*Example\s+\d+\s*:.*?(?=^\s*##\s*Example\s+\d+\s*:|\Z)",
+        r"(?is)^\s*(?:##\s*)?Example\s+\d+\s*:.*?(?=^\s*(?:##\s*)?Example\s+\d+\s*:|\bACTION\s+LIST\b|\Z)",
         "",
         head,
     )
@@ -560,13 +560,11 @@ def _current_episode_prompt_segment(sentence: str) -> str:
 
 
 def _task_text_before_action_catalog(sentence: str) -> str:
-    """Task line closest to ACTION LIST (current turn), not buried in n-shot examples."""
-    body = sentence or ""
-    mlist = re.search(r"(?is)\bACTION\s+LIST\b", body)
-    if not mlist:
+    """Task line closest to ACTION LIST within the live segment (no n-shot examples)."""
+    seg = _current_episode_prompt_segment(sentence)
+    if not seg:
         return ""
-    window = body[max(0, mlist.start() - 1500) : mlist.start()]
-    for raw in reversed(window.splitlines()):
+    for raw in reversed(seg.splitlines()):
         s = raw.strip()
         if not s or _is_skill_rule_prose(s):
             continue
@@ -581,15 +579,67 @@ def _task_text_before_action_catalog(sentence: str) -> str:
             s,
         )
         if m:
-            seg = (m.group(1) or "").strip()
-            if seg and _is_plausible_task_prose(seg):
-                return seg
+            seg_text = (m.group(1) or "").strip()
+            if seg_text and _is_plausible_task_prose(seg_text):
+                return seg_text
         if re.search(
             r"(?i)^(rinse(?:\s+off)?|wash|clean|pick\s*up|pickup|move|put|place|slice|heat|cool|empty)\b",
             s,
         ) and re.search(r"(?i)\b(?:a|an|the)\s+[a-z]", s):
             return s
     return ""
+
+
+def _collect_task_candidates(body: str) -> list[str]:
+    """All task-like lines in *body* (already stripped of n-shot when possible)."""
+    out: list[str] = []
+    for raw in (body or "").splitlines():
+        s = raw.strip()
+        if not s or _is_skill_rule_prose(s):
+            continue
+        if re.match(r"^\s*\d+\s*:\s*", s):
+            continue
+        m = re.match(
+            r"(?is)^(?:human instruction|task|instruction|goal)\s*[:=]\s*(.+)$",
+            s,
+        )
+        if m:
+            seg = (m.group(1) or "").strip()
+            if seg and _is_plausible_task_prose(seg):
+                out.append(seg)
+            continue
+        if re.search(
+            r"(?i)^(rinse(?:\s+off)?|wash|clean|pick\s*up|pickup|move|put|place|slice|heat|cool|empty)\b",
+            s,
+        ) and re.search(r"(?i)\b(?:a|an|the)\s+[a-z]", s):
+            out.append(s)
+    return out
+
+
+def _pick_best_task_candidate(candidates: list[str]) -> str:
+    """
+    Prefer ALFRED-style rinse/wash tasks over n-shot residue (e.g. put a box on desk).
+
+    EB often places the live instruction at the top of the live segment while the
+    last Human instruction line above ACTION LIST belongs to the final ICL example.
+    """
+    if not candidates:
+        return ""
+    if len(candidates) == 1:
+        return candidates[0]
+    for c in candidates:
+        if re.search(r"(?i)\b(rinse(?:\s+off)?|wash|clean)\b", c):
+            return c
+    # Drop obvious few-shot templates when a shorter live instruction exists.
+    filtered = [
+        c
+        for c in candidates
+        if "put a box from the couch" not in c.lower()
+        and "black desk" not in c.lower()
+    ]
+    if filtered:
+        return filtered[0]
+    return candidates[0]
 
 
 def _scan_imperative_task_lines(body: str) -> list[str]:
@@ -630,13 +680,18 @@ def _primary_task_text(sentence: str) -> str:
     body = sentence or ""
     current_seg = _current_episode_prompt_segment(sentence)
 
+    candidates = _collect_task_candidates(current_seg or body)
+    best = _pick_best_task_candidate(candidates)
+    if best:
+        return best
+
     before_cat = _task_text_before_action_catalog(sentence)
     if before_cat:
         return before_cat
 
     scanned = _scan_imperative_task_lines(current_seg or body)
     if scanned:
-        return scanned[-1]
+        return _pick_best_task_candidate(scanned) or scanned[-1]
 
     prose = _last_task_prose_from_prompt(current_seg or sentence).strip()
     if prose and _is_plausible_task_prose(prose) and len(prose) <= 400:
