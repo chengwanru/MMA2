@@ -17,6 +17,7 @@ bash /path/to/MMA2/MMA/public_evaluations/embodiedbench/patches/embodiedbench_up
 | `004_EBAlfEnv_x_display_env.patch` | Replace hardcoded `X_DISPLAY = '1'` with `os.environ.get("X_DISPLAY")` so Gadi smoke can use CloudRendering (unset) instead of `:1` / xdpyinfo. |
 | `005_EBAlfEnv_unset_display_for_cloud.patch` | Before `ThorConnector`, `pop("DISPLAY")` when `X_DISPLAY is None` (PBS often sets `DISPLAY=:0.0`, which ai2thor would otherwise validate). |
 | `006_vlm_planner_instruction.patch` | Pass Thor `episode_language_instruction` to custom model POST as form field `instruction` (authoritative task text; not buried in n-shot prompt). If `patch -p1` fails (upstream drift), run `python3 patch_vlm_instruction.py` from this directory with EmbodiedBench as cwd, or use `apply_patches.sh` which falls back automatically. |
+| `007_thor_remap_object_poses.patch` | **LTU / ai2thor 5 fix:** ALFRED JSON uses old object instance hashes (`Ladle_f4537974`) but CloudRendering spawns new hashes (`Ladle_381cdb86`). Remap poses by object type + 3D position before `SetObjectPoses` so restore succeeds. Fallback: `python3 patch_remap_object_poses.py`. |
 
 ## Environment variables (client / eval job)
 

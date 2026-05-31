@@ -1,0 +1,68 @@
+--- a/embodiedbench/envs/eb_alfred/env/thor_env.py
++++ b/embodiedbench/envs/eb_alfred/env/thor_env.py
+@@ -1,5 +1,7 @@
+ import cv2
+ import copy
++import math
++from collections import defaultdict
+ import embodiedbench.envs.eb_alfred.gen.constants as constants
+ import numpy as np
+ from collections import Counter, OrderedDict
+@@ -18,6 +20,40 @@ DEFAULT_RENDER_SETTINGS = {'renderImage': True,
+  'renderObjectImage': False,
+  }
+ 
++
++def _remap_alfred_object_poses(object_poses, objects):
++    """
++    ALFRED JSON uses frozen instance names (e.g. Ladle_f4537974). ai2thor 5 /
++    CloudRendering spawns new hashes on each reset (e.g. Ladle_381cdb86).
++    Map each pose to the closest same-type object in the current scene before
++    SetObjectPoses.
++    """
++    if not object_poses or not objects:
++        return object_poses
++
++    def _xyz(p):
++        return (float(p["x"]), float(p["y"]), float(p["z"]))
++
++    by_type = defaultdict(list)
++    for obj in objects:
++        t = obj.get("objectType") or ""
++        if t:
++            by_type[t].append(obj)
++
++    used = set()
++    remapped = []
++    for pose in object_poses:
++        old_name = pose.get("objectName") or ""
++        if not old_name:
++            continue
++        obj_type = old_name.split("_", 1)[0]
++        cands = [o for o in by_type.get(obj_type, []) if o.get("name") not in used]
++        if not cands:
++            continue
++        pos = pose.get("position") or {}
++        if all(k in pos for k in ("x", "y", "z")):
++            target = _xyz(pos)
++            chosen = min(cands, key=lambda o: math.dist(_xyz(o["position"]), target))
++        else:
++            chosen = cands[0]
++        used.add(chosen["name"])
++        remapped.append({**pose, "objectName": chosen["name"]})
++    return remapped if remapped else object_poses
++
+ class ThorEnv(Controller):
+     '''
+     an extension of ai2thor.controller.Controller for ALFRED tasks
+@@ -108,7 +144,9 @@ class ThorEnv(Controller):
+         super().step(dict(action='SetStateOfAllObjects',
+                           StateChange="CanBeFilled",
+                           forceAction=False))
+-        super().step((dict(action='SetObjectPoses', objectPoses=object_poses)))
++        scene_objects = self.last_event.metadata.get("objects") or []
++        poses = _remap_alfred_object_poses(object_poses, scene_objects)
++        super().step((dict(action='SetObjectPoses', objectPoses=poses)))
+ 
+     def set_task(self, traj, args, reward_type='sparse', max_episode_length=2000):
+         '''
