@@ -53,6 +53,7 @@ except Exception:
 from embodiedbench_utils import (
     _collapse_alnum,
     _extract_action_catalog,
+    _extract_instruction,
     _extract_object_from_action_desc,
     _recover_instruction_from_prompt,
     _target_object_from_instruction,
@@ -523,6 +524,57 @@ def _last_task_prose_from_prompt(sentence: str) -> str:
     if matches:
         return (matches[-1].group(1) or "").strip()
     return _recover_instruction_from_prompt(sentence)
+
+
+def _primary_task_text(sentence: str) -> str:
+    """
+    Current-episode task prose only — exclude n-shot boilerplate and ACTION LIST lines.
+
+    Wrong locks (e.g. remotecontrol instead of ladle) came from scanning the full prompt
+    or system header where unrelated catalog objects appear in few-shot examples.
+    """
+    if not isinstance(sentence, str) or not sentence.strip():
+        return ""
+    prose = _last_task_prose_from_prompt(sentence).strip()
+    if prose and len(prose) <= 400 and not re.search(r"(?i)\bACTION\s+LIST\b", prose):
+        return prose
+    instr = (_extract_instruction(sentence) or "").strip()
+    if instr:
+        return instr
+    body = sentence or ""
+    task_lines: list[str] = []
+    for m in re.finditer(
+        r"(?mi)(?:^|\n)\s*(?:task|instruction|goal)\s*[:=]+\s*(.+?)(?=\n\s*(?:task|instruction|goal|ACTION|AVAILABLE)\b|\Z)",
+        body,
+    ):
+        seg = (m.group(1) or "").strip()
+        if seg:
+            task_lines.append(seg)
+    if task_lines:
+        return task_lines[-1]
+    mlist = re.search(r"(?is)\bACTION\s+LIST\b", body)
+    if mlist:
+        kept: list[str] = []
+        for raw in body[mlist.end() :].splitlines():
+            s = raw.strip()
+            if not s or re.match(r"^\s*\d+\s*:\s*", s):
+                continue
+            kept.append(s)
+        tail = "\n".join(kept).strip()
+        if tail:
+            return tail[:800]
+    recovered = (_recover_instruction_from_prompt(sentence) or "").strip()
+    if not recovered:
+        return ""
+    if len(recovered) <= 240:
+        return recovered
+    for ln in reversed([x.strip() for x in recovered.splitlines() if x.strip()]):
+        if len(ln) <= 240 and re.search(
+            r"(?i)\b(rinse|wash|clean|pick|move|put|slice|heat|cool|empty|open|close)\b",
+            ln,
+        ):
+            return ln
+    return recovered[:240]
 
 
 def _find_action_ids_for_object(catalog: dict[int, str], obj_name: str) -> set[int]:
@@ -1001,7 +1053,12 @@ def _instruction_focus_text(sentence: str) -> str:
 
 
 def _extract_target_from_instruction(sentence: str, catalog: dict[int, str]) -> str:
-    # Prefer object names that appear in find-actions *and* task-focused text.
+    """Resolve task object from current-episode task text only."""
+    text = _primary_task_text(sentence)
+    if not text:
+        return ""
+    text_l = text.lower()
+
     cands: list[str] = []
     _find_obj = re.compile(
         r"(?i)\bfind\s+(?:a|an|the)\s+([A-Za-z][A-Za-z0-9_-]*)\b"
@@ -1010,33 +1067,39 @@ def _extract_target_from_instruction(sentence: str, catalog: dict[int, str]) -> 
         m = _find_obj.search(desc)
         if m:
             cands.append(m.group(1).lower())
-    if not cands:
-        return ""
     cand_set = set(cands)
-    # Do not use ``_instruction_key``'s legacy raw-prefix fallback here: the first
-    # ~300 chars often still contain ACTION LIST lines like ``find a Safe``.
-    text_sources = [
-        _last_task_prose_from_prompt(sentence),
-        _recover_instruction_from_prompt(sentence),
-        _instruction_focus_text(sentence),
-    ]
-    for raw in text_sources:
-        text = (raw or "").lower()
-        if not text:
-            continue
-        for pat in (
-            r"(?is)\b(?:rinse(?:\s+off)?|wash|clean)\b.{0,120}?\b(?:a|an|the)\s+([a-z][a-z0-9_-]*)\b",
-            r"(?is)\b(?:pick\s*up|pickup|grab|take|move|place|put)\b.{0,120}?\b(?:a|an|the)\s+([a-z][a-z0-9_-]*)\b",
-        ):
-            m = re.search(pat, text)
-            if m:
-                freeform_obj = (m.group(1) or "").strip().lower()
-                if freeform_obj and freeform_obj in cand_set:
-                    return freeform_obj
-        for c in sorted(cand_set, key=len, reverse=True):
-            if re.search(rf"(?i)\b{re.escape(c)}\b", text):
-                return c
-    return ""
+
+    _task_stop = frozenset(
+        {
+            "off",
+            "the",
+            "and",
+            "table",
+            "sink",
+            "faucet",
+            "counter",
+            "floor",
+            "room",
+            "it",
+        }
+    )
+    for pat in (
+        r"(?is)\b(?:rinse(?:\s+off)?|wash|clean)\b.{0,120}?\b(?:a|an|the)\s+([a-z][a-z0-9_-]*)\b",
+        r"(?is)\b(?:pick\s*up|pickup|grab|take|move|place|put|slice|heat|cool|empty)\b.{0,120}?\b(?:a|an|the)\s+([a-z][a-z0-9_-]*)\b",
+    ):
+        m = re.search(pat, text_l)
+        if m:
+            freeform_obj = (m.group(1) or "").strip().lower()
+            if freeform_obj and freeform_obj not in _task_stop:
+                return freeform_obj
+
+    hits = [c for c in cand_set if re.search(rf"(?i)\b{re.escape(c)}\b", text_l)]
+    if len(hits) == 1:
+        return hits[0]
+    if hits:
+        return min(hits, key=len)
+
+    return _target_object_from_instruction(text, catalog)
 
 
 def _is_nav_desc(desc: str) -> bool:
@@ -1439,18 +1502,19 @@ class EpisodeController:
 
     def seed_task_target(self, sentence: str) -> str:
         catalog = _parse_action_catalog_lines(sentence)
-        t = _extract_target_from_instruction(sentence, catalog)
+        primary = _primary_task_text(sentence)
+        t = ""
+        if primary:
+            t = _target_object_from_instruction(primary, catalog)
         if not t:
-            instr = _recover_instruction_from_prompt(sentence)
-            if instr:
-                t = _target_object_from_instruction(instr, catalog)
-        if not t:
-            t = _target_object_from_instruction(_last_task_prose_from_prompt(sentence), catalog)
-        if not t and catalog:
-            t = _target_object_from_instruction(sentence, catalog)
+            t = _extract_target_from_instruction(sentence, catalog)
         if t:
+            t = t.strip().lower()
             self.locked_task_target = t
             self.target = t
+            _trace_planner(
+                f"seed_task_target primary={primary!r} locked={self.locked_task_target!r}"
+            )
         elif self.locked_task_target:
             self.target = self.locked_task_target
         return self.locked_task_target or t
@@ -1464,9 +1528,16 @@ class EpisodeController:
         if not fb:
             return
         catalog = _parse_action_catalog_lines(sentence)
-        instr_target = _extract_target_from_instruction(sentence, catalog)
-        if instr_target and not self.locked_task_target:
+        primary = _primary_task_text(sentence)
+        instr_target = ""
+        if primary:
+            instr_target = _target_object_from_instruction(primary, catalog)
+        if not instr_target:
+            instr_target = _extract_target_from_instruction(sentence, catalog)
+        if instr_target:
+            instr_target = instr_target.strip().lower()
             self.locked_task_target = instr_target
+            self.target = instr_target
         locked = self.locked_task_target or instr_target
         if locked and not self.target:
             self.target = locked
@@ -1490,10 +1561,14 @@ class EpisodeController:
             self.cooldown_find = max(self.cooldown_find, 2)
             target_find = _extract_find_target_from_feedback(last_env_feedback).lower()
             if target_find:
+                wrong_vs_task = bool(instr_target and target_find != instr_target)
                 for aid in _find_action_ids_for_object(catalog, target_find):
-                    if locked and target_find != locked:
+                    if wrong_vs_task or (locked and target_find != locked):
                         self.banned_find_action_ids.add(aid)
-                if locked and target_find != locked:
+                if wrong_vs_task and instr_target:
+                    self.locked_task_target = instr_target
+                    self.target = instr_target
+                elif locked and target_find != locked:
                     self.target = locked
                 elif target_find and (not locked or target_find == locked):
                     self.target = target_find
