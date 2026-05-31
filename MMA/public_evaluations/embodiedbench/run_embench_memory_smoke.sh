@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=mm_memcheck
-#SBATCH -p short
+#SBATCH -p day
 #SBATCH -t 02:00:00
 #SBATCH -N 1
 #SBATCH -n 1
@@ -11,8 +11,9 @@
 #SBATCH -e /data/group/zhaolab/project/EmbodiedBench/embench_memcheck_%j.err
 #
 # LTU / Slurm only — see CLUSTER_LTU.md (not for NCI Gadi PBS).
-# Quick GPU smoke: 1 episode (index 0), sim-info off, ~few minutes when GPU is clean.
-# Use to verify no "CUDA out of memory" before long regression.
+# Quick GPU smoke: 1 episode (index 0), sim-info off. Dual-VLM inference often needs 1–2h.
+# Default partition is `day` (2h). LTU `short` MaxTime is ~1h — use:
+#   sbatch -p short -t 01:00:00 run_embench_memory_smoke.sh
 #
 #   cd MMA/public_evaluations/embodiedbench
 #   sbatch run_embench_memory_smoke.sh
