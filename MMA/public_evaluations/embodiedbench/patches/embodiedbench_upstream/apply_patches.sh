@@ -18,7 +18,12 @@ do
   if patch -p1 -N --forward < "$p"; then
     echo "  -> applied (or already present)"
   else
-    echo "  -> WARNING: patch reported failure; check if already applied manually" >&2
+    if [[ "$(basename "$p")" == "006_vlm_planner_instruction.patch" ]]; then
+      echo "  -> patch 006 failed; trying Python patcher ..."
+      python3 "${DIR}/patch_vlm_instruction.py" "${ROOT}/embodiedbench/planner/vlm_planner.py"
+    else
+      echo "  -> WARNING: patch reported failure; check if already applied manually" >&2
+    fi
   fi
 done
 echo "Done. Verify 006: grep -n 'extra\\[\"instruction\"\\]' embodiedbench/planner/vlm_planner.py"
