@@ -15,9 +15,10 @@ for p in \
   "${DIR}/006_vlm_planner_instruction.patch"
 do
   echo "Applying $(basename "$p") ..."
-  patch -p1 --forward < "$p" || {
-    echo "Patch failed or already applied: $p" >&2
-    exit 1
-  }
+  if patch -p1 -N --forward < "$p"; then
+    echo "  -> applied (or already present)"
+  else
+    echo "  -> WARNING: patch reported failure; check if already applied manually" >&2
+  fi
 done
-echo "All patches applied."
+echo "Done. Verify 006: grep -n 'extra\\[\"instruction\"\\]' embodiedbench/planner/vlm_planner.py"
