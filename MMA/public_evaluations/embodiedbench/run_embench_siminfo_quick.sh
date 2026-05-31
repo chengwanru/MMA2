@@ -39,7 +39,7 @@ submit_job() {
       --cpus-per-task="${CPUS}" \
       --mem="${MEM}" \
       --gres=gpu:1 \
-      --export=ALL,EXP_NAME="${exp}",DOWNSAMPLE="${DOWNSAMPLE}",EMBODIEDBENCH_SIM_INFO_LEVEL="${level}",EMBODIEDBENCH_SHORT_HORIZON_PLAN=1,EMBODIEDBENCH_EXECUTABLE_PLAN_MAX_LEN=2 \
+      --export=ALL,EXP_NAME="${exp}",DOWNSAMPLE="${DOWNSAMPLE}",EMBODIEDBENCH_SIM_INFO_LEVEL="${level}",EMBODIEDBENCH_SHORT_HORIZON_PLAN=1,EMBODIEDBENCH_EXECUTABLE_PLAN_MAX_LEN=2,EMBODIEDBENCH_VERBOSE_DEBUG=1,MMA_REJECT_STRATEGY="block_verify+semantic",MMA_TIME_DEBUG=1 \
       "${SCRIPT}" "eval_sets=[${EVAL_SET}]" | awk '{print $4}'
   )
   echo "${level}:${jid}:${exp}"

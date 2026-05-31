@@ -1,0 +1,172 @@
+/var/spool/slurmd/job406275/slurm_script: line 16: Xvfb: command not found
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:22296
+ * Running on http://131.172.24.25:22296
+Press CTRL+C to quit
+127.0.0.1 - - [31/May/2026 14:31:15] "GET /health HTTP/1.1" 200 -
+[2026-05-31 14:31:16,781][INFO] - Evaluating environment: eb-alf
+[2026-05-31 14:31:16,787][INFO] - Starting evaluation
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+/data/group/zhaolab/project/EmbodiedBench/embodiedbench/planner/planner_utils.py:6: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+[2026-05-31 14:31:48,214][INFO] - Current eval set: base
+INFO:root:Initialize return: {'cameraNearPlane': 0.009999999776482582, 'cameraFarPlane': 20.0}
+Episodes:   0%|          | 0/5 [00:00<?, ?it/s][2026-05-31 14:31:54,069][INFO] - Evaluating episode 0 ...
+INFO:EB_logger:Evaluating episode 0 ...
+[2026-05-31 14:31:54,085][INFO] - Restoring scene FloorPlan4...
+INFO:EB_logger:Restoring scene FloorPlan4...
+/data/group/zhaolab/project/miniconda/envs/embench/lib/python3.11/site-packages/pydub/utils.py:170: RuntimeWarning: Couldn't find ffmpeg or avconv - defaulting to ffmpeg, but may not work
+  warn("Couldn't find ffmpeg or avconv - defaulting to ffmpeg, but may not work", RuntimeWarning)
+Loading weights:   0%|          | 0/625 [00:00<?, ?it/s]Loading weights:   0%|          | 1/625 [00:01<20:38,  1.98s/it]Loading weights:   1%|▏         | 9/625 [00:02<01:46,  5.81it/s]Loading weights:   2%|▏         | 15/625 [00:02<01:01,  9.88it/s]Loading weights:   3%|▎         | 20/625 [00:02<00:43, 13.81it/s]Loading weights:   4%|▍         | 25/625 [00:02<00:44, 13.56it/s]Loading weights:   5%|▍         | 29/625 [00:03<00:48, 12.36it/s]Loading weights:   5%|▌         | 34/625 [00:03<00:35, 16.49it/s]Loading weights:   6%|▌         | 38/625 [00:03<00:39, 15.04it/s]Loading weights:   8%|▊         | 47/625 [00:03<00:24, 23.86it/s]Loading weights:   8%|▊         | 51/625 [00:03<00:25, 22.83it/s]Loading weights:   9%|▉         | 58/625 [00:04<00:26, 21.35it/s]Loading weights:  11%|█         | 67/625 [00:04<00:18, 29.91it/s]Loading weights:  12%|█▏        | 72/625 [00:04<00:19, 27.73it/s]Loading weights:  13%|█▎        | 80/625 [00:04<00:15, 35.11it/s]Loading weights:  14%|█▎        | 85/625 [00:04<00:16, 33.23it/s]Loading weights:  14%|█▍        | 90/625 [00:05<00:15, 35.41it/s]Loading weights:  15%|█▌        | 95/625 [00:05<00:14, 35.99it/s]Loading weights:  16%|█▋        | 102/625 [00:05<00:13, 39.02it/s]Loading weights:  17%|█▋        | 107/625 [00:05<00:14, 36.63it/s]Loading weights:  18%|█▊        | 113/625 [00:05<00:12, 39.81it/s]Loading weights:  19%|█▉        | 118/625 [00:05<00:15, 33.38it/s]Loading weights:  20%|██        | 125/625 [00:05<00:12, 38.52it/s]Loading weights:  21%|██        | 130/625 [00:06<00:13, 35.58it/s]Loading weights:  22%|██▏       | 135/625 [00:06<00:12, 38.21it/s]Loading weights:  22%|██▏       | 140/625 [00:06<00:14, 33.89it/s]Loading weights:  23%|██▎       | 146/625 [00:06<00:13, 34.26it/s]Loading weights:  24%|██▍       | 150/625 [00:06<00:15, 30.48it/s]Loading weights:  25%|██▌       | 157/625 [00:06<00:13, 35.51it/s]Loading weights:  26%|██▌       | 161/625 [00:07<00:13, 35.61it/s]Loading weights:  27%|██▋       | 167/625 [00:07<00:12, 36.69it/s]Loading weights:  27%|██▋       | 171/625 [00:07<00:14, 31.46it/s]Loading weights:  28%|██▊       | 177/625 [00:07<00:11, 37.49it/s]Loading weights:  29%|██▉       | 182/625 [00:07<00:16, 26.19it/s]Loading weights:  31%|███       | 191/625 [00:07<00:13, 32.21it/s]Loading weights:  31%|███▏      | 196/625 [00:08<00:12, 34.63it/s]Loading weights:  32%|███▏      | 202/625 [00:08<00:12, 33.68it/s]Loading weights:  33%|███▎      | 209/625 [00:08<00:10, 39.78it/s]Loading weights:  34%|███▍      | 214/625 [00:08<00:12, 32.08it/s]Loading weights:  36%|███▌      | 223/625 [00:08<00:10, 39.00it/s]Loading weights:  36%|███▋      | 228/625 [00:08<00:11, 34.67it/s]Loading weights:  37%|███▋      | 234/625 [00:09<00:11, 33.75it/s]Loading weights:  38%|███▊      | 238/625 [00:09<00:14, 27.61it/s]Loading weights:  39%|███▉      | 245/625 [00:09<00:11, 33.53it/s]Loading weights:  40%|███▉      | 249/625 [00:09<00:12, 31.24it/s]Loading weights:  41%|████      | 256/625 [00:09<00:10, 36.74it/s]Loading weights:  42%|████▏     | 260/625 [00:09<00:10, 33.29it/s]Loading weights:  43%|████▎     | 268/625 [00:10<00:09, 39.49it/s]Loading weights:  44%|████▍     | 275/625 [00:10<00:07, 44.96it/s]Loading weights:  45%|████▍     | 280/625 [00:10<00:09, 34.59it/s]Loading weights:  46%|████▌     | 287/625 [00:10<00:08, 39.77it/s]Loading weights:  47%|████▋     | 292/625 [00:10<00:09, 36.44it/s]Loading weights:  48%|████▊     | 298/625 [00:10<00:08, 40.41it/s]Loading weights:  48%|████▊     | 303/625 [00:11<00:09, 32.36it/s]Loading weights:  49%|████▉     | 309/625 [00:11<00:08, 37.78it/s]Loading weights:  52%|█████▏    | 328/625 [00:11<00:04, 69.43it/s]Loading weights:  54%|█████▍    | 337/625 [00:11<00:04, 71.15it/s]Loading weights:  55%|█████▌    | 346/625 [00:11<00:03, 73.40it/s]Loading weights:  57%|█████▋    | 354/625 [00:11<00:03, 69.98it/s]Loading weights:  60%|██████    | 376/625 [00:11<00:02, 99.24it/s]Loading weights:  64%|██████▍   | 399/625 [00:11<00:01, 130.14it/s]Loading weights:  68%|██████▊   | 424/625 [00:12<00:01, 153.03it/s]Loading weights:  71%|███████▏  | 446/625 [00:12<00:01, 144.62it/s]Loading weights:  74%|███████▍  | 462/625 [00:12<00:01, 146.52it/s]Loading weights:  76%|███████▋  | 478/625 [00:12<00:00, 148.42it/s]Loading weights:  79%|███████▉  | 494/625 [00:12<00:00, 147.36it/s]Loading weights:  83%|████████▎ | 517/625 [00:12<00:00, 159.96it/s]Loading weights:  86%|████████▋ | 540/625 [00:12<00:00, 170.43it/s]Loading weights:  89%|████████▉ | 558/625 [00:12<00:00, 172.49it/s]Loading weights:  93%|█████████▎| 580/625 [00:13<00:00, 184.56it/s]Loading weights:  96%|█████████▌| 599/625 [00:13<00:00, 130.35it/s]Loading weights:  98%|█████████▊| 615/625 [00:13<00:00, 87.54it/s] Loading weights: 100%|██████████| 625/625 [00:13<00:00, 45.30it/s]
+Fetching 4 files:   0%|          | 0/4 [00:00<?, ?it/s]Fetching 4 files: 100%|██████████| 4/4 [00:00<00:00, 737.49it/s]
+Loading weights:   0%|          | 0/750 [00:00<?, ?it/s]Loading weights:   0%|          | 1/750 [00:04<51:17,  4.11s/it]Loading weights:   9%|▉         | 67/750 [00:04<00:30, 22.16it/s]Loading weights:  13%|█▎        | 97/750 [00:05<00:26, 24.44it/s]Loading weights:  15%|█▌        | 115/750 [00:05<00:25, 24.85it/s]Loading weights:  17%|█▋        | 127/750 [00:06<00:23, 26.62it/s]Loading weights:  18%|█▊        | 136/750 [00:06<00:22, 27.13it/s]Loading weights:  20%|█▉        | 147/750 [00:06<00:22, 27.24it/s]Loading weights:  21%|██        | 158/750 [00:07<00:20, 29.03it/s]Loading weights:  22%|██▏       | 163/750 [00:07<00:19, 30.56it/s]Loading weights:  23%|██▎       | 169/750 [00:07<00:19, 29.30it/s]Loading weights:  23%|██▎       | 174/750 [00:07<00:18, 31.62it/s]Loading weights:  24%|██▍       | 180/750 [00:07<00:19, 29.28it/s]Loading weights:  25%|██▌       | 191/750 [00:08<00:19, 28.82it/s]Loading weights:  27%|██▋       | 202/750 [00:08<00:17, 31.22it/s]Loading weights:  27%|██▋       | 206/750 [00:08<00:17, 31.45it/s]Loading weights:  28%|██▊       | 213/750 [00:09<00:16, 32.15it/s]Loading weights:  29%|██▉       | 221/750 [00:09<00:13, 38.86it/s]Loading weights:  30%|███       | 226/750 [00:09<00:18, 28.94it/s]Loading weights:  31%|███▏      | 235/750 [00:09<00:18, 28.23it/s]Loading weights:  33%|███▎      | 246/750 [00:10<00:17, 29.12it/s]Loading weights:  34%|███▍      | 257/750 [00:10<00:17, 28.33it/s]Loading weights:  36%|███▌      | 268/750 [00:10<00:14, 32.78it/s]Loading weights:  36%|███▋      | 272/750 [00:10<00:14, 33.29it/s]Loading weights:  37%|███▋      | 279/750 [00:11<00:16, 28.27it/s]Loading weights:  39%|███▊      | 290/750 [00:11<00:15, 30.61it/s]Loading weights:  40%|████      | 301/750 [00:11<00:13, 32.94it/s]Loading weights:  41%|████      | 305/750 [00:11<00:13, 33.46it/s]Loading weights:  42%|████▏     | 312/750 [00:12<00:15, 29.15it/s]Loading weights:  43%|████▎     | 323/750 [00:12<00:12, 34.26it/s]Loading weights:  44%|████▍     | 331/750 [00:12<00:10, 40.54it/s]Loading weights:  45%|████▍     | 336/750 [00:12<00:14, 28.35it/s]Loading weights:  46%|████▌     | 345/750 [00:13<00:13, 29.62it/s]Loading weights:  47%|████▋     | 356/750 [00:13<00:13, 29.68it/s]Loading weights:  49%|████▉     | 367/750 [00:14<00:12, 29.70it/s]Loading weights:  50%|█████     | 378/750 [00:14<00:12, 31.00it/s]Loading weights:  52%|█████▏    | 389/750 [00:14<00:13, 26.82it/s]Loading weights:  55%|█████▌    | 413/750 [00:14<00:06, 48.26it/s]Loading weights:  57%|█████▋    | 431/750 [00:15<00:04, 64.66it/s]Loading weights:  60%|██████    | 451/750 [00:15<00:03, 81.53it/s]Loading weights:  64%|██████▍   | 479/750 [00:15<00:02, 111.49it/s]Loading weights:  68%|██████▊   | 509/750 [00:15<00:01, 143.13it/s]Loading weights:  72%|███████▏  | 537/750 [00:15<00:01, 170.68it/s]Loading weights:  75%|███████▍  | 561/750 [00:15<00:01, 174.64it/s]Loading weights:  80%|███████▉  | 597/750 [00:15<00:00, 206.00it/s]Loading weights:  83%|████████▎ | 620/750 [00:15<00:00, 187.10it/s]Loading weights:  86%|████████▋ | 647/750 [00:16<00:00, 198.37it/s]Loading weights:  92%|█████████▏| 691/750 [00:16<00:00, 254.76it/s]Loading weights:  97%|█████████▋| 725/750 [00:16<00:00, 182.40it/s]Loading weights: 100%|█████████▉| 748/750 [00:16<00:00, 157.03it/s]Loading weights: 100%|██████████| 750/750 [00:16<00:00, 44.91it/s] 
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p', 'top_k']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+127.0.0.1 - - [31/May/2026 14:34:33] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 14:37:11] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 14:39:43] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 14:42:29] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 14:44:55] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 14:47:40] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 14:50:26] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 14:53:03] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 15:01:40] "POST /process HTTP/1.1" 200 -
+Episodes:  20%|██        | 1/5 [29:46<1:59:06, 1786.64s/it][2026-05-31 15:01:40,712][INFO] - Evaluating episode 1 ...
+INFO:EB_logger:Evaluating episode 1 ...
+[2026-05-31 15:01:40,721][INFO] - Restoring scene FloorPlan16...
+INFO:EB_logger:Restoring scene FloorPlan16...
+127.0.0.1 - - [31/May/2026 15:04:37] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 15:07:27] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 15:10:36] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 15:13:52] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 15:17:07] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 15:19:54] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 15:22:55] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 15:25:27] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 15:28:29] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 15:30:59] "POST /process HTTP/1.1" 200 -
+Episodes:  40%|████      | 2/5 [59:05<1:28:30, 1770.15s/it][2026-05-31 15:30:59,313][INFO] - Evaluating episode 2 ...
+INFO:EB_logger:Evaluating episode 2 ...
+[2026-05-31 15:30:59,321][INFO] - Restoring scene FloorPlan207...
+INFO:EB_logger:Restoring scene FloorPlan207...
+127.0.0.1 - - [31/May/2026 15:38:21] "POST /process HTTP/1.1" 200 -
+/data/group/zhaolab/project/miniconda/envs/embench/lib/python3.11/site-packages/numpy/_core/fromnumeric.py:3824: RuntimeWarning: Mean of empty slice
+  return _methods._mean(a, axis=axis, dtype=dtype,
+/data/group/zhaolab/project/miniconda/envs/embench/lib/python3.11/site-packages/numpy/_core/_methods.py:142: RuntimeWarning: invalid value encountered in scalar divide
+  ret = ret.dtype.type(ret / rcount)
+Episodes:  60%|██████    | 3/5 [1:06:27<38:47, 1163.98s/it][2026-05-31 15:38:21,961][INFO] - Evaluating episode 3 ...
+INFO:EB_logger:Evaluating episode 3 ...
+[2026-05-31 15:38:21,969][INFO] - Restoring scene FloorPlan302...
+INFO:EB_logger:Restoring scene FloorPlan302...
+127.0.0.1 - - [31/May/2026 15:40:16] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 15:43:45] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 15:47:15] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 15:50:44] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 15:54:13] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 15:57:43] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 16:01:12] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 16:04:42] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 16:08:12] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 16:11:41] "POST /process HTTP/1.1" 200 -
+Episodes:  80%|████████  | 4/5 [1:39:47<24:53, 1493.93s/it][2026-05-31 16:11:41,695][INFO] - Evaluating episode 4 ...
+INFO:EB_logger:Evaluating episode 4 ...
+[2026-05-31 16:11:41,702][INFO] - Restoring scene FloorPlan408...
+INFO:EB_logger:Restoring scene FloorPlan408...
+127.0.0.1 - - [31/May/2026 16:13:02] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 16:20:44] "POST /process HTTP/1.1" 200 -
+Episodes: 100%|██████████| 5/5 [1:48:50<00:00, 1151.11s/it]Episodes: 100%|██████████| 5/5 [1:48:50<00:00, 1306.18s/it]
+[2026-05-31 16:20:45,144][INFO] - Current eval set: common_sense
+INFO:EB_logger:Current eval set: common_sense
+INFO:root:Initialize return: {'cameraNearPlane': 0.009999999776482582, 'cameraFarPlane': 20.0}
+Episodes:   0%|          | 0/5 [00:00<?, ?it/s][2026-05-31 16:20:48,035][INFO] - Evaluating episode 0 ...
+INFO:EB_logger:Evaluating episode 0 ...
+[2026-05-31 16:20:48,039][INFO] - Restoring scene FloorPlan4...
+INFO:EB_logger:Restoring scene FloorPlan4...
+127.0.0.1 - - [31/May/2026 16:28:59] "POST /process HTTP/1.1" 200 -
+/data/group/zhaolab/project/miniconda/envs/embench/lib/python3.11/site-packages/numpy/_core/fromnumeric.py:3824: RuntimeWarning: Mean of empty slice
+  return _methods._mean(a, axis=axis, dtype=dtype,
+/data/group/zhaolab/project/miniconda/envs/embench/lib/python3.11/site-packages/numpy/_core/_methods.py:142: RuntimeWarning: invalid value encountered in scalar divide
+  ret = ret.dtype.type(ret / rcount)
+Episodes:  20%|██        | 1/5 [08:11<32:46, 491.70s/it][2026-05-31 16:28:59,731][INFO] - Evaluating episode 1 ...
+INFO:EB_logger:Evaluating episode 1 ...
+[2026-05-31 16:28:59,761][INFO] - Restoring scene FloorPlan326...
+INFO:EB_logger:Restoring scene FloorPlan326...
+127.0.0.1 - - [31/May/2026 16:31:11] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 16:33:35] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 16:35:50] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 16:38:09] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 16:40:46] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 16:43:10] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 16:45:02] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 16:49:07] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 16:51:42] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 16:56:09] "POST /process HTTP/1.1" 200 -
+Episodes:  40%|████      | 2/5 [35:21<58:03, 1161.31s/it][2026-05-31 16:56:09,776][INFO] - Evaluating episode 2 ...
+INFO:EB_logger:Evaluating episode 2 ...
+[2026-05-31 16:56:09,785][INFO] - Restoring scene FloorPlan213...
+INFO:EB_logger:Restoring scene FloorPlan213...
+127.0.0.1 - - [31/May/2026 17:03:31] "POST /process HTTP/1.1" 200 -
+Episodes:  60%|██████    | 3/5 [42:43<27:45, 832.78s/it] [2026-05-31 17:03:31,604][INFO] - Evaluating episode 3 ...
+INFO:EB_logger:Evaluating episode 3 ...
+[2026-05-31 17:03:31,614][INFO] - Restoring scene FloorPlan23...
+INFO:EB_logger:Restoring scene FloorPlan23...
+127.0.0.1 - - [31/May/2026 17:07:24] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 17:09:37] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 17:12:27] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 17:20:59] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 17:23:33] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 17:26:17] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 17:29:12] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 17:31:20] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 17:34:35] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 17:37:08] "POST /process HTTP/1.1" 200 -
+Episodes:  80%|████████  | 4/5 [1:16:20<21:40, 1300.17s/it][2026-05-31 17:37:08,276][INFO] - Evaluating episode 4 ...
+INFO:EB_logger:Evaluating episode 4 ...
+[2026-05-31 17:37:08,284][INFO] - Restoring scene FloorPlan224...
+INFO:EB_logger:Restoring scene FloorPlan224...
+127.0.0.1 - - [31/May/2026 17:39:26] "POST /process HTTP/1.1" 200 -
+Episodes: 100%|██████████| 5/5 [1:18:38<00:00, 881.32s/it] Episodes: 100%|██████████| 5/5 [1:18:38<00:00, 943.78s/it]
+[2026-05-31 17:39:27,132][INFO] - Current eval set: complex_instruction
+INFO:EB_logger:Current eval set: complex_instruction
+INFO:root:Initialize return: {'cameraNearPlane': 0.009999999776482582, 'cameraFarPlane': 20.0}
+Episodes:   0%|          | 0/5 [00:00<?, ?it/s][2026-05-31 17:39:29,206][INFO] - Evaluating episode 0 ...
+INFO:EB_logger:Evaluating episode 0 ...
+[2026-05-31 17:39:29,211][INFO] - Restoring scene FloorPlan4...
+INFO:EB_logger:Restoring scene FloorPlan4...
+127.0.0.1 - - [31/May/2026 17:47:44] "POST /process HTTP/1.1" 200 -
+/data/group/zhaolab/project/miniconda/envs/embench/lib/python3.11/site-packages/numpy/_core/fromnumeric.py:3824: RuntimeWarning: Mean of empty slice
+  return _methods._mean(a, axis=axis, dtype=dtype,
+/data/group/zhaolab/project/miniconda/envs/embench/lib/python3.11/site-packages/numpy/_core/_methods.py:142: RuntimeWarning: invalid value encountered in scalar divide
+  ret = ret.dtype.type(ret / rcount)
+Episodes:  20%|██        | 1/5 [08:15<33:00, 495.13s/it][2026-05-31 17:47:44,338][INFO] - Evaluating episode 1 ...
+INFO:EB_logger:Evaluating episode 1 ...
+[2026-05-31 17:47:44,347][INFO] - Restoring scene FloorPlan16...
+INFO:EB_logger:Restoring scene FloorPlan16...
+127.0.0.1 - - [31/May/2026 17:50:22] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 17:53:32] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 17:56:47] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 17:59:46] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 18:02:29] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 18:05:22] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 18:08:19] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 18:10:56] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 18:13:09] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 18:23:21] "POST /process HTTP/1.1" 200 -
+Episodes:  40%|████      | 2/5 [43:52<1:13:02, 1460.98s/it][2026-05-31 18:23:21,416][INFO] - Evaluating episode 2 ...
+INFO:EB_logger:Evaluating episode 2 ...
+[2026-05-31 18:23:21,422][INFO] - Restoring scene FloorPlan207...
+INFO:EB_logger:Restoring scene FloorPlan207...
+127.0.0.1 - - [31/May/2026 18:25:12] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 18:27:32] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 18:29:52] "POST /process HTTP/1.1" 200 -
+slurmstepd: error: *** JOB 406275 ON ltu-hpc-5 CANCELLED AT 2026-05-31T18:31:09 DUE TO TIME LIMIT ***

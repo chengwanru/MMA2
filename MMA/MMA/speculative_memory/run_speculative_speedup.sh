@@ -37,5 +37,9 @@ export MMA_SPEEDUP_WARMUP="${MMA_SPEEDUP_WARMUP:-1}"
 export MMA_BENCH_IGNORE_EOS="${MMA_BENCH_IGNORE_EOS:-1}"
 # Optional sweep (override before sbatch): MMA_SPEEDUP_MAX_DRAFT_STEPS MMA_SPEEDUP_PROB_DIFF_THRESHOLD
 #   MMA_SPEEDUP_REJECT_STRATEGY=prob_diff|threshold  MMA_SPEEDUP_ACCEPT_THRESHOLD
+export MMA_TIME_DEBUG=1
+export MMA_REJECT_STRATEGY="block_verify+semantic"
+export MMA_SPEEDUP_REJECT_STRATEGY="${MMA_REJECT_STRATEGY}"
+export MMA_SEMANTIC_THRESHOLD="0.82"
 
 python MMA/MMA/speculative_memory/measure_speculative_speedup.py

@@ -23,6 +23,7 @@ export MMA_DRAFT_MODEL_PATH=Qwen/Qwen3-VL-2B-Instruct
 export MMA_TARGET_MODEL_PATH=Qwen/Qwen3-VL-8B-Instruct
 export PYTHONPATH=/data/group/zhaolab/project/MMA2/MMA:$PYTHONPATH
 export server_url="http://localhost:23333/process"
+export EMBODIEDBENCH_VERBOSE_DEBUG=1
 
 # 启动 MMA Server（用仓库里的脚本，确保含 PreTrainedConfig 补丁）
 cd /data/group/zhaolab/project/MMA2/MMA/public_evaluations/embodiedbench

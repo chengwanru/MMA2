@@ -89,6 +89,37 @@ def target_only_greedy(
                 break
     return current
 
+def draft_only_greedy(
+    draft_model,
+    tokenizer,
+    prompt_input_ids: torch.Tensor,
+    max_new_tokens: int,
+    device: torch.device,
+    *,
+    ignore_eos: bool = False,
+) -> torch.Tensor:
+    eos_id = None if ignore_eos else getattr(tokenizer, "eos_token_id", None)
+    current = prompt_input_ids
+    generated = 0
+    with torch.inference_mode():
+        while generated < max_new_tokens:
+            attn = torch.ones_like(current, dtype=torch.long, device=device)
+            out = draft_model(
+                input_ids=current,
+                attention_mask=attn,
+                use_cache=False,
+            )
+            logits = out.logits
+            if logits.dim() == 3:
+                logits = logits[:, -1, :]
+            else:
+                logits = logits[-1:, :]
+            next_id = logits.argmax(dim=-1, keepdim=True)
+            current = torch.cat([current, next_id], dim=1)
+            generated += 1
+            if eos_id is not None and next_id.item() == eos_id:
+                break
+    return current
 
 def _print_spec_row(label: str, elapsed: float, n_new: int, stats: dict, t_base: float) -> None:
     tok_s = n_new / elapsed if elapsed > 0 else 0.0
@@ -108,11 +139,7 @@ def main() -> None:
     max_new = int(os.environ.get("MMA_SPEEDUP_NEW_TOKENS", "128"))
     max_draft = int(os.environ.get("MMA_SPEEDUP_MAX_DRAFT_STEPS", "3"))
     rs_raw = os.environ.get("MMA_SPEEDUP_REJECT_STRATEGY", "prob_diff").strip().lower()
-    if rs_raw not in ("prob_diff", "threshold"):
-        raise ValueError(
-            "MMA_SPEEDUP_REJECT_STRATEGY must be prob_diff or threshold"
-        )
-    reject_strategy = cast(Literal["prob_diff", "threshold"], rs_raw)
+    reject_strategy = rs_raw
     prob_diff_th = float(os.environ.get("MMA_SPEEDUP_PROB_DIFF_THRESHOLD", "0.3"))
     accept_th = float(os.environ.get("MMA_SPEEDUP_ACCEPT_THRESHOLD", "0.1"))
     do_warmup = os.environ.get("MMA_SPEEDUP_WARMUP", "").strip().lower() in (

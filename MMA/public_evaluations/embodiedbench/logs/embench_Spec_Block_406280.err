@@ -1,0 +1,88 @@
+/var/spool/slurmd/job406280/slurm_script: line 16: Xvfb: command not found
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:33946
+ * Running on http://131.172.24.24:33946
+Press CTRL+C to quit
+127.0.0.1 - - [31/May/2026 18:31:58] "GET /health HTTP/1.1" 200 -
+[2026-05-31 18:32:00,203][INFO] - Evaluating environment: eb-alf
+[2026-05-31 18:32:00,208][INFO] - Starting evaluation
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+/data/group/zhaolab/project/EmbodiedBench/embodiedbench/planner/planner_utils.py:6: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+[2026-05-31 18:32:33,321][INFO] - Current eval set: base
+INFO:root:Initialize return: {'cameraNearPlane': 0.009999999776482582, 'cameraFarPlane': 20.0}
+Episodes:   0%|          | 0/5 [00:00<?, ?it/s][2026-05-31 18:32:38,493][INFO] - Evaluating episode 0 ...
+INFO:EB_logger:Evaluating episode 0 ...
+[2026-05-31 18:32:38,499][INFO] - Restoring scene FloorPlan4...
+INFO:EB_logger:Restoring scene FloorPlan4...
+/data/group/zhaolab/project/miniconda/envs/embench/lib/python3.11/site-packages/pydub/utils.py:170: RuntimeWarning: Couldn't find ffmpeg or avconv - defaulting to ffmpeg, but may not work
+  warn("Couldn't find ffmpeg or avconv - defaulting to ffmpeg, but may not work", RuntimeWarning)
+Loading weights:   0%|          | 0/625 [00:00<?, ?it/s]Loading weights:   0%|          | 1/625 [00:02<30:44,  2.96s/it]Loading weights:   1%|          | 4/625 [00:03<06:10,  1.68it/s]Loading weights:   1%|          | 6/625 [00:03<03:45,  2.74it/s]Loading weights:   2%|▏         | 11/625 [00:03<01:35,  6.40it/s]Loading weights:   2%|▏         | 14/625 [00:03<01:10,  8.69it/s]Loading weights:   3%|▎         | 17/625 [00:03<01:01,  9.89it/s]Loading weights:   4%|▎         | 23/625 [00:03<00:36, 16.39it/s]Loading weights:   4%|▍         | 27/625 [00:04<00:57, 10.32it/s]Loading weights:   5%|▌         | 34/625 [00:04<00:36, 16.09it/s]Loading weights:   6%|▌         | 38/625 [00:05<00:55, 10.53it/s]Loading weights:   7%|▋         | 45/625 [00:05<00:36, 15.91it/s]Loading weights:   8%|▊         | 49/625 [00:05<00:35, 16.05it/s]Loading weights:   9%|▊         | 54/625 [00:05<00:28, 19.80it/s]Loading weights:   9%|▉         | 59/625 [00:05<00:24, 22.88it/s]Loading weights:  10%|█         | 63/625 [00:06<00:23, 23.86it/s]Loading weights:  11%|█         | 67/625 [00:06<00:21, 26.45it/s]Loading weights:  11%|█▏        | 71/625 [00:06<00:24, 22.21it/s]Loading weights:  13%|█▎        | 79/625 [00:06<00:18, 30.14it/s]Loading weights:  13%|█▎        | 83/625 [00:06<00:23, 22.91it/s]Loading weights:  14%|█▍        | 89/625 [00:07<00:18, 28.41it/s]Loading weights:  15%|█▍        | 93/625 [00:07<00:20, 26.34it/s]Loading weights:  16%|█▌        | 101/625 [00:07<00:23, 21.84it/s]Loading weights:  17%|█▋        | 104/625 [00:07<00:22, 22.92it/s]Loading weights:  18%|█▊        | 112/625 [00:08<00:19, 26.02it/s]Loading weights:  18%|█▊        | 115/625 [00:08<00:24, 21.09it/s]Loading weights:  20%|█▉        | 123/625 [00:08<00:17, 28.02it/s]Loading weights:  20%|██        | 127/625 [00:08<00:20, 24.75it/s]Loading weights:  21%|██        | 132/625 [00:08<00:17, 28.63it/s]Loading weights:  22%|██▏       | 136/625 [00:08<00:18, 26.39it/s]Loading weights:  22%|██▏       | 140/625 [00:09<00:18, 26.40it/s]Loading weights:  23%|██▎       | 145/625 [00:09<00:15, 30.97it/s]Loading weights:  24%|██▍       | 149/625 [00:09<00:18, 25.66it/s]Loading weights:  24%|██▍       | 152/625 [00:09<00:18, 26.18it/s]Loading weights:  25%|██▌       | 158/625 [00:09<00:16, 28.64it/s]Loading weights:  26%|██▌       | 162/625 [00:09<00:16, 28.73it/s]Loading weights:  27%|██▋       | 167/625 [00:10<00:16, 28.37it/s]Loading weights:  27%|██▋       | 170/625 [00:10<00:21, 20.71it/s]Loading weights:  28%|██▊       | 176/625 [00:10<00:16, 27.36it/s]Loading weights:  29%|██▉       | 180/625 [00:10<00:24, 18.40it/s]Loading weights:  30%|██▉       | 185/625 [00:10<00:19, 22.80it/s]Loading weights:  31%|███       | 191/625 [00:11<00:20, 21.47it/s]Loading weights:  32%|███▏      | 199/625 [00:11<00:14, 29.93it/s]Loading weights:  33%|███▎      | 204/625 [00:11<00:18, 22.23it/s]Loading weights:  34%|███▍      | 212/625 [00:11<00:15, 26.69it/s]Loading weights:  35%|███▍      | 216/625 [00:12<00:15, 26.02it/s]Loading weights:  35%|███▌      | 220/625 [00:12<00:15, 26.03it/s]Loading weights:  36%|███▌      | 223/625 [00:12<00:15, 25.24it/s]Loading weights:  36%|███▌      | 226/625 [00:12<00:17, 23.03it/s]Loading weights:  37%|███▋      | 230/625 [00:12<00:15, 26.22it/s]Loading weights:  38%|███▊      | 235/625 [00:12<00:16, 23.03it/s]Loading weights:  39%|███▉      | 244/625 [00:13<00:12, 29.33it/s]Loading weights:  40%|███▉      | 248/625 [00:13<00:14, 26.35it/s]Loading weights:  41%|████      | 256/625 [00:13<00:11, 32.20it/s]Loading weights:  42%|████▏     | 260/625 [00:13<00:12, 29.88it/s]Loading weights:  42%|████▏     | 264/625 [00:13<00:12, 27.90it/s]Loading weights:  43%|████▎     | 268/625 [00:14<00:13, 27.26it/s]Loading weights:  44%|████▎     | 273/625 [00:14<00:11, 31.61it/s]Loading weights:  44%|████▍     | 278/625 [00:14<00:11, 29.36it/s]Loading weights:  45%|████▌     | 282/625 [00:14<00:14, 23.78it/s]Loading weights:  46%|████▌     | 287/625 [00:14<00:12, 27.68it/s]Loading weights:  47%|████▋     | 291/625 [00:15<00:19, 16.93it/s]Loading weights:  48%|████▊     | 297/625 [00:15<00:14, 22.33it/s]Loading weights:  48%|████▊     | 301/625 [00:15<00:16, 19.28it/s]Loading weights:  49%|████▉     | 305/625 [00:15<00:14, 22.15it/s]Loading weights:  51%|█████     | 316/625 [00:15<00:08, 36.39it/s]Loading weights:  52%|█████▏    | 326/625 [00:15<00:06, 48.33it/s]Loading weights:  54%|█████▍    | 338/625 [00:16<00:05, 48.29it/s]Loading weights:  55%|█████▌    | 344/625 [00:16<00:07, 38.20it/s]Loading weights:  56%|█████▌    | 351/625 [00:16<00:06, 42.13it/s]Loading weights:  60%|█████▉    | 373/625 [00:16<00:03, 71.71it/s]Loading weights:  62%|██████▏   | 390/625 [00:16<00:02, 85.32it/s]Loading weights:  64%|██████▍   | 402/625 [00:16<00:02, 91.12it/s]Loading weights:  67%|██████▋   | 420/625 [00:17<00:01, 105.71it/s]Loading weights:  70%|██████▉   | 436/625 [00:17<00:02, 91.81it/s] Loading weights:  72%|███████▏  | 447/625 [00:17<00:02, 75.38it/s]Loading weights:  73%|███████▎  | 457/625 [00:17<00:02, 77.60it/s]Loading weights:  75%|███████▍  | 466/625 [00:17<00:02, 75.07it/s]Loading weights:  76%|███████▋  | 477/625 [00:17<00:01, 82.34it/s]Loading weights:  78%|███████▊  | 490/625 [00:18<00:01, 84.81it/s]Loading weights:  81%|████████  | 506/625 [00:18<00:01, 96.59it/s]Loading weights:  83%|████████▎ | 518/625 [00:18<00:01, 100.53it/s]Loading weights:  85%|████████▌ | 534/625 [00:18<00:00, 113.44it/s]Loading weights:  88%|████████▊ | 552/625 [00:18<00:00, 130.48it/s]Loading weights:  91%|█████████ | 566/625 [00:18<00:00, 78.12it/s] Loading weights:  93%|█████████▎| 580/625 [00:18<00:00, 88.63it/s]Loading weights:  95%|█████████▍| 592/625 [00:19<00:00, 95.13it/s]Loading weights:  97%|█████████▋| 604/625 [00:19<00:00, 85.31it/s]Loading weights:  98%|█████████▊| 615/625 [00:19<00:00, 56.85it/s]Loading weights: 100%|█████████▉| 623/625 [00:19<00:00, 57.80it/s]Loading weights: 100%|██████████| 625/625 [00:19<00:00, 31.69it/s]
+Fetching 4 files:   0%|          | 0/4 [00:00<?, ?it/s]Fetching 4 files: 100%|██████████| 4/4 [00:00<00:00, 1283.84it/s]
+Loading weights:   0%|          | 0/750 [00:00<?, ?it/s]Loading weights:   0%|          | 1/750 [00:08<1:42:05,  8.18s/it]Loading weights:   9%|▉         | 70/750 [00:08<01:02, 10.89it/s] Loading weights:  11%|█         | 81/750 [00:09<00:57, 11.71it/s]Loading weights:  12%|█▏        | 92/750 [00:10<00:52, 12.52it/s]Loading weights:  13%|█▎        | 96/750 [00:10<00:48, 13.42it/s]Loading weights:  14%|█▎        | 103/750 [00:10<00:48, 13.26it/s]Loading weights:  15%|█▌        | 114/750 [00:11<00:45, 14.00it/s]Loading weights:  17%|█▋        | 125/750 [00:12<00:43, 14.50it/s]Loading weights:  18%|█▊        | 136/750 [00:12<00:38, 15.79it/s]Loading weights:  19%|█▊        | 139/750 [00:12<00:39, 15.64it/s]Loading weights:  20%|█▉        | 147/750 [00:13<00:38, 15.55it/s]Loading weights:  21%|██        | 158/750 [00:14<00:38, 15.57it/s]Loading weights:  23%|██▎       | 169/750 [00:14<00:35, 16.45it/s]Loading weights:  23%|██▎       | 171/750 [00:14<00:35, 16.11it/s]Loading weights:  24%|██▍       | 180/750 [00:15<00:34, 16.32it/s]Loading weights:  25%|██▌       | 191/750 [00:16<00:36, 15.19it/s]Loading weights:  27%|██▋       | 202/750 [00:16<00:35, 15.30it/s]Loading weights:  27%|██▋       | 204/750 [00:17<00:38, 14.12it/s]Loading weights:  28%|██▊       | 213/750 [00:17<00:37, 14.16it/s]Loading weights:  29%|██▊       | 215/750 [00:18<00:38, 14.00it/s]Loading weights:  30%|██▉       | 224/750 [00:18<00:37, 14.15it/s]Loading weights:  31%|███▏      | 235/750 [00:19<00:33, 15.31it/s]Loading weights:  32%|███▏      | 237/750 [00:19<00:33, 15.51it/s]Loading weights:  33%|███▎      | 246/750 [00:19<00:32, 15.60it/s]Loading weights:  34%|███▍      | 257/750 [00:20<00:31, 15.82it/s]Loading weights:  36%|███▌      | 268/750 [00:21<00:30, 16.02it/s]Loading weights:  37%|███▋      | 279/750 [00:21<00:29, 16.09it/s]Loading weights:  39%|███▊      | 290/750 [00:22<00:28, 16.02it/s]Loading weights:  40%|████      | 301/750 [00:23<00:27, 16.58it/s]Loading weights:  40%|████      | 303/750 [00:23<00:27, 16.55it/s]Loading weights:  42%|████▏     | 312/750 [00:23<00:26, 16.44it/s]Loading weights:  43%|████▎     | 323/750 [00:24<00:26, 16.02it/s]Loading weights:  45%|████▍     | 334/750 [00:25<00:24, 17.25it/s]Loading weights:  45%|████▍     | 336/750 [00:25<00:25, 16.30it/s]Loading weights:  46%|████▌     | 345/750 [00:25<00:25, 16.09it/s]Loading weights:  47%|████▋     | 356/750 [00:26<00:24, 16.24it/s]Loading weights:  49%|████▉     | 367/750 [00:27<00:23, 16.41it/s]Loading weights:  50%|█████     | 378/750 [00:27<00:19, 18.78it/s]Loading weights:  51%|█████     | 380/750 [00:27<00:20, 18.48it/s]Loading weights:  52%|█████▏    | 389/750 [00:29<00:28, 12.57it/s]Loading weights:  52%|█████▏    | 391/750 [00:29<00:31, 11.31it/s]Loading weights:  58%|█████▊    | 437/750 [00:29<00:07, 42.48it/s]Loading weights:  60%|██████    | 451/750 [00:29<00:06, 49.30it/s]Loading weights:  62%|██████▏   | 463/750 [00:29<00:05, 56.42it/s]Loading weights:  64%|██████▎   | 477/750 [00:29<00:04, 66.68it/s]Loading weights:  65%|██████▌   | 488/750 [00:30<00:04, 65.06it/s]Loading weights:  67%|██████▋   | 503/750 [00:30<00:03, 74.15it/s]Loading weights:  69%|██████▊   | 515/750 [00:30<00:02, 78.77it/s]Loading weights:  70%|███████   | 525/750 [00:30<00:03, 73.88it/s]Loading weights:  72%|███████▏  | 539/750 [00:30<00:02, 83.58it/s]Loading weights:  74%|███████▍  | 557/750 [00:30<00:01, 104.05it/s]Loading weights:  76%|███████▌  | 569/750 [00:30<00:01, 101.61it/s]Loading weights:  78%|███████▊  | 585/750 [00:30<00:01, 106.46it/s]Loading weights:  80%|███████▉  | 597/750 [00:31<00:01, 109.22it/s]Loading weights:  81%|████████▏ | 611/750 [00:31<00:01, 109.22it/s]Loading weights:  83%|████████▎ | 623/750 [00:31<00:01, 88.36it/s] Loading weights:  84%|████████▍ | 633/750 [00:31<00:01, 87.25it/s]Loading weights:  86%|████████▌ | 645/750 [00:31<00:01, 89.98it/s]Loading weights:  88%|████████▊ | 657/750 [00:31<00:01, 92.03it/s]Loading weights:  89%|████████▉ | 669/750 [00:31<00:00, 89.30it/s]Loading weights:  91%|█████████ | 683/750 [00:32<00:00, 98.39it/s]Loading weights:  93%|█████████▎| 695/750 [00:32<00:00, 102.26it/s]Loading weights:  95%|█████████▌| 715/750 [00:32<00:00, 116.49it/s]Loading weights:  97%|█████████▋| 727/750 [00:33<00:00, 38.18it/s] Loading weights:  98%|█████████▊| 736/750 [00:33<00:00, 39.39it/s]Loading weights:  99%|█████████▉| 744/750 [00:34<00:00, 22.64it/s]Loading weights: 100%|██████████| 750/750 [00:34<00:00, 21.86it/s]
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p', 'top_k']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+127.0.0.1 - - [31/May/2026 18:36:40] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 18:39:17] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 18:41:50] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 18:44:37] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 18:47:02] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 18:49:47] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 18:52:33] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 18:55:10] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:03:45] "POST /process HTTP/1.1" 200 -
+Episodes:  20%|██        | 1/5 [31:07<2:04:28, 1867.13s/it][2026-05-31 19:03:45,627][INFO] - Evaluating episode 1 ...
+INFO:EB_logger:Evaluating episode 1 ...
+[2026-05-31 19:03:45,635][INFO] - Restoring scene FloorPlan16...
+INFO:EB_logger:Restoring scene FloorPlan16...
+127.0.0.1 - - [31/May/2026 19:06:43] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:09:33] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:12:42] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:15:58] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:19:11] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:21:59] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:24:58] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:27:31] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:30:32] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:33:03] "POST /process HTTP/1.1" 200 -
+Episodes:  40%|████      | 2/5 [1:00:24<1:30:08, 1802.84s/it][2026-05-31 19:33:03,464][INFO] - Evaluating episode 2 ...
+INFO:EB_logger:Evaluating episode 2 ...
+[2026-05-31 19:33:03,473][INFO] - Restoring scene FloorPlan207...
+INFO:EB_logger:Restoring scene FloorPlan207...
+127.0.0.1 - - [31/May/2026 19:35:19] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:38:04] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:40:49] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:43:33] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:46:19] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:49:03] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:51:48] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:54:33] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 19:57:19] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:00:03] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:02:48] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:05:32] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:08:17] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:11:02] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:13:47] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:16:31] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:19:16] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:22:00] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:24:46] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:27:30] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:30:14] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:32:59] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:35:44] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:38:29] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:41:13] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:43:58] "POST /process HTTP/1.1" 200 -
+127.0.0.1 - - [31/May/2026 20:46:43] "POST /process HTTP/1.1" 200 -

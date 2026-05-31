@@ -4,9 +4,11 @@ Main loop: speculative decoding with memory.
 Draft (with memory bias) -> Verify (with extended KV) -> accept/reject -> repeat.
 """
 
+import os 
 from typing import Any, Dict, List, Optional, Union
 
 import torch
+import time
 
 from mma.speculative_memory.config import SpeculativeMemoryConfig
 from mma.speculative_memory.draft_model import generate_draft_tokens, DraftResult
@@ -18,6 +20,24 @@ from mma.speculative_memory.kv_extension import (
 )
 from mma.speculative_memory.memory_bias import _get_content_and_confidence
 from mma.speculative_memory.verify import verify_draft_tokens, AcceptRejectResult
+
+class CudaTimer:
+    def __init__(self, device: torch.device):
+        self.device = device
+        self.is_cuda = "cuda" in str(device)
+        self.start_time = None
+        self.elapsed = 0.0
+
+    def __enter__(self):
+        if self.is_cuda:
+            torch.cuda.synchronize(self.device)
+        self.start_time = time.perf_counter()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.is_cuda:
+            torch.cuda.synchronize(self.device)
+        self.elapsed = time.perf_counter() - self.start_time
 
 
 # Same as memory_bias: item with content/text and optional confidence
@@ -175,6 +195,17 @@ def generate_with_speculative_memory(
         max_new_tokens = config.max_new_tokens
 
     device = next(target_model.parameters()).device
+
+    reject_strategy = os.environ.get("MMA_REJECT_STRATEGY", config.reject_strategy).strip().lower()
+    semantic_threshold = float(os.environ.get("MMA_SEMANTIC_THRESHOLD", "0.82"))
+
+    target_embeddings = None
+    if reject_strategy == "semantic_similarity":
+        try:
+            target_embeddings = target_model.get_input_embeddings().weight
+        except AttributeError:
+            pass
+
     if isinstance(prompt_input_ids, torch.Tensor):
         current_ids = prompt_input_ids.to(device)
     else:
@@ -233,20 +264,25 @@ def generate_with_speculative_memory(
     if video_grid_thw is not None:
         gen_kwargs["video_grid_thw"] = video_grid_thw.to(device)
 
+    time_stats = {
+        "draft_time": 0.0,
+        "rope_time": 0.0,
+        "target_time": 0.0,
+        "verify_time": 0.0,
+        "total_rounds": 0
+    }
+
     while total_generated < max_new_tokens:
         context_len = current_ids.size(1)
+        time_stats["total_rounds"] += 1
 
-        # Draft
-        draft_result: DraftResult = generate_draft_tokens(
-            draft_model,
-            tokenizer,
-            current_ids,
-            memory_items,
-            config,
-            eos_token_id=eos_token_id,
-            ignore_eos=ignore_eos,
-            **gen_kwargs,
-        )
+        with CudaTimer(device) as t_draft:
+            draft_result: DraftResult = generate_draft_tokens(
+                draft_model, tokenizer, current_ids, memory_items, config,
+                eos_token_id=eos_token_id, ignore_eos=ignore_eos, **gen_kwargs,
+            )
+        time_stats["draft_time"] += t_draft.elapsed
+
         num_draft = draft_result.num_draft
         if num_draft == 0:
             if stats_out is not None:
@@ -321,6 +357,15 @@ def generate_with_speculative_memory(
         # We need logits at positions (context_len-1, context_len, ..., context_len+num_draft-1)
         # i.e. num_draft positions for verify, plus last for bonus token -> logits_to_keep = num_draft + 1
         logits_to_keep = num_draft + 1
+
+        with CudaTimer(device) as t_rope:
+            memory_kv_positioned = (
+                apply_rope_to_memory_keys(memory_kv_raw, context_len, rotary_emb, device)
+                if memory_kv_raw is not None
+                else None
+            )
+        time_stats["rope_time"] += t_rope.elapsed
+
         with torch.no_grad():
             # Re-encode memory K at positions [context_len .. context_len+memory_len-1].
             # Use context_len (before draft tokens) so memory position is consistent with
@@ -361,14 +406,18 @@ def generate_with_speculative_memory(
         last_position_logits = logits[-1:]
 
         # Verify
-        accept_result: AcceptRejectResult = verify_draft_tokens(
-            target_logits_for_verify,
-            draft_result.draft_token_ids,
-            draft_result.draft_logits_per_position,
-            strategy=config.reject_strategy,
-            accept_threshold=config.accept_threshold,
-            prob_diff_threshold=config.prob_diff_threshold,
-        )
+        with CudaTimer(device) as t_verify:
+            accept_result: AcceptRejectResult = verify_draft_tokens(
+                target_logits_for_verify,
+                draft_result.draft_token_ids,           # <--- 补上 draft_result.
+                draft_result.draft_logits_per_position, # <--- 补上 draft_result.
+                strategy=reject_strategy, 
+                accept_threshold=config.accept_threshold,
+                prob_diff_threshold=config.prob_diff_threshold,
+                embedding_matrix=target_embeddings, 
+                semantic_threshold=semantic_threshold, 
+            )
+        time_stats["verify_time"] += t_verify.elapsed
         num_accepted = accept_result.num_accepted
         rejected_at = accept_result.rejected_at
 
@@ -400,22 +449,32 @@ def generate_with_speculative_memory(
         # One token from target: correction at first rejected position, or bonus when all accepted
         if (
             rejected_at is not None
-            and accept_result.target_logits_per_position is not None
+            and getattr(accept_result, "pre_sampled_correction_token", None) is not None
         ):
-            # Use logits at rejected position to sample the correction token
-            one_logits = accept_result.target_logits_per_position[
-                rejected_at : rejected_at + 1
-            ]
+            next_token = torch.tensor(
+                [[accept_result.pre_sampled_correction_token]],
+                dtype=torch.long,
+                device=device,
+            )
         else:
-            one_logits = last_position_logits
-        if one_logits.dim() == 1:
-            one_logits = one_logits.unsqueeze(0)
-        if config.do_sample:
-            probs = torch.softmax(one_logits.float(), dim=-1)
-            next_token = torch.multinomial(probs, num_samples=1)
-        else:
-            next_token = one_logits.argmax(dim=-1, keepdim=True)
-        next_token = next_token.squeeze(-1).unsqueeze(0)
+            if (
+                rejected_at is not None
+                and accept_result.target_logits_per_position is not None
+            ):
+                # Use logits at rejected position to sample the correction token
+                one_logits = accept_result.target_logits_per_position[
+                    rejected_at : rejected_at + 1
+                ]
+            else:
+                one_logits = last_position_logits
+            if one_logits.dim() == 1:
+                one_logits = one_logits.unsqueeze(0)
+            if config.do_sample:
+                probs = torch.softmax(one_logits.float(), dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1)
+            else:
+                next_token = one_logits.argmax(dim=-1, keepdim=True)
+            next_token = next_token.squeeze(-1).unsqueeze(0)
         current_ids = torch.cat([current_ids, next_token], dim=1)
         total_generated += 1
 
@@ -429,5 +488,17 @@ def generate_with_speculative_memory(
         acc = int(stats_out["draft_tokens_accepted"])
         stats_out["acceptance_rate"] = (acc / prop) if prop > 0 else 0.0
         stats_out["new_tokens_generated"] = int(total_generated)
+        stats_out["time_stats"] = time_stats
+
+    if os.environ.get("MMA_TIME_DEBUG", "1").strip().lower() in ("1", "true", "yes"):
+        rounds = time_stats["total_rounds"]
+        if rounds > 0:
+            print("\n" + "=" * 35 + " SPECULATIVE DECODING PROFILE " + "=" * 35)
+            print(f"Total Speculative Rounds: {rounds}")
+            print(f"  ├─ Draft Model Generate  : {time_stats['draft_time']:.4f}s  (Avg: {time_stats['draft_time']/rounds:.4f}s/round)")
+            print(f"  ├─ Memory RoPE Align     : {time_stats['rope_time']:.4f}s  (Avg: {time_stats['rope_time']/rounds:.4f}s/round)")
+            print(f"  ├─ Target Model Forward  : {time_stats['target_time']:.4f}s  (Avg: {time_stats['target_time']/rounds:.4f}s/round)")
+            print(f"  ├─ Verification Strategy : {time_stats['verify_time']:.4f}s  (Avg: {time_stats['verify_time']/rounds:.4f}s/round)")
+            print("=" * 100 + "\n")
 
     return current_ids
