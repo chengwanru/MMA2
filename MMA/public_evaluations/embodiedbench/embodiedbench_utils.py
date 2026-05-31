@@ -481,21 +481,44 @@ def sync_executable_plan_ids_from_prompt(json_text: str, prompt_text: str) -> st
     return json.dumps(obj, ensure_ascii=True)
 
 
+def _is_skill_rule_prose(text: str) -> bool:
+    """EmbodiedBench skill bullets (• Open: Parameterized by...) are not task instructions."""
+    s = (text or "").strip()
+    if not s:
+        return False
+    if re.search(r"(?i)\bparameterized by\b", s):
+        return True
+    if re.search(r"(?i)\bonly valid if\b", s):
+        return True
+    if re.match(
+        r"^\s*[•\-*]\s*(?:find|pick\s*up|pickup|open|close|turn\s+(?:on|off)|slice|put)\s*:",
+        s,
+        flags=re.I,
+    ):
+        return True
+    return False
+
+
 def _extract_instruction(prompt_text: str) -> str:
     if not isinstance(prompt_text, str):
         return ""
     flags = re.MULTILINE | re.IGNORECASE
     for pat in (
+        r"^\s*human instruction\s*:\s*(.+?)\s*$",
         r"^\s*instruction\s*:\s*(.+?)\s*$",
         r"^\s*task\s*:\s*(.+?)\s*$",
         r"^\s*goal\s*:\s*(.+?)\s*$",
     ):
         m = re.search(pat, prompt_text, flags=flags)
         if m:
-            return m.group(1).strip()
+            seg = (m.group(1) or "").strip()
+            if seg and not _is_skill_rule_prose(seg):
+                return seg
     m = re.search(r"(?is)\byour task is to\s+(.+?)(?:[\n\r]|$)", prompt_text)
     if m:
-        return m.group(1).strip()
+        seg = (m.group(1) or "").strip()
+        if seg and not _is_skill_rule_prose(seg):
+            return seg
     return ""
 
 
@@ -512,11 +535,18 @@ def _recover_instruction_from_prompt(prompt_text: str) -> str:
     if s:
         return s
     m = re.search(
-        r"(?is)\b(rinse off|rinsing|rinse|wash|washing|clean|cleaning|pick up|pickup|move|place|put|slice|heat|cool|empty|open|close)\b.{0,600}",
+        r"(?is)\b(rinse off|rinsing|rinse|wash|washing|clean|cleaning|pick up|pickup|move|place|put|slice|heat|cool|empty)\b.{0,600}",
         t,
     )
     if m:
-        return m.group(0).strip()
+        seg = m.group(0).strip()
+        if not _is_skill_rule_prose(seg):
+            return seg
+    m_open = re.search(r"(?is)\b(open|close)\s+the\s+[a-z].{3,200}", t)
+    if m_open:
+        seg = m_open.group(0).strip()
+        if not _is_skill_rule_prose(seg):
+            return seg
     am = re.search(r"(?is)\bACTION\s+LIST\b", t)
     if am:
         tail = t[am.end() :]
@@ -526,6 +556,8 @@ def _recover_instruction_from_prompt(prompt_text: str) -> str:
             if not line:
                 continue
             if re.match(r"^\s*\d+\s*:\s*", line):
+                continue
+            if _is_skill_rule_prose(line):
                 continue
             kept.append(line)
         prose = "\n".join(kept).strip()

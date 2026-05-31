@@ -55,6 +55,7 @@ from embodiedbench_utils import (
     _extract_action_catalog,
     _extract_instruction,
     _extract_object_from_action_desc,
+    _is_skill_rule_prose,
     _recover_instruction_from_prompt,
     _target_object_from_instruction,
     enforce_first_action_guard,
@@ -517,13 +518,52 @@ def _last_task_prose_from_prompt(sentence: str) -> str:
         return ""
     matches = list(
         re.finditer(
-            r"(?mi)^\s*(?:task|instruction|goal)\s*[:=]\s*(.+?)\s*$",
+            r"(?mi)^\s*(?:human instruction|task|instruction|goal)\s*[:=]\s*(.+?)\s*$",
             sentence,
         )
     )
     if matches:
         return (matches[-1].group(1) or "").strip()
     return _recover_instruction_from_prompt(sentence)
+
+
+def _is_plausible_task_prose(text: str) -> bool:
+    s = (text or "").strip()
+    if not s or len(s) < 8:
+        return False
+    if _is_skill_rule_prose(s):
+        return False
+    if re.search(r"(?i)\baction descriptions and validity rules\b", s):
+        return False
+    if re.search(r"(?i)\bACTION\s+LIST\b", s):
+        return False
+    return True
+
+
+def _scan_imperative_task_lines(body: str) -> list[str]:
+    """Collect likely task sentences; skip EB skill bullets and catalog lines."""
+    out: list[str] = []
+    for raw in (body or "").splitlines():
+        s = raw.strip()
+        if not s or _is_skill_rule_prose(s):
+            continue
+        if re.match(r"^\s*\d+\s*:\s*", s):
+            continue
+        m = re.match(
+            r"(?is)^(?:human instruction|task|instruction|goal)\s*[:=]\s*(.+)$",
+            s,
+        )
+        if m:
+            seg = (m.group(1) or "").strip()
+            if seg and _is_plausible_task_prose(seg):
+                out.append(seg)
+            continue
+        if re.search(
+            r"(?i)^(rinse(?:\s+off)?|wash|clean|pick\s*up|pickup|move|put|place|slice|heat|cool|empty)\b",
+            s,
+        ) and re.search(r"(?i)\b(?:a|an|the)\s+[a-z]", s):
+            out.append(s)
+    return out
 
 
 def _primary_task_text(sentence: str) -> str:
@@ -535,20 +575,23 @@ def _primary_task_text(sentence: str) -> str:
     """
     if not isinstance(sentence, str) or not sentence.strip():
         return ""
+    body = sentence or ""
+    scanned = _scan_imperative_task_lines(body)
+    if scanned:
+        return scanned[-1]
     prose = _last_task_prose_from_prompt(sentence).strip()
-    if prose and len(prose) <= 400 and not re.search(r"(?i)\bACTION\s+LIST\b", prose):
+    if prose and _is_plausible_task_prose(prose) and len(prose) <= 400:
         return prose
     instr = (_extract_instruction(sentence) or "").strip()
-    if instr:
+    if instr and _is_plausible_task_prose(instr):
         return instr
-    body = sentence or ""
     task_lines: list[str] = []
     for m in re.finditer(
-        r"(?mi)(?:^|\n)\s*(?:task|instruction|goal)\s*[:=]+\s*(.+?)(?=\n\s*(?:task|instruction|goal|ACTION|AVAILABLE)\b|\Z)",
+        r"(?mi)(?:^|\n)\s*(?:human instruction|task|instruction|goal)\s*[:=]+\s*(.+?)(?=\n\s*(?:human instruction|task|instruction|goal|ACTION|AVAILABLE)\b|\Z)",
         body,
     ):
         seg = (m.group(1) or "").strip()
-        if seg:
+        if seg and _is_plausible_task_prose(seg):
             task_lines.append(seg)
     if task_lines:
         return task_lines[-1]
@@ -557,24 +600,28 @@ def _primary_task_text(sentence: str) -> str:
         kept: list[str] = []
         for raw in body[mlist.end() :].splitlines():
             s = raw.strip()
-            if not s or re.match(r"^\s*\d+\s*:\s*", s):
+            if not s or re.match(r"^\s*\d+\s*:\s*", s) or _is_skill_rule_prose(s):
                 continue
             kept.append(s)
         tail = "\n".join(kept).strip()
-        if tail:
+        if tail and _is_plausible_task_prose(tail):
             return tail[:800]
     recovered = (_recover_instruction_from_prompt(sentence) or "").strip()
-    if not recovered:
-        return ""
-    if len(recovered) <= 240:
-        return recovered
-    for ln in reversed([x.strip() for x in recovered.splitlines() if x.strip()]):
-        if len(ln) <= 240 and re.search(
-            r"(?i)\b(rinse|wash|clean|pick|move|put|slice|heat|cool|empty|open|close)\b",
-            ln,
-        ):
-            return ln
-    return recovered[:240]
+    if recovered and _is_plausible_task_prose(recovered):
+        if len(recovered) <= 240:
+            return recovered
+        for ln in reversed([x.strip() for x in recovered.splitlines() if x.strip()]):
+            if (
+                len(ln) <= 240
+                and _is_plausible_task_prose(ln)
+                and re.search(
+                    r"(?i)\b(rinse|wash|clean|pick|move|put|slice|heat|cool|empty)\b",
+                    ln,
+                )
+            ):
+                return ln
+        return recovered[:240]
+    return ""
 
 
 def _find_action_ids_for_object(catalog: dict[int, str], obj_name: str) -> set[int]:
@@ -1081,6 +1128,18 @@ def _extract_target_from_instruction(sentence: str, catalog: dict[int, str]) -> 
             "floor",
             "room",
             "it",
+            "open",
+            "close",
+            "find",
+            "pick",
+            "turn",
+            "slice",
+            "put",
+            "move",
+            "place",
+            "parameterized",
+            "valid",
+            "receptacle",
         }
     )
     for pat in (
