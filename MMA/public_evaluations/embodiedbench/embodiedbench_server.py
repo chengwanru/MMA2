@@ -1061,11 +1061,97 @@ def _rewrite_pick_loop_first_step(
     return json.dumps(obj, ensure_ascii=True)
 
 
-def _avoid_previous_first_action(json_text: str, sentence: str) -> str:
+def _is_episode_start(last_env_feedback: str) -> bool:
+    """First planner call of an EB episode has no prior env_feedback."""
+    return not (last_env_feedback or "").strip()
+
+
+def _enable_episode_start_gate() -> bool:
+    return os.environ.get("EMBODIEDBENCH_DISABLE_EPISODE_START_GATE", "").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def _is_hand_precondition_action_desc(desc: str) -> bool:
+    """Actions that require holding an object; invalid when hand is empty at episode start."""
+    d = (desc or "").strip().lower()
+    if _is_putdown_object_in_hand_desc(d):
+        return True
+    if d.startswith("pick up"):
+        return True
+    if d.startswith("drop ") or "drop the object" in d:
+        return True
+    return False
+
+
+def _reset_episode_state_for_new_episode(sentence: str) -> None:
+    """
+    New EmbodiedBench episode (no last_env_feedback): drop per-instruction controller
+    and loop-breaker state from the previous episode on the same prompt key.
+    """
+    key = _instruction_key(sentence) or "__default__"
+    _controller_by_instruction[key] = EpisodeController()
+    _last_first_action_by_instruction.pop(key, None)
+    _last_first_action_name_by_instruction.pop(key, None)
+    _diag_feedback_state_by_instruction.pop(key, None)
+    _diag_plan_signature_by_instruction.pop(key, None)
+    _trace_planner(f"episode_start_reset instruction_key={key!r}")
+
+
+def _rewrite_episode_start_first_step(
+    json_text: str,
+    sentence: str,
+    task_target: str,
+    last_env_feedback: str,
+) -> str:
+    """
+    At episode start the agent hand is empty: replace put-down / drop / pickup-first
+    plans with find-<target> or navigation.
+    """
+    if not _enable_episode_start_gate() or not _is_episode_start(last_env_feedback):
+        return json_text
+    try:
+        obj = json.loads(json_text)
+    except Exception:
+        return json_text
+    if not isinstance(obj, dict):
+        return json_text
+    plan = obj.get("executable_plan")
+    if not isinstance(plan, list) or not plan:
+        return json_text
+    first = plan[0]
+    if not isinstance(first, dict):
+        return json_text
+    catalog = _parse_action_catalog_lines(sentence)
+    if not catalog:
+        return json_text
+    first_desc = _step_desc_from_plan_step(first, catalog)
+    if not _is_hand_precondition_action_desc(first_desc):
+        return json_text
+    target = (task_target or "").strip().lower()
+    repl = _choose_find_or_nav_replacement(catalog, target)
+    if repl is None:
+        return json_text
+    plan[0] = repl
+    obj["executable_plan"] = plan
+    _trace_planner(
+        f"episode_start_first_step_replaced "
+        f"from={first_desc!r} to={repl.get('action_name')!r} target={target!r}"
+    )
+    return json.dumps(obj, ensure_ascii=True)
+
+
+def _avoid_previous_first_action(
+    json_text: str, sentence: str, *, last_env_feedback: str = ""
+) -> str:
     """
     Break invalid-action loops: if this task just used action X as first step last
     round, avoid returning X as first step again.
     """
+    if _is_episode_start(last_env_feedback):
+        return json_text
     key = _instruction_key(sentence)
     banned_info = _last_first_action_by_instruction.get(key)
     if not isinstance(banned_info, dict):
@@ -1554,6 +1640,14 @@ def _anchor_plan_to_task_target(
         first_aid = int(first_aid)
     first_is_find_task = isinstance(first_aid, int) and first_aid in find_ids
     first_is_nav = _is_nav_desc(first_desc)
+    if (
+        cooldown_find <= 0
+        and target
+        and _is_hand_precondition_action_desc(first_desc)
+    ):
+        plan[0] = dict(find_step)
+        obj["executable_plan"] = plan
+        return json.dumps(obj, ensure_ascii=True)
     first_name = str(first.get("action_name", "") or "")
     name_obj = _extract_object_from_action_desc(first_name)
     id_obj = _extract_object_from_action_desc(first_desc)
@@ -2266,6 +2360,9 @@ def create_app():
 
         _apply_feasibility_gate_bundle()
 
+        if _is_episode_start(last_env_feedback):
+            _reset_episode_state_for_new_episode(sentence)
+
         upload_dir = get_upload_dir()
         ext = os.path.splitext(image.filename)[1] or ".png"
         image_path = os.path.join(upload_dir, f"img_{uuid.uuid4().hex}{ext}")
@@ -2318,7 +2415,9 @@ def create_app():
             if _enable_first_action_guard():
                 extracted = enforce_first_action_guard(extracted, sentence)
             if not _disable_loop_breaker():
-                extracted = _avoid_previous_first_action(extracted, sentence)
+                extracted = _avoid_previous_first_action(
+                    extracted, sentence, last_env_feedback=last_env_feedback
+                )
             # Keep anti-pickup-loop rewrite last so later guards do not reintroduce pickup.
             extracted = _rewrite_pick_loop_first_step(extracted, sentence, last_env_feedback)
             extracted = _rewrite_pick_loop_by_action_id(extracted, sentence, last_env_feedback)
@@ -2330,6 +2429,12 @@ def create_app():
                 controller_target=controller.locked_task_target or controller.target,
                 find_fail_streak=controller.find_fail_streak,
                 ban_putdown_hand=controller.ban_putdown_hand,
+            )
+            extracted = _rewrite_episode_start_first_step(
+                extracted,
+                sentence,
+                controller.locked_task_target or controller.target,
+                last_env_feedback,
             )
             extracted = _finalize_executable_plan(extracted, sentence, controller)
             # Regex-based allowlists often miss ids or over-restrict; EB still validates actions.
@@ -2384,7 +2489,9 @@ def create_app():
             if _enable_first_action_guard():
                 extracted_retry = enforce_first_action_guard(extracted_retry, sentence)
             if not _disable_loop_breaker():
-                extracted_retry = _avoid_previous_first_action(extracted_retry, sentence)
+                extracted_retry = _avoid_previous_first_action(
+                    extracted_retry, sentence, last_env_feedback=last_env_feedback
+                )
             extracted_retry = _rewrite_pick_loop_first_step(extracted_retry, sentence, last_env_feedback)
             extracted_retry = _rewrite_pick_loop_by_action_id(extracted_retry, sentence, last_env_feedback)
             extracted_retry = controller.rewrite_plan(extracted_retry, sentence)
@@ -2395,6 +2502,12 @@ def create_app():
                 controller_target=controller.locked_task_target or controller.target,
                 find_fail_streak=controller.find_fail_streak,
                 ban_putdown_hand=controller.ban_putdown_hand,
+            )
+            extracted_retry = _rewrite_episode_start_first_step(
+                extracted_retry,
+                sentence,
+                controller.locked_task_target or controller.target,
+                last_env_feedback,
             )
             extracted_retry = _finalize_executable_plan(extracted_retry, sentence, controller)
             ok_retry, reason_retry = validate_executable_plan_json(
