@@ -1709,7 +1709,7 @@ def _finalize_executable_plan(json_text: str, sentence: str, controller: "Episod
     )
     json_text = _apply_banned_find_guard(json_text, sentence, controller)
     json_text = sync_executable_plan_ids_from_prompt(json_text, sentence)
-    _trace_returned_first_step("finalize", json_text)
+    _trace_returned_first_step("finalize", json_text, sentence)
     return json_text
 
 
@@ -2262,7 +2262,7 @@ def _repair_prompt(sentence: str, bad_response: str, reason: str) -> str:
     )
 
 
-def _trace_returned_first_step(tag: str, json_text: str) -> None:
+def _trace_returned_first_step(tag: str, json_text: str, sentence: str = "") -> None:
     """Log first returned step id/name whenever EMBODIEDBENCH_TRACE_LOG is set."""
     if not os.environ.get("EMBODIEDBENCH_TRACE_LOG", "").strip():
         return
@@ -2281,10 +2281,21 @@ def _trace_returned_first_step(tag: str, json_text: str) -> None:
     if not isinstance(step0, dict):
         _trace_planner(f"return_first_step tag={tag} first_not_dict raw={step0!r}")
         return
+    aid = step0.get("action_id")
+    aname = step0.get("action_name")
+    extra = ""
+    if sentence and aid is not None:
+        catalog = _extract_action_catalog(sentence)
+        if isinstance(aid, float) and aid == int(aid):
+            aid = int(aid)
+        if isinstance(aid, int) and catalog:
+            cat_desc = catalog.get(aid, "")
+            if cat_desc and _collapse_alnum(cat_desc) != _collapse_alnum(str(aname or "")):
+                extra = f" catalog_id_desc={cat_desc!r} id_name_mismatch"
     _trace_planner(
         "return_first_step "
-        f"tag={tag} action_id={step0.get('action_id')} "
-        f"action_name={step0.get('action_name')!r}"
+        f"tag={tag} action_id={aid} "
+        f"action_name={aname!r}{extra}"
     )
 
 

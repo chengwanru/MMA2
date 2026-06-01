@@ -568,48 +568,94 @@ def _recover_instruction_from_prompt(prompt_text: str) -> str:
     return ""
 
 
+def _prompt_head_before_examples(prompt_text: str) -> str:
+    """Text before the first n-shot ``Example N:`` block (system + action list)."""
+    body = prompt_text or ""
+    parts = re.split(
+        r"(?is)^\s*(?:##\s*)?Example\s+\d+\s*:",
+        body,
+        maxsplit=1,
+    )
+    return parts[0] if parts else body
+
+
+def _strip_few_shot_examples(prompt_text: str) -> str:
+    """
+    Remove n-shot ``## Example N:`` blocks (and embedded JSON plans).
+    """
+    body = prompt_text or ""
+    without = re.sub(
+        r"(?is)^\s*(?:##\s*)?Example\s+\d+\s*:.*?(?=^\s*(?:##\s*)?Example\s+\d+\s*:|##\s*Now the human instruction|\Z)",
+        "",
+        body,
+    )
+    without = re.sub(
+        r'(?is)\{\s*"reasoning_and_reflection"\s*:.*?"executable_plan"\s*:\s*\[.*?\]\s*\}',
+        "",
+        without,
+    )
+    return without
+
+
 def _extract_action_catalog(prompt_text: str) -> dict[int, str]:
     """
-    Parse EmbodiedBench prompt action table lines like:
-      64: find a Ladle
-    Returns {64: "find a Ladle", ...}
+    Parse EmbodiedBench action catalog for the *current* episode.
+
+    Prefer the inline system-prompt list (``action id 49: find a Ladle, …``)
+    which matches ``env.language_skill_set`` indices. Do not parse
+    ``"action_id": …`` JSON from n-shot ICL examples — those ids are stale and
+    cause Thor to run the wrong skill (e.g. id 49 → find Desk).
     """
     catalog: dict[int, str] = {}
     if not isinstance(prompt_text, str) or not prompt_text.strip():
         return catalog
-    for m in re.finditer(r"(?m)^\s*(\d{1,4})\s*:\s*(.+?)\s*$", prompt_text):
-        try:
-            aid = int(m.group(1))
-        except ValueError:
-            continue
-        catalog[aid] = m.group(2).strip()
-    # Alternate list style: [64] find a Ladle
-    for m in re.finditer(r"(?m)^\s*\[\s*(\d{1,4})\s*\]\s*(.+?)\s*$", prompt_text):
-        try:
-            aid = int(m.group(1))
-        except ValueError:
-            continue
-        catalog[aid] = m.group(2).strip()
-    # JSON style snippets: {"action_id": 64, "action_name": "find a Ladle"}
+
+    # Inline list lives in the system header; ICL examples use JSON only.
     for m in re.finditer(
-        r'"action_id"\s*:\s*(\d{1,4})\s*,\s*"action_name"\s*:\s*"([^"]+)"',
+        r"(?i)action id\s+(\d+)\s*:\s*([^,\n]+)",
         prompt_text,
     ):
         try:
             aid = int(m.group(1))
         except ValueError:
             continue
-        catalog[aid] = m.group(2).strip()
-    # Space-separated without colon: "44 find a Safe"
-    for m in re.finditer(
-        r"(?m)^\s*(\d{1,4})\s+(?!:\s)([A-Za-z].+?)\s*$",
-        prompt_text,
+        desc = (m.group(2) or "").strip().rstrip(".")
+        if desc:
+            catalog[aid] = desc
+    if catalog:
+        return catalog
+
+    for block in (
+        _prompt_head_before_examples(prompt_text),
+        _strip_few_shot_examples(prompt_text),
     ):
-        try:
-            aid = int(m.group(1))
-        except ValueError:
+        if not block.strip():
             continue
-        catalog.setdefault(aid, m.group(2).strip())
+        m = re.search(r"(?is)\bACTION\s+LIST\b(.*)$", block)
+        scan = m.group(1) if m else block
+        for m2 in re.finditer(r"(?m)^\s*(\d{1,4})\s*:\s*(.+?)\s*$", scan):
+            try:
+                aid = int(m2.group(1))
+            except ValueError:
+                continue
+            catalog[aid] = m2.group(2).strip()
+        for m2 in re.finditer(r"(?m)^\s*\[\s*(\d{1,4})\s*\]\s*(.+?)\s*$", scan):
+            try:
+                aid = int(m2.group(1))
+            except ValueError:
+                continue
+            catalog[aid] = m2.group(2).strip()
+        for m2 in re.finditer(
+            r"(?m)^\s*(\d{1,4})\s+(?!:\s)([A-Za-z].+?)\s*$",
+            scan,
+        ):
+            try:
+                aid = int(m2.group(1))
+            except ValueError:
+                continue
+            catalog.setdefault(aid, m2.group(2).strip())
+        if catalog:
+            return catalog
     return catalog
 
 
@@ -1057,31 +1103,24 @@ def format_action_catalog_object_hint(prompt_text: str) -> str:
 def extract_allowed_action_ids_from_prompt(prompt_text: str) -> set[int]:
     """
     Best-effort extraction of available action ids from EmbodiedBench prompt text.
-    Supports common formats like:
-      - "133: put down the object in hand"
-      - "action_id: 12"
-      - '{"action_id": 5, ...}'
-      - "[12] OpenObject"
+    Prefer the live action catalog (inline ``action id N:`` header) so n-shot ICL
+    JSON snippets do not pollute the allowlist.
     """
     if not isinstance(prompt_text, str) or not prompt_text.strip():
         return set()
 
-    ids = set()
+    catalog = _extract_action_catalog(prompt_text)
+    if catalog:
+        return {x for x in catalog if x >= 0}
 
-    # 1) "123: action name"
-    for m in re.finditer(r'(?m)^\s*(\d{1,4})\s*:\s*[^\n]+$', prompt_text):
+    ids: set[int] = set()
+    head = _prompt_head_before_examples(prompt_text)
+
+    for m in re.finditer(r"(?m)^\s*(\d{1,4})\s*:\s*[^\n]+$", head):
         ids.add(int(m.group(1)))
-
-    # 2) "action_id: 12" / "action id = 12"
-    for m in re.finditer(r'(?i)action[_\s-]?id\s*[:=]\s*(-?\d+)', prompt_text):
+    for m in re.finditer(r"(?i)action id\s+(\d+)\s*:", head):
         ids.add(int(m.group(1)))
-
-    # 3) JSON snippets containing action_id
-    for m in re.finditer(r'"action_id"\s*:\s*(-?\d+)', prompt_text):
-        ids.add(int(m.group(1)))
-
-    # 4) "[12] SomeAction"
-    for m in re.finditer(r'(?m)\[\s*(-?\d+)\s*\]\s*[A-Za-z_]', prompt_text):
+    for m in re.finditer(r'(?m)\[\s*(-?\d+)\s*\]\s*[A-Za-z_]', head):
         ids.add(int(m.group(1)))
 
     return {x for x in ids if x >= 0}
