@@ -27,6 +27,7 @@ fi
 # shellcheck source=scripts/gadi_pbs_common.sh
 source "${PEV}/scripts/gadi_pbs_common.sh"
 gadi_ensure_paths
+export MMA_SKIP_GIT_PULL="${MMA_SKIP_GIT_PULL:-1}"
 gadi_git_pull_mma
 
 gadi_activate_conda "${CONDA_ENV}"

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Install libvulkan-loader for AI2-THOR CloudRendering on Gadi compute nodes only.
+# Install libvulkan-loader + xorg-xvfb on a Gadi compute node via conda.
 #
-# Do NOT run on login — use:
-#   qsub .../submit_gadi_install_thor_deps.pbs
+# Compute nodes have NO internet — this qsub path usually fails. Prefer login:
+#   bash scripts/gadi_install_xvfb_login.sh
 #
 set -eo pipefail
 
