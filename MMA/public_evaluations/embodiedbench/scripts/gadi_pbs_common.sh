@@ -12,6 +12,26 @@ gadi_refuse_login() {
   fi
 }
 
+# scratch/qk73-only jobs cannot write /g/data; do not fail the job on mkdir there.
+gadi_mkdir_p() {
+  local d
+  for d in "$@"; do
+    [[ -z "${d}" ]] && continue
+    if [[ -d "${d}" ]]; then
+      continue
+    fi
+    if mkdir -p "${d}" 2>/dev/null; then
+      continue
+    fi
+    if [[ "${d}" == /g/data/* ]]; then
+      echo "WARN: skip mkdir (gdata read-only or not mounted on compute): ${d}" >&2
+      continue
+    fi
+    echo "ERROR: cannot create directory: ${d}" >&2
+    return 1
+  done
+}
+
 gadi_ensure_paths() {
   export ROOT="${ROOT:-/scratch/qk73/${USER}}"
   if [[ ! -d "${ROOT}/MMA2" ]] && [[ -d "/g/data/mv44/${USER}/MMA2" ]]; then
@@ -21,13 +41,17 @@ gadi_ensure_paths() {
   export MMA_ROOT="${MMA_ROOT:-${ROOT}/MMA2}"
   export EB_ROOT="${EB_ROOT:-${ROOT}/EmbodiedBench}"
   export CONDA_ENV="${CONDA_ENV:-${ROOT}/envs/embench}"
+  # Never default conda package cache to gdata on qk73-only storage.
+  if [[ "${CONDA_PKGS_DIRS:-}" == /g/data/* ]]; then
+    CONDA_PKGS_DIRS="${ROOT}/conda_pkgs"
+  fi
   export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-${ROOT}/conda_pkgs}"
   if [[ -d "/scratch/qk73/${USER}" ]]; then
     export TMPDIR="${TMPDIR:-/scratch/qk73/${USER}/tmp}"
   else
     export TMPDIR="${TMPDIR:-/scratch/mv44/${USER}/tmp}"
   fi
-  mkdir -p "${CONDA_PKGS_DIRS}" "${TMPDIR}"
+  gadi_mkdir_p "${CONDA_PKGS_DIRS}" "${TMPDIR}"
 }
 
 # PBS jobs are non-interactive; ~/.bashrc often returns early and skips conda init.
