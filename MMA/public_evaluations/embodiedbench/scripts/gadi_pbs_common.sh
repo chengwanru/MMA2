@@ -47,7 +47,10 @@ gadi_ensure_paths() {
   fi
   export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-${ROOT}/conda_pkgs}"
   if [[ -d "/scratch/qk73/${USER}" ]]; then
-    export TMPDIR="${TMPDIR:-/scratch/qk73/${USER}/tmp}"
+    # PBS may inherit login TMPDIR=/g/data/... (read-only on scratch-only jobs).
+    if [[ -z "${TMPDIR:-}" ]] || [[ "${TMPDIR}" == /g/data/* ]]; then
+      export TMPDIR="/scratch/qk73/${USER}/tmp"
+    fi
   else
     export TMPDIR="${TMPDIR:-/scratch/mv44/${USER}/tmp}"
   fi

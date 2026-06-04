@@ -102,13 +102,21 @@ PY
 }
 
 _xvfb_bin() {
+  local cand
   if command -v Xvfb >/dev/null 2>&1; then
     command -v Xvfb
     return 0
   fi
-  if [[ -n "${CONDA_PREFIX:-}" ]] && [[ -x "${CONDA_PREFIX}/bin/Xvfb" ]]; then
-    echo "${CONDA_PREFIX}/bin/Xvfb"
-    return 0
+  if [[ -n "${CONDA_PREFIX:-}" ]]; then
+    for cand in \
+      "${CONDA_PREFIX}/bin/Xvfb" \
+      "${CONDA_PREFIX}/libexec/Xvfb" \
+      "${CONDA_PREFIX}/sbin/Xvfb"; do
+      if [[ -x "${cand}" ]]; then
+        echo "${cand}"
+        return 0
+      fi
+    done
   fi
   return 1
 }
@@ -116,30 +124,36 @@ _xvfb_bin() {
 # AI2-THOR: CloudRendering needs libvulkan; else Linux64 needs a real X display.
 # EmbodiedBench defaults X_DISPLAY to :1 — without Xvfb that fails on headless Gadi.
 _setup_thor_rendering() {
-  if [[ "${EMBODIEDBENCH_FORCE_XVFB:-0}" == "1" ]]; then
-    :
-  elif _has_vulkan; then
-    unset DISPLAY || true
-    unset X_DISPLAY || true
-    echo "AI2-THOR: libvulkan found — CloudRendering (DISPLAY unset)."
-    return 0
+  local force_xvfb=0
+  [[ "${EMBODIEDBENCH_FORCE_XVFB:-0}" == "1" ]] && force_xvfb=1
+
+  if [[ "${force_xvfb}" -eq 0 ]]; then
+    if _has_vulkan; then
+      unset DISPLAY || true
+      unset X_DISPLAY || true
+      echo "AI2-THOR: libvulkan found — CloudRendering (DISPLAY unset)."
+      return 0
+    fi
+    set +e
+    for _m in Vulkan vulkan libvulkan-loader; do
+      module load "${_m}" 2>/dev/null && echo "Loaded module: ${_m}" && break
+    done
+    set -e
+    if _has_vulkan; then
+      unset DISPLAY || true
+      unset X_DISPLAY || true
+      echo "AI2-THOR: libvulkan available after modules — CloudRendering."
+      return 0
+    fi
+  else
+    echo "AI2-THOR: EMBODIEDBENCH_FORCE_XVFB=1 — skip CloudRendering, use Xvfb."
   fi
 
   set +e
-  for _m in Vulkan vulkan libvulkan-loader; do
-    module load "${_m}" 2>/dev/null && echo "Loaded module: ${_m}" && break
-  done
   for _m in Xvfb/21.1.3-GCCcore-11.3.0 Xvfb xorg-x11-server-xvfb; do
     module load "${_m}" 2>/dev/null && echo "Loaded module: ${_m}" && break
   done
   set -e
-
-  if [[ "${EMBODIEDBENCH_FORCE_XVFB:-0}" != "1" ]] && _has_vulkan; then
-    unset DISPLAY || true
-    unset X_DISPLAY || true
-    echo "AI2-THOR: libvulkan available after modules — CloudRendering."
-    return 0
-  fi
 
   local xd="${EMBODIEDBENCH_X_DISPLAY:-:99}"
   local xvfb

@@ -19,7 +19,11 @@
 set -eo pipefail
 cd "${PBS_O_WORKDIR:-.}"
 
-PEV="/g/data/mv44/${USER}/MMA2/MMA/public_evaluations/embodiedbench"
+ROOT="${ROOT:-/scratch/qk73/${USER}}"
+PEV="${PEV_DIR:-${MMA_ROOT:-${ROOT}/MMA2}/MMA/public_evaluations/embodiedbench}"
+if [[ ! -f "${PEV}/scripts/gadi_pbs_common.sh" ]]; then
+  PEV="/g/data/mv44/${USER}/MMA2/MMA/public_evaluations/embodiedbench"
+fi
 # shellcheck source=scripts/gadi_pbs_common.sh
 source "${PEV}/scripts/gadi_pbs_common.sh"
 gadi_ensure_paths

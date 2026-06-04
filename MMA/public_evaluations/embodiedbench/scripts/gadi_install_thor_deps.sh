@@ -18,7 +18,7 @@ if [[ -z "${ENV_PATH}" ]]; then
 fi
 
 gadi_ensure_paths
-mkdir -p "${CONDA_PKGS_DIRS}" "${TMPDIR}"
+gadi_mkdir_p "${CONDA_PKGS_DIRS}" "${TMPDIR}"
 
 if [[ -z "${CONDA_PREFIX:-}" ]]; then
   gadi_activate_conda "${ENV_PATH}"
@@ -42,17 +42,38 @@ sys.exit(0 if ok else 1)
 PY
 }
 
-if _verify_vulkan 2>/dev/null; then
-  echo "libvulkan already present in ${CONDA_PREFIX}; skipping install."
-  exit 0
-fi
+_verify_xvfb() {
+  if command -v Xvfb >/dev/null 2>&1; then
+    echo "Xvfb OK: $(command -v Xvfb)"
+    return 0
+  fi
+  if [[ -x "${CONDA_PREFIX}/bin/Xvfb" ]]; then
+    echo "Xvfb OK: ${CONDA_PREFIX}/bin/Xvfb"
+    return 0
+  fi
+  return 1
+}
 
-echo "Installing libvulkan-loader into ${CONDA_PREFIX} (TMPDIR=${TMPDIR}) on $(hostname -s) ..."
+echo "Installing Thor deps into ${CONDA_PREFIX} (TMPDIR=${TMPDIR}) on $(hostname -s) ..."
 
 # embench .condarc may set solver=libmamba without conda-libmamba-solver — force classic only.
 export CONDA_NO_PLUGINS=true
 export CONDA_SOLVER=classic
-conda install -y --solver classic -c conda-forge libvulkan-loader
 
-_verify_vulkan
-echo "Done. On login, submit smoke only: qsub .../submit_embench_memory_smoke_gadi.pbs"
+if ! _verify_vulkan 2>/dev/null; then
+  echo "Installing libvulkan-loader ..."
+  conda install -y --solver classic -c conda-forge libvulkan-loader
+  _verify_vulkan
+else
+  echo "libvulkan already present; skipping."
+fi
+
+if ! _verify_xvfb 2>/dev/null; then
+  echo "Installing xorg-xvfb (Xvfb binary for headless Thor) ..."
+  conda install -y --solver classic -c conda-forge xorg-xvfb
+  _verify_xvfb
+else
+  echo "Xvfb already present; skipping."
+fi
+
+echo "Done. Re-submit: qsub .../submit_embench_memory_smoke_gadi.pbs with EMBODIEDBENCH_FORCE_XVFB=1"
