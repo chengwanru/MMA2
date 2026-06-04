@@ -13,12 +13,20 @@ gadi_refuse_login() {
 }
 
 gadi_ensure_paths() {
-  export ROOT="${ROOT:-/g/data/mv44/${USER}}"
+  export ROOT="${ROOT:-/scratch/qk73/${USER}}"
+  if [[ ! -d "${ROOT}/MMA2" ]] && [[ -d "/g/data/mv44/${USER}/MMA2" ]]; then
+    ROOT="/g/data/mv44/${USER}"
+  fi
+  export ROOT
   export MMA_ROOT="${MMA_ROOT:-${ROOT}/MMA2}"
   export EB_ROOT="${EB_ROOT:-${ROOT}/EmbodiedBench}"
-  export CONDA_ENV="${CONDA_ENV:-/g/data/mv44/${USER}/envs/embench}"
-  export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-/g/data/mv44/${USER}/conda_pkgs}"
-  export TMPDIR="${TMPDIR:-/scratch/mv44/${USER}/tmp}"
+  export CONDA_ENV="${CONDA_ENV:-${ROOT}/envs/embench}"
+  export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-${ROOT}/conda_pkgs}"
+  if [[ -d "/scratch/qk73/${USER}" ]]; then
+    export TMPDIR="${TMPDIR:-/scratch/qk73/${USER}/tmp}"
+  else
+    export TMPDIR="${TMPDIR:-/scratch/mv44/${USER}/tmp}"
+  fi
   mkdir -p "${CONDA_PKGS_DIRS}" "${TMPDIR}"
 }
 
@@ -48,7 +56,9 @@ gadi_find_conda_base() {
     fi
   fi
   for candidate in \
+    "/scratch/qk73/${USER}/miniconda3" \
     "/g/data/mv44/${USER}/miniconda3" \
+    "/scratch/mv44/${USER}/miniconda3" \
     "/g/data/mv44/${USER}/anaconda3" \
     "${HOME}/miniconda3" \
     "${HOME}/anaconda3"; do

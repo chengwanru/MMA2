@@ -25,7 +25,12 @@
 set -eo pipefail
 cd "${PBS_O_WORKDIR:-.}"
 
-PEV_DEFAULT="/g/data/mv44/${USER}/MMA2/MMA/public_evaluations/embodiedbench"
+# qk73 jobs often use storage=scratch/qk73 only (no gdata). Prefer -v ROOT=... or this script's directory.
+ROOT="${ROOT:-/scratch/qk73/${USER}}"
+PEV_DEFAULT="${PEV_DIR:-${MMA_ROOT:-${ROOT}/MMA2}/MMA/public_evaluations/embodiedbench}"
+if [[ ! -f "${PEV_DEFAULT}/scripts/gadi_pbs_common.sh" ]]; then
+  PEV_DEFAULT="/g/data/mv44/${USER}/MMA2/MMA/public_evaluations/embodiedbench"
+fi
 # shellcheck source=scripts/gadi_pbs_common.sh
 source "${PEV_DEFAULT}/scripts/gadi_pbs_common.sh"
 gadi_ensure_paths
@@ -44,7 +49,7 @@ set -e
 gadi_activate_conda "${CONDA_ENV}"
 
 export GADI_SMOKE_DEBUG="${GADI_SMOKE_DEBUG:-1}"
-export HF_HOME="${HF_HOME:-/g/data/mv44/${USER}/hf_cache}"
+export HF_HOME="${HF_HOME:-${ROOT}/hf_cache}"
 export MMA_SKIP_GIT_PULL="${MMA_SKIP_GIT_PULL:-1}"
 
 cd "${MMA_ROOT}/MMA/public_evaluations/embodiedbench"

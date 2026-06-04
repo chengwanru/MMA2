@@ -264,8 +264,12 @@ export EMBODIEDBENCH_THOR_PLATFORM="${EMBODIEDBENCH_THOR_PLATFORM:-CloudRenderin
 unset DISPLAY || true
 unset X_DISPLAY || true
 # Reuse ai2thor binaries from gdata (prefetch on login: scripts/gadi_prefetch_ai2thor_cloud.sh).
-if [[ -d "/g/data/mv44/${USER}/ai2thor" ]]; then
-  ln -sfn "/g/data/mv44/${USER}/ai2thor" "${HOME}/.ai2thor" 2>/dev/null || true
+_ai2thor_home="${ROOT}/ai2thor"
+if [[ ! -d "${_ai2thor_home}" ]] && [[ -d "/g/data/mv44/${USER}/ai2thor" ]]; then
+  _ai2thor_home="/g/data/mv44/${USER}/ai2thor"
+fi
+if [[ -d "${_ai2thor_home}" ]]; then
+  ln -sfn "${_ai2thor_home}" "${HOME}/.ai2thor" 2>/dev/null || true
 fi
 
 if [[ "${GADI_SMOKE_DEBUG:-0}" == "1" ]]; then

@@ -22,7 +22,10 @@
 # Avoid nounset (-u): same Gadi/bashrc pitfalls as one_node_gadi (CLUSTER_NCI_GADI.md).
 set -eo pipefail
 
-ROOT="${ROOT:-/g/data/mv44/${USER}}"
+ROOT="${ROOT:-/scratch/qk73/${USER}}"
+if [[ ! -d "${ROOT}/MMA2" ]] && [[ -d "/g/data/mv44/${USER}/MMA2" ]]; then
+  ROOT="/g/data/mv44/${USER}"
+fi
 EB_ROOT="${EB_ROOT:-${ROOT}/EmbodiedBench}"
 MMA_ROOT="${MMA_ROOT:-${ROOT}/MMA2}"
 export ROOT EB_ROOT MMA_ROOT
