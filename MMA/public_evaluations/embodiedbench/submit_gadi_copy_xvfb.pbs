@@ -1,0 +1,27 @@
+#!/bin/bash
+# Copy Xvfb from Gadi /apps or module into embench (compute has modules; login does not).
+#
+# On login:
+#   cd /scratch/qk73/$USER/logs
+#   qsub -P qk73 -q normal -l storage=scratch/qk73 \
+#     -v ROOT=/scratch/qk73/$USER,CONDA_ENV=/scratch/qk73/$USER/envs/embench \
+#     /scratch/qk73/$USER/MMA2/MMA/public_evaluations/embodiedbench/submit_gadi_copy_xvfb.pbs
+
+#PBS -P mv44
+#PBS -q normal
+#PBS -l ncpus=1,mem=8GB,walltime=00:15:00
+#PBS -l storage=scratch/mv44+gdata/mv44
+#PBS -N copy_xvfb
+#PBS -j oe
+
+set -eo pipefail
+cd "${PBS_O_WORKDIR:-.}"
+
+ROOT="${ROOT:-/scratch/qk73/${USER}}"
+PEV="${PEV_DIR:-${ROOT}/MMA2/MMA/public_evaluations/embodiedbench}"
+# shellcheck source=scripts/gadi_pbs_common.sh
+source "${PEV}/scripts/gadi_pbs_common.sh"
+gadi_ensure_paths
+export MMA_SKIP_GIT_PULL=1
+
+bash "${PEV}/scripts/gadi_copy_xvfb_to_embench.sh" "${CONDA_ENV}"

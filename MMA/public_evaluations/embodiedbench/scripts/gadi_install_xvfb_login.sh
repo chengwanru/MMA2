@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Install Xvfb into embench on Gadi LOGIN by copying from NCI module tree.
-# conda-forge has no usable xorg-xvfb runtime package; compute nodes have no network.
+# Install Xvfb into embench on Gadi.
 #
-# Usage:
-#   conda activate /scratch/qk73/$USER/envs/embench
-#   bash gadi_install_xvfb_login.sh
+# Login nodes usually have NO Xvfb module. Use compute copy instead:
+#   qsub .../submit_gadi_copy_xvfb.pbs
+#
+# If module load Xvfb works on login, this script copies into embench.
 set -eo pipefail
 
 if [[ -z "${CONDA_PREFIX:-}" ]]; then
@@ -45,7 +45,11 @@ done
 
 if [[ -z "${src}" || ! -x "${src}" ]]; then
   echo "ERROR: could not find Xvfb via 'module load Xvfb' on login." >&2
-  echo "  Try: module avail Xvfb 2>&1 | head -20" >&2
+  echo "  Gadi login nodes often lack Xvfb. On login run:" >&2
+  echo "    qsub -P qk73 -q normal -l storage=scratch/qk73 \\" >&2
+  echo "      -v ROOT=/scratch/qk73/\$USER,CONDA_ENV=/scratch/qk73/\$USER/envs/embench \\" >&2
+  echo "      .../submit_gadi_copy_xvfb.pbs" >&2
+  echo "  Or try: find /apps -name Xvfb 2>/dev/null | head -5" >&2
   exit 1
 fi
 
