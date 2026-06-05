@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Install Xvfb into embench on Gadi LOGIN.
-# Compute nodes (normal/gpuvolta) have no internet — do not qsub conda install there.
+# Install Xvfb into embench on Gadi LOGIN by copying from NCI module tree.
+# conda-forge has no usable xorg-xvfb runtime package; compute nodes have no network.
 #
 # Usage:
 #   conda activate /scratch/qk73/$USER/envs/embench
@@ -13,29 +13,59 @@ if [[ -z "${CONDA_PREFIX:-}" ]]; then
   exit 1
 fi
 
-if command -v Xvfb >/dev/null 2>&1; then
-  echo "Xvfb already: $(command -v Xvfb)"
-  exit 0
-fi
 if [[ -x "${CONDA_PREFIX}/bin/Xvfb" ]]; then
   echo "Xvfb already: ${CONDA_PREFIX}/bin/Xvfb"
   exit 0
 fi
 
-echo "Installing xorg-xvfb into ${CONDA_PREFIX} (login node has network) ..."
-export CONDA_NO_PLUGINS=true
-export CONDA_SOLVER=classic
-conda install -y --solver classic -c conda-forge xorg-xvfb
+gadi_init_modules() {
+  if command -v module >/dev/null 2>&1; then
+    return 0
+  fi
+  for f in /etc/profile.d/modules.sh /usr/share/Modules/init/bash /etc/profile.d/lmod.sh; do
+    if [[ -f "${f}" ]]; then
+      # shellcheck source=/dev/null
+      source "${f}"
+      return 0
+    fi
+  done
+  return 1
+}
 
-if command -v Xvfb >/dev/null 2>&1; then
-  echo "OK: $(command -v Xvfb)"
-  Xvfb -help 2>&1 | head -3 || true
-  exit 0
-fi
-if [[ -x "${CONDA_PREFIX}/bin/Xvfb" ]]; then
-  echo "OK: ${CONDA_PREFIX}/bin/Xvfb"
-  exit 0
+gadi_init_modules || true
+
+src=""
+for mod in Xvfb/21.1.3-GCCcore-11.3.0 Xvfb xorg-x11-server-xvfb; do
+  if module load "${mod}" 2>/dev/null; then
+    echo "Loaded module: ${mod}"
+    src="$(command -v Xvfb 2>/dev/null || true)"
+    [[ -n "${src}" && -x "${src}" ]] && break
+  fi
+done
+
+if [[ -z "${src}" || ! -x "${src}" ]]; then
+  echo "ERROR: could not find Xvfb via 'module load Xvfb' on login." >&2
+  echo "  Try: module avail Xvfb 2>&1 | head -20" >&2
+  exit 1
 fi
 
-echo "ERROR: Xvfb not found after install" >&2
-exit 1
+echo "Source Xvfb: ${src}"
+mkdir -p "${CONDA_PREFIX}/bin" "${CONDA_PREFIX}/lib"
+install -m 755 "${src}" "${CONDA_PREFIX}/bin/Xvfb"
+
+echo "Copying shared libraries referenced by Xvfb ..."
+ldd "${CONDA_PREFIX}/bin/Xvfb" | awk '/=>/ {print $3}' | while read -r lib; do
+  [[ -n "${lib}" && -f "${lib}" ]] || continue
+  base="$(basename "${lib}")"
+  if [[ ! -e "${CONDA_PREFIX}/lib/${base}" ]]; then
+    cp -a "${lib}" "${CONDA_PREFIX}/lib/${base}" 2>/dev/null || true
+  fi
+done
+
+export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+if ! "${CONDA_PREFIX}/bin/Xvfb" -help >/dev/null 2>&1; then
+  echo "WARN: ${CONDA_PREFIX}/bin/Xvfb -help failed; binary copied but may need more libs on compute." >&2
+fi
+
+echo "OK: ${CONDA_PREFIX}/bin/Xvfb"
+command -v Xvfb || true

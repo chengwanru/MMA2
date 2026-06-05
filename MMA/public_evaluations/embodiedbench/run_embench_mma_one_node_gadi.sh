@@ -74,6 +74,10 @@ _activate_conda() {
 
 _activate_conda
 
+# PBS jobs need module(1) for Xvfb/CUDA; functions live in gadi_pbs_common.sh.
+# shellcheck source=scripts/gadi_pbs_common.sh
+source "${PEV_DIR}/scripts/gadi_pbs_common.sh"
+
 # Conda-installed libvulkan is often under $CONDA_PREFIX/lib but not on default loader path.
 if [[ -n "${CONDA_PREFIX:-}" ]] && [[ -d "${CONDA_PREFIX}/lib" ]]; then
   export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
@@ -149,6 +153,8 @@ _setup_thor_rendering() {
     echo "AI2-THOR: EMBODIEDBENCH_FORCE_XVFB=1 — skip CloudRendering, use Xvfb."
   fi
 
+  gadi_init_modules 2>/dev/null || true
+
   set +e
   for _m in Xvfb/21.1.3-GCCcore-11.3.0 Xvfb xorg-x11-server-xvfb; do
     module load "${_m}" 2>/dev/null && echo "Loaded module: ${_m}" && break
@@ -157,12 +163,12 @@ _setup_thor_rendering() {
 
   local xd="${EMBODIEDBENCH_X_DISPLAY:-:99}"
   local xvfb
-  xvfb="$(_xvfb_bin)" || true
+  xvfb="${XVFB_BIN:-$(_xvfb_bin || true)}"
   if [[ -z "${xvfb}" ]]; then
     echo "ERROR: No libvulkan for CloudRendering and no Xvfb in PATH or \$CONDA_PREFIX/bin." >&2
-    echo "  On login, submit (do not conda install on login):" >&2
-    echo "    qsub ${MMA_ROOT}/MMA/public_evaluations/embodiedbench/submit_gadi_install_thor_deps.pbs" >&2
-    echo "  Then re-submit submit_embench_memory_smoke_gadi.pbs" >&2
+    echo "  On login (after: conda activate .../envs/embench):" >&2
+    echo "    bash ${MMA_ROOT}/MMA/public_evaluations/embodiedbench/scripts/gadi_install_xvfb_login.sh" >&2
+    echo "  Or: module load Xvfb/21.1.3-GCCcore-11.3.0 && export XVFB_BIN=\$(command -v Xvfb)" >&2
     exit 1
   fi
   rm -f "/tmp/.X${xd#:}-lock" 2>/dev/null || true

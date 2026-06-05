@@ -97,6 +97,20 @@ gadi_find_conda_base() {
   return 1
 }
 
+gadi_init_modules() {
+  if command -v module >/dev/null 2>&1; then
+    return 0
+  fi
+  for f in /etc/profile.d/modules.sh /usr/share/Modules/init/bash /etc/profile.d/lmod.sh; do
+    if [[ -f "${f}" ]]; then
+      # shellcheck source=/dev/null
+      source "${f}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 gadi_activate_conda() {
   local env_path="${1:-${CONDA_ENV}}"
   if [[ -z "${env_path}" ]]; then
