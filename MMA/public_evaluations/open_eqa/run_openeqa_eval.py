@@ -51,6 +51,7 @@ Memory is cleared between samples so episodes do not leak into each other.
 import argparse
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -130,8 +131,16 @@ def _load_samples(path: str, limit: Optional[int] = None) -> List[Dict[str, Any]
     return samples
 
 
-def _reset_mma_memory() -> None:
-    """Clear persisted MMA memory so each OpenEQA episode starts fresh."""
+def _clear_speculative_client_cache() -> None:
+    try:
+        import mma.llm_api.llm_client as _llm_client_module
+        _llm_client_module._speculative_memory_client_cache = None
+    except Exception:
+        pass
+
+
+def _reset_mma_sqlite() -> None:
+    """Remove persisted MMA sqlite files (call only when no agent holds the DB open)."""
     mma_dir = Path.home() / ".mma"
     if mma_dir.exists():
         for path in mma_dir.glob("sqlite.db*"):
@@ -139,11 +148,42 @@ def _reset_mma_memory() -> None:
                 path.unlink()
             except OSError:
                 pass
+
+
+def _close_mma_agent(agent: AgentWrapper) -> None:
+    """Release MMA DB connections before deleting ~/.mma/sqlite.db*."""
+    if agent.agent_name != "mma":
+        return
     try:
-        import mma.llm_api.llm_client as _llm_client_module
-        _llm_client_module._speculative_memory_client_cache = None
+        if hasattr(agent, "agent") and agent.agent is not None:
+            if hasattr(agent.agent, "client") and hasattr(agent.agent.client, "server"):
+                del agent.agent.client.server
+            del agent.agent
+            agent.agent = None
     except Exception:
         pass
+    time.sleep(0.1)
+
+
+def _create_mma_agent(config_path: str) -> AgentWrapper:
+    _reset_mma_sqlite()
+    agent = AgentWrapper(
+        agent_name="mma",
+        config_path=config_path,
+        model_name=None,
+    )
+    agent.prepare_before_asking_questions()
+    return agent
+
+
+def _reinit_mma_agent(agent: AgentWrapper, config_path: str) -> None:
+    """Fresh sqlite + new inner MMA agent; keeps model cache when possible."""
+    _close_mma_agent(agent)
+    _reset_mma_sqlite()
+    from mma.agent import AgentWrapper as mmaAgent
+
+    agent.agent = mmaAgent(config_path)
+    agent.prepare_before_asking_questions()
 
 
 def _predict_sample(agent: AgentWrapper, question: str, image_paths: Optional[List[str]]) -> str:
@@ -181,26 +221,13 @@ def _run_variant(
     Returns:
         List of result dicts with predictions.
     """
-    try:
-        import mma.llm_api.llm_client as _llm_client_module
-        _llm_client_module._speculative_memory_client_cache = None
-    except Exception:
-        pass
+    _clear_speculative_client_cache()
     if variant_name == "baseline" and use_speculative_baseline:
         os.environ["MMA_SPECULATIVE_BASELINE"] = "1"
     else:
         os.environ.pop("MMA_SPECULATIVE_BASELINE", None)
 
-    _reset_mma_memory()
-
-    # Instantiate MMA agent via public_evaluations AgentWrapper
-    agent = AgentWrapper(
-        agent_name="mma",
-        config_path=config_path,
-        model_name=None,
-    )
-    agent.prepare_before_asking_questions()
-
+    agent: Optional[AgentWrapper] = None
     results: List[Dict[str, Any]] = []
 
     for idx, sample in enumerate(samples):
@@ -214,7 +241,10 @@ def _run_variant(
         if isinstance(image_paths, str):
             image_paths = [image_paths]
 
-        _reset_mma_memory()
+        if agent is None:
+            agent = _create_mma_agent(config_path)
+        else:
+            _reinit_mma_agent(agent, config_path)
 
         try:
             prediction = _predict_sample(agent, question, image_paths)
@@ -235,6 +265,9 @@ def _run_variant(
                 result.setdefault("metadata", {})[k] = v
 
         results.append(result)
+
+    if agent is not None:
+        _close_mma_agent(agent)
 
     return results
 
