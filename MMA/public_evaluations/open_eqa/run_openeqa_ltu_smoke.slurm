@@ -46,17 +46,27 @@ if [[ ! -e "${ROOT}/mma/__init__.py" ]]; then
   echo "Created symlink ${ROOT}/mma -> MMA"
 fi
 
-# Data may live under open_eqa/data or legacy public_evaluations/data
+# Prefer data dir that has frame folders (HF download may live under public_evaluations/data/)
 DATA_DIR="${DATA_DIR:-}"
+FALLBACK=""
 for candidate in \
   "${OEQA}/data/open_eqa_data" \
   "${PEV}/data/open_eqa_data"; do
   if [[ -d "${candidate}" && -f "${candidate}/open-eqa-v0.json" ]]; then
-    DATA_DIR="${candidate}"
-    break
+    if [[ -d "${candidate}/hm3d-v0" || -d "${candidate}/scannet-v0" ]]; then
+      DATA_DIR="${candidate}"
+      break
+    fi
+    FALLBACK="${candidate}"
   fi
 done
+DATA_DIR="${DATA_DIR:-${FALLBACK}}"
 [[ -n "${DATA_DIR}" ]] || { echo "ERROR: open-eqa-v0.json not found" >&2; exit 1; }
+if [[ ! -d "${DATA_DIR}/hm3d-v0" && ! -d "${DATA_DIR}/scannet-v0" ]]; then
+  echo "ERROR: no hm3d-v0/scannet-v0 under ${DATA_DIR}" >&2
+  echo "HF frames are likely at ${PEV}/data/open_eqa_data" >&2
+  exit 1
+fi
 echo "Using DATA_DIR=${DATA_DIR}"
 
 cd "${OEQA}"
