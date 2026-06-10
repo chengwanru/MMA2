@@ -26,12 +26,12 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _format_eqa_question(question: str) -> str:
-  return (
-      "Answer using episodic memory from the scene you memorized. "
-      "Reply with ONLY the brief factual answer (a few words). "
-      "Do not ask clarifying questions or call tools.\n\n"
-      f"Question: {question}"
-  )
+    return (
+        "Answer using episodic memory from the scene you memorized. "
+        "Reply with ONLY the brief factual answer (a few words). "
+        "Do not ask clarifying questions or call tools.\n\n"
+        f"Question: {question}"
+    )
 
 
 def _configure_offline_mma(agent) -> None:
