@@ -24,18 +24,13 @@ cd /data/group/zhaolab/project/MMA2/MMA/public_evaluations/open_eqa
 
 ## 1. 多模态 JSON
 
-帧数据若在 `../data/open_eqa_data`（HF 下载的默认位置），脚本会自动选用；手动跑时：
+QA 在 `open_eqa/data/`，帧 tar 在 `../data/open_eqa_data/`（HF 下载）。脚本会**按需解压** `.tar`：
 
 ```bash
-DATA_DIR=/data/group/zhaolab/project/MMA2/MMA/public_evaluations/data/open_eqa_data
+cd /data/group/zhaolab/project/MMA2/MMA/public_evaluations/open_eqa
+source /data/group/zhaolab/project/miniconda/bin/activate embench
 
-mkdir -p data/frames
-ln -sfn "${DATA_DIR}/hm3d-v0"   data/frames/hm3d-v0
-ln -sfn "${DATA_DIR}/scannet-v0" data/frames/scannet-v0
-
-python make_openeqa_multimodal.py \
-  --src "${DATA_DIR}/open-eqa-v0.json" \
-  --frames_root data/frames
+python make_openeqa_multimodal.py
 # 应输出 Wrote N multimodal samples（N > 0）
 ```
 
@@ -77,5 +72,5 @@ tail -f logs/openeqa_smoke_<jobid>.log
 | 报错 | 处理 |
 |------|------|
 | `No module named mma` | `cd MMA2/MMA && ln -sfn MMA mma` |
-| multimodal 条数为 0 | 帧在 `../data/open_eqa_data/hm3d-v0`，不在 `open_eqa/data/` |
+| multimodal 条数为 0 | 确认 `../data/open_eqa_data/hm3d-v0/*.tar` 存在；首次运行会解压 tar |
 | CUDA / 模型加载失败 | 确认 `HF_HOME` 里已有 Qwen3-VL 权重 |

@@ -46,42 +46,40 @@ if [[ ! -e "${ROOT}/mma/__init__.py" ]]; then
   echo "Created symlink ${ROOT}/mma -> MMA"
 fi
 
-# Prefer data dir that has frame folders (HF download may live under public_evaluations/data/)
-DATA_DIR="${DATA_DIR:-}"
-FALLBACK=""
+# QA json and frame tars may live in different directories on LTU
+QA_SRC=""
 for candidate in \
-  "${OEQA}/data/open_eqa_data" \
-  "${PEV}/data/open_eqa_data"; do
-  if [[ -d "${candidate}" && -f "${candidate}/open-eqa-v0.json" ]]; then
-    if [[ -d "${candidate}/hm3d-v0" || -d "${candidate}/scannet-v0" ]]; then
-      DATA_DIR="${candidate}"
-      break
-    fi
-    FALLBACK="${candidate}"
+  "${OEQA}/data/open_eqa_data/open-eqa-v0.json" \
+  "${PEV}/data/open_eqa_data/open-eqa-v0.json"; do
+  if [[ -f "${candidate}" ]]; then
+    QA_SRC="${candidate}"
+    break
   fi
 done
-DATA_DIR="${DATA_DIR:-${FALLBACK}}"
-[[ -n "${DATA_DIR}" ]] || { echo "ERROR: open-eqa-v0.json not found" >&2; exit 1; }
-if [[ ! -d "${DATA_DIR}/hm3d-v0" && ! -d "${DATA_DIR}/scannet-v0" ]]; then
-  echo "ERROR: no hm3d-v0/scannet-v0 under ${DATA_DIR}" >&2
-  echo "HF frames are likely at ${PEV}/data/open_eqa_data" >&2
-  exit 1
-fi
-echo "Using DATA_DIR=${DATA_DIR}"
+[[ -n "${QA_SRC}" ]] || { echo "ERROR: open-eqa-v0.json not found" >&2; exit 1; }
+
+FRAMES_ROOT="${FRAMES_ROOT:-}"
+for candidate in \
+  "${PEV}/data/open_eqa_data" \
+  "${OEQA}/data/open_eqa_data"; do
+  if [[ -d "${candidate}/hm3d-v0" || -d "${candidate}/scannet-v0" ]]; then
+    FRAMES_ROOT="${candidate}"
+    break
+  fi
+done
+[[ -n "${FRAMES_ROOT}" ]] || { echo "ERROR: hm3d-v0/scannet-v0 not found" >&2; exit 1; }
+echo "Using QA_SRC=${QA_SRC}"
+echo "Using FRAMES_ROOT=${FRAMES_ROOT}"
 
 cd "${OEQA}"
 
-# frames symlinks + multimodal json (skip if already built)
-mkdir -p data/frames
-ln -sfn "${DATA_DIR}/hm3d-v0"   data/frames/hm3d-v0
-ln -sfn "${DATA_DIR}/scannet-v0" data/frames/scannet-v0
-
 INPUT="${INPUT:-data/open-eqa-multimodal.json}"
-# Rebuild if missing or empty (repo may ship [] placeholder)
+MAX_SAMPLES="${MAX_SAMPLES:-20}"
 python make_openeqa_multimodal.py \
-  --src "${DATA_DIR}/open-eqa-v0.json" \
-  --frames_root data/frames \
-  --dst "${INPUT}"
+  --src "${QA_SRC}" \
+  --frames_root "${FRAMES_ROOT}" \
+  --dst "${INPUT}" \
+  --max_samples "${MAX_SAMPLES}"
 
 OUTPUT="${OUTPUT:-results/smoke_${SLURM_JOB_ID}.json}"
 LIMIT="${LIMIT:-5}"
