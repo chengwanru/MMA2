@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=openeqa
-#SBATCH --partition=gpu
+#SBATCH -p day
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G

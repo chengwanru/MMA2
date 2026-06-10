@@ -1,55 +1,76 @@
-# OpenEQA（GPU）
+# OpenEQA（LTU）
 
-`mma_speculative_memory.yaml` 跑 **baseline / ours** → `results/*.json`。
+在LTU + `mma_speculative_memory.yaml` 跑 **baseline / ours**，输出 `results/*.json`。
 
 ## 流程
 
-1. `make_openeqa_multimodal.py` → `data/open-eqa-multimodal.json`
-2. `run_openeqa_eval.py` → baseline + ours
+1. `make_openeqa_multimodal.py` — 生成 `data/open-eqa-multimodal.json`
+2. `run_openeqa_eval.py` — 同一 yaml 跑两遍（baseline 自动关 memory/draft）
 
-## Gadi（qk73）
-
-```bash
-# 环境（一次性）
-conda activate /scratch/mv44/zz1230/envs/mma
-cd /g/data/mv44/zz1230/MMA2/MMA && ln -sfn MMA mma
-export MMA_OFFLINE=1 HF_HOME=/scratch/mv44/zz1230/hf_cache
-
-# 数据 + multimodal（已完成可跳过）
-cd public_evaluations/open_eqa
-# make_openeqa_multimodal.py → 应得 1636 samples
-
-# 提交 GPU 作业（用 qk73，不是 mv44）
-mkdir -p /scratch/qk73/$USER/logs
-cd /scratch/qk73/$USER/logs
-qsub -v LIMIT=5 /g/data/mv44/$USER/MMA2/MMA/public_evaluations/open_eqa/run_openeqa_qk73.pbs
-
-qstat -u $USER
-tail -f /g/data/mv44/$USER/MMA2/MMA/public_evaluations/open_eqa/logs/*.o*
-```
-
-| 变量 | 默认 |
-|------|------|
-| 项目 | `qk73` |
-| 代码 | `/g/data/mv44/zz1230/MMA2` |
-| conda | `/scratch/mv44/zz1230/envs/mma` |
-| 模型 | `/scratch/mv44/zz1230/hf_cache` |
-
-全量：`qsub -v LIMIT=0,WALLTIME=24:00:00`（需足够 KSU，改 PBS walltime 或复制脚本）
-
-额度：`nci_account -P qk73`
-
-## LTU
+## 环境
 
 ```bash
-sbatch run_openeqa_ltu.slurm
+conda activate mma
+cd /data/group/zhaolab/project/MMA2/MMA
+ln -sfn MMA mma    # 只需一次
+
+export MMA_OFFLINE=1
+export HF_HOME=/data/group/zhaolab/project/hf_cache
 ```
+
+工作目录：
+
+```bash
+cd /data/group/zhaolab/project/MMA2/MMA/public_evaluations/open_eqa
+```
+
+## 1. 多模态 JSON
+
+```bash
+mkdir -p data/frames
+ln -sfn "$(pwd)/data/open_eqa_data/hm3d-v0"   data/frames/hm3d-v0
+ln -sfn "$(pwd)/data/open_eqa_data/scannet-v0" data/frames/scannet-v0
+
+python make_openeqa_multimodal.py
+```
+
+## 2. 跑评测
+
+先试 20 条：
+
+```bash
+python run_openeqa_eval.py \
+  --input_file data/open-eqa-multimodal.json \
+  --output_file results/smoke.json \
+  --baseline_config ../../configs/mma_speculative_memory.yaml \
+  --ours_config ../../configs/mma_speculative_memory.yaml \
+  --limit 20
+```
+
+全量：去掉 `--limit`。
+
+## Slurm smoke（LTU）
+
+```bash
+cd /data/group/zhaolab/project/MMA2/MMA/public_evaluations/open_eqa
+mkdir -p logs
+sbatch run_openeqa_ltu_smoke.slurm
+```
+
+默认 `--limit 5`。改条数：`LIMIT=20 sbatch run_openeqa_ltu_smoke.slurm`
+
+看日志：
+
+```bash
+tail -f logs/openeqa_smoke_<jobid>.log
+```
+
+全量：`sbatch run_openeqa_ltu.slurm`
 
 ## 常见报错
 
 | 报错 | 处理 |
 |------|------|
-| `mv44 does not have sufficient allocation` | 改用 `-P qk73` |
-| Hold + comment 额度不足 | 缩短 walltime / 减 `--limit`，或找导师加 KSU |
-| `No module named mma` | `ln -sfn MMA mma` |
-| multimodal 0 条 | 解压 tar → 重建 multimodal |
+| `No module named mma` | `cd MMA2/MMA && ln -sfn MMA mma` |
+| multimodal 条数为 0 | 检查 `data/frames` 链接 |
+| CUDA / 模型加载失败 | 确认 `HF_HOME` 里已有 Qwen3-VL 权重 |

@@ -1,34 +1,31 @@
 #!/bin/bash
 # NCI Gadi — OpenEQA on project qk73 (GPU).
+# Defaults assume everything lives under /scratch/qk73/$USER (post-mv44 migration).
 #
 # Submit from login:
 #   mkdir -p /scratch/qk73/$USER/logs
 #   cd /scratch/qk73/$USER/logs
-#   qsub -v LIMIT=5 /g/data/mv44/$USER/MMA2/MMA/public_evaluations/open_eqa/run_openeqa_qk73.pbs
-#
-# Optional env overrides:
-#   LIMIT=20  WALLTIME=01:00:00  OUTPUT=results/smoke.json
+#   qsub -v LIMIT=5 /scratch/qk73/$USER/MMA2/MMA/public_evaluations/open_eqa/run_openeqa_qk73.pbs
 
 #PBS -P qk73
 #PBS -q gpuvolta
 #PBS -l ncpus=12,ngpus=1,mem=64GB,walltime=00:30:00
-#PBS -l storage=scratch/qk73+scratch/mv44+gdata/mv44
+#PBS -l storage=scratch/qk73
 #PBS -N openeqa
 #PBS -j oe
 
 set -eo pipefail
 cd "${PBS_O_WORKDIR:-.}"
 
-GDATA_ROOT="${GDATA_ROOT:-/g/data/mv44/${USER}}"
-MMA_ROOT="${MMA_ROOT:-${GDATA_ROOT}/MMA2}"
+ROOT="${ROOT:-/scratch/qk73/${USER}}"
+MMA_ROOT="${MMA_ROOT:-${ROOT}/MMA2}"
 OEQA="${MMA_ROOT}/MMA/public_evaluations/open_eqa"
-CONDA_ENV="${CONDA_ENV:-/scratch/mv44/${USER}/envs/mma}"
-HF_HOME="${HF_HOME:-/scratch/mv44/${USER}/hf_cache}"
-TMPDIR="${TMPDIR:-/scratch/qk73/${USER}/tmp}"
+CONDA_ENV="${CONDA_ENV:-${ROOT}/envs/mma}"
+HF_HOME="${HF_HOME:-${ROOT}/hf_cache}"
+TMPDIR="${TMPDIR:-${ROOT}/tmp}"
 
 LIMIT="${LIMIT:-5}"
 OUTPUT="${OUTPUT:-${OEQA}/results/openeqa_${PBS_JOBID}.json}"
-WALLTIME="${WALLTIME:-}"  # set at qsub time if needed; header default 00:30:00
 
 mkdir -p "${TMPDIR}" "${OEQA}/logs" "${OEQA}/results"
 export MMA_OFFLINE=1 HF_HOME TMPDIR
@@ -39,10 +36,9 @@ for _c in cuda/12.6.2 cuda/12.6.1 cuda/12.4.2 cuda; do
 done
 set -e
 
-# conda on PBS compute nodes
 CONDA_BASE="${CONDA_BASE:-}"
-if [[ -z "${CONDA_BASE}" && -f "/scratch/mv44/${USER}/miniconda3/etc/profile.d/conda.sh" ]]; then
-  CONDA_BASE="/scratch/mv44/${USER}/miniconda3"
+if [[ -z "${CONDA_BASE}" && -f "${ROOT}/miniconda3/etc/profile.d/conda.sh" ]]; then
+  CONDA_BASE="${ROOT}/miniconda3"
 elif [[ -z "${CONDA_BASE}" && -f "/scratch/qk73/${USER}/miniconda3/etc/profile.d/conda.sh" ]]; then
   CONDA_BASE="/scratch/qk73/${USER}/miniconda3"
 fi

@@ -1,0 +1,75 @@
+#!/bin/bash
+# NCI Gadi — minimal OpenEQA smoke on qk73 (~0.75 KSU reserved for 15 min gpuvolta).
+#
+# Submit:
+#   mkdir -p /scratch/qk73/$USER/logs
+#   cd /scratch/qk73/$USER/logs
+#   qsub /scratch/qk73/$USER/MMA2/MMA/public_evaluations/open_eqa/run_openeqa_qk73_smoke.pbs
+
+#PBS -P qk73
+#PBS -q gpuvolta
+#PBS -l ncpus=12,ngpus=1,mem=64GB,walltime=00:15:00
+#PBS -l storage=scratch/qk73
+#PBS -N openeqa_smoke
+#PBS -j oe
+
+set -eo pipefail
+cd "${PBS_O_WORKDIR:-.}"
+
+ROOT="${ROOT:-/scratch/qk73/${USER}}"
+MMA_ROOT="${MMA_ROOT:-${ROOT}/MMA2}"
+MMA_PKG="${MMA_ROOT}/MMA"
+OEQA="${MMA_PKG}/public_evaluations/open_eqa"
+CONDA_ENV="${CONDA_ENV:-${ROOT}/envs/mma}"
+PYTHON="${PYTHON:-${CONDA_ENV}/bin/python}"
+OUTPUT="${OUTPUT:-${OEQA}/results/smoke.json}"
+
+# PBS inherits login env; qk73-only jobs cannot write /g/data/mv44.
+export HF_HOME="${ROOT}/hf_cache"
+export TMPDIR="${ROOT}/tmp"
+unset PYTHONPATH CONDA_PKGS_DIRS
+export MMA_OFFLINE=1 HF_HOME TMPDIR
+export PYTHONPATH="${MMA_PKG}:${MMA_PKG}/public_evaluations"
+
+mkdir -p "${TMPDIR}" "${OEQA}/logs" "${OEQA}/results"
+
+# mma import needs MMA/mma -> MMA (Linux is case-sensitive)
+if [[ ! -e "${MMA_PKG}/mma/__init__.py" ]]; then
+  if [[ -d "${MMA_PKG}/MMA" ]]; then
+    ln -sfn MMA "${MMA_PKG}/mma"
+    echo "Created symlink ${MMA_PKG}/mma -> MMA"
+  else
+    echo "ERROR: missing ${MMA_PKG}/MMA (mma python package)" >&2
+    exit 1
+  fi
+fi
+
+[[ -x "${PYTHON}" ]] || { echo "ERROR: python not found: ${PYTHON}" >&2; exit 1; }
+[[ -f "${OEQA}/data/open-eqa-multimodal.json" ]] || { echo "ERROR: missing multimodal json" >&2; exit 1; }
+[[ -f "${MMA_PKG}/configs/mma_speculative_memory.yaml" ]] || { echo "ERROR: missing config yaml" >&2; exit 1; }
+
+set +e
+for _c in cuda/12.6.2 cuda/12.6.1 cuda/12.4.2 cuda; do
+  module load "${_c}" 2>/dev/null && echo "Loaded ${_c}" && break
+done
+set -e
+
+echo "=== preflight ==="
+"${PYTHON}" - <<'PY'
+import sys
+print("python:", sys.executable)
+import torch
+print("cuda:", torch.cuda.is_available(), "gpus:", torch.cuda.device_count())
+import mma
+print("mma:", mma.__path__)
+PY
+
+cd "${OEQA}"
+"${PYTHON}" run_openeqa_eval.py \
+  --input_file data/open-eqa-multimodal.json \
+  --output_file "${OUTPUT}" \
+  --baseline_config "${MMA_PKG}/configs/mma_speculative_memory.yaml" \
+  --ours_config "${MMA_PKG}/configs/mma_speculative_memory.yaml" \
+  --limit 1
+
+echo "Wrote ${OUTPUT}"
