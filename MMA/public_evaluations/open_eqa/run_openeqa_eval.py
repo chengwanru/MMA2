@@ -139,19 +139,43 @@ def _clear_speculative_client_cache() -> None:
         pass
 
 
-def _reset_mma_sqlite() -> None:
-    """Remove persisted MMA sqlite files (call only when no agent holds the DB open)."""
-    mma_dir = Path.home() / ".mma"
-    if mma_dir.exists():
-        for path in mma_dir.glob("sqlite.db*"):
+def _prepare_sample_sqlite(sample_idx: int) -> Path:
+    """Use a fresh writable sqlite file per sample (avoid ~/.mma races on HPC)."""
+    import sqlite3
+
+    root = Path(
+        os.environ.get(
+            "OPENEQA_SQLITE_DIR",
+            os.environ.get("SLURM_TMPDIR", str(Path.home() / ".mma")),
+        )
+    )
+    db_dir = root / "openeqa_sqlite"
+    db_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(db_dir, 0o777)
+    except OSError:
+        pass
+
+    db_path = db_dir / f"sample_{sample_idx}.db"
+    for path in (db_path, Path(f"{db_path}-wal"), Path(f"{db_path}-shm")):
+        if path.exists():
             try:
                 path.unlink()
             except OSError:
                 pass
 
+    sqlite3.connect(str(db_path)).close()
+    try:
+        os.chmod(db_path, 0o666)
+    except OSError:
+        pass
+
+    os.environ["MMA_SQLITE_PATH"] = str(db_path)
+    return db_path
+
 
 def _close_mma_agent(agent: AgentWrapper) -> None:
-    """Release MMA DB connections before deleting ~/.mma/sqlite.db*."""
+    """Release MMA DB connections before switching sample sqlite."""
     if agent.agent_name != "mma":
         return
     try:
@@ -165,8 +189,8 @@ def _close_mma_agent(agent: AgentWrapper) -> None:
     time.sleep(0.1)
 
 
-def _create_mma_agent(config_path: str) -> AgentWrapper:
-    _reset_mma_sqlite()
+def _create_mma_agent(config_path: str, sample_idx: int) -> AgentWrapper:
+    _prepare_sample_sqlite(sample_idx)
     agent = AgentWrapper(
         agent_name="mma",
         config_path=config_path,
@@ -176,10 +200,10 @@ def _create_mma_agent(config_path: str) -> AgentWrapper:
     return agent
 
 
-def _reinit_mma_agent(agent: AgentWrapper, config_path: str) -> None:
-    """Fresh sqlite + new inner MMA agent; keeps model cache when possible."""
+def _reinit_mma_agent(agent: AgentWrapper, config_path: str, sample_idx: int) -> None:
+    """Fresh per-sample sqlite + new inner MMA agent; keeps model cache when possible."""
     _close_mma_agent(agent)
-    _reset_mma_sqlite()
+    _prepare_sample_sqlite(sample_idx)
     from mma.agent import AgentWrapper as mmaAgent
 
     agent.agent = mmaAgent(config_path)
@@ -242,9 +266,9 @@ def _run_variant(
             image_paths = [image_paths]
 
         if agent is None:
-            agent = _create_mma_agent(config_path)
+            agent = _create_mma_agent(config_path, idx)
         else:
-            _reinit_mma_agent(agent, config_path)
+            _reinit_mma_agent(agent, config_path, idx)
 
         try:
             prediction = _predict_sample(agent, question, image_paths)
