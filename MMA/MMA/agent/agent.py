@@ -1456,6 +1456,21 @@ class Agent(BaseAgent):
                                 )
                                 continue
 
+                    # speculative_memory returns plain text (no tool_calls)
+                    if topics is None and response.choices:
+                        raw = getattr(response.choices[0].message, "content", None)
+                        if raw and isinstance(raw, str):
+                            try:
+                                parsed = json.loads(raw)
+                                if isinstance(parsed, dict) and parsed.get("topic"):
+                                    topics = parsed["topic"]
+                            except json.JSONDecodeError:
+                                match = re.search(r'"topic"\s*:\s*"([^"]+)"', raw)
+                                if match:
+                                    topics = match.group(1)
+                                elif raw.strip():
+                                    topics = raw.strip()[:200]
+
                     if topics is not None:
                         kwargs["topics"] = topics
                         self.update_topic_if_changed(topics)

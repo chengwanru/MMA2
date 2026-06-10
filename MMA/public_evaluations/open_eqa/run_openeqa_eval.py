@@ -43,25 +43,23 @@ Notes:
   ours = same config with memory and speculative decoding. Use this on clusters
   where the baseline config (e.g. mma_gpt4.yaml) cannot reach external APIs.
 
-OpenEQA episodic-memory eval (MMA): for each sample, ingest episode frames with
-memorizing=True, then ask the question with memorizing=False (same as LOCOMO).
-Memory is cleared between samples so episodes do not leak into each other.
+OpenEQA episodic-memory eval (MMA): each sample runs in a **subprocess** with a
+fresh HOME (isolated ~/.mma/sqlite.db), ingests frames with memorizing=True +
+force_absorb_content=True, then asks the question with memorizing=False.
 """
 
 import argparse
 import json
 import os
-import time
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from common.paths import ensure_pev_on_syspath
-
-ensure_pev_on_syspath()
-from common.agent import AgentWrapper
-
 _OPEN_EQA_DIR = Path(__file__).resolve().parent
 _CONFIGS_DIR = _OPEN_EQA_DIR.parent.parent / "configs"
+_ONE_SAMPLE_SCRIPT = _OPEN_EQA_DIR / "run_openeqa_one_sample.py"
 
 
 def parse_args() -> argparse.Namespace:
@@ -116,7 +114,6 @@ def _load_samples(path: str, limit: Optional[int] = None) -> List[Dict[str, Any]
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    # Allow {"data": [...]} wrapper or bare list
     if isinstance(data, dict) and "data" in data:
         samples = data["data"]
     else:
@@ -131,107 +128,72 @@ def _load_samples(path: str, limit: Optional[int] = None) -> List[Dict[str, Any]
     return samples
 
 
-def _clear_speculative_client_cache() -> None:
-    try:
-        import mma.llm_api.llm_client as _llm_client_module
-        _llm_client_module._speculative_memory_client_cache = None
-    except Exception:
-        pass
-
-
-def _prepare_sample_sqlite(sample_idx: int) -> Path:
-    """Use a fresh writable sqlite file per sample (avoid ~/.mma races on HPC)."""
-    import sqlite3
-
+def _sample_home_dir(sample_idx: int, sample_id: Any) -> Path:
     root = Path(
         os.environ.get(
-            "OPENEQA_SQLITE_DIR",
-            os.environ.get("SLURM_TMPDIR", str(Path.home() / ".mma")),
+            "OPENEQA_HOME_ROOT",
+            os.environ.get("SLURM_TMPDIR", "/tmp"),
         )
     )
-    db_dir = root / "openeqa_sqlite"
-    db_dir.mkdir(parents=True, exist_ok=True)
+    safe_id = str(sample_id).replace("/", "_")[:48]
+    return root / "openeqa_home" / f"{sample_idx}_{safe_id}"
+
+
+def _run_sample_subprocess(
+    sample: Dict[str, Any],
+    sample_idx: int,
+    config_path: str,
+    use_speculative_baseline: bool,
+) -> str:
+    """Fresh Python process + HOME => clean ~/.mma per sample."""
+    home_dir = _sample_home_dir(sample_idx, sample.get("id", sample_idx))
+    home_dir.mkdir(parents=True, exist_ok=True)
+
+    env = os.environ.copy()
+    if use_speculative_baseline:
+        env["MMA_SPECULATIVE_BASELINE"] = "1"
+    else:
+        env.pop("MMA_SPECULATIVE_BASELINE", None)
+
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".json",
+        prefix="openeqa_sample_",
+        delete=False,
+        encoding="utf-8",
+    ) as tmp:
+        json.dump(sample, tmp, ensure_ascii=False)
+        sample_path = tmp.name
+
     try:
-        os.chmod(db_dir, 0o777)
-    except OSError:
-        pass
-
-    db_path = db_dir / f"sample_{sample_idx}.db"
-    for path in (db_path, Path(f"{db_path}-wal"), Path(f"{db_path}-shm")):
-        if path.exists():
-            try:
-                path.unlink()
-            except OSError:
-                pass
-
-    sqlite3.connect(str(db_path)).close()
-    try:
-        os.chmod(db_path, 0o666)
-    except OSError:
-        pass
-
-    os.environ["MMA_SQLITE_PATH"] = str(db_path)
-    return db_path
-
-
-def _close_mma_agent(agent: AgentWrapper) -> None:
-    """Release MMA DB connections before switching sample sqlite."""
-    if agent.agent_name != "mma":
-        return
-    try:
-        if hasattr(agent, "agent") and agent.agent is not None:
-            if hasattr(agent.agent, "client") and hasattr(agent.agent.client, "server"):
-                del agent.agent.client.server
-            del agent.agent
-            agent.agent = None
-    except Exception:
-        pass
-    time.sleep(0.1)
-
-
-def _create_mma_agent(config_path: str, sample_idx: int) -> AgentWrapper:
-    _prepare_sample_sqlite(sample_idx)
-    agent = AgentWrapper(
-        agent_name="mma",
-        config_path=config_path,
-        model_name=None,
-    )
-    agent.prepare_before_asking_questions()
-    return agent
-
-
-def _reinit_mma_agent(agent: AgentWrapper, config_path: str, sample_idx: int) -> None:
-    """Fresh per-sample sqlite + new inner MMA agent; keeps model cache when possible."""
-    _close_mma_agent(agent)
-    _prepare_sample_sqlite(sample_idx)
-    from mma.agent import AgentWrapper as mmaAgent
-
-    agent.agent = mmaAgent(config_path)
-    agent.prepare_before_asking_questions()
-
-
-def _predict_sample(agent: AgentWrapper, question: str, image_paths: Optional[List[str]]) -> str:
-    """
-    Episodic-memory EQA: memorize episode frames, then answer from memory.
-
-    Matches LOCOMO / OpenEQA EM-EQA — do not pass images with the question.
-    Local VL models need force_absorb_content: default limit is 20 frames before
-    auto-absorb, but OpenEQA smoke uses far fewer frames per episode.
-    """
-    if image_paths:
-        agent.agent.send_message(
-            message=None,
-            image_uris=image_paths,
-            memorizing=True,
-            force_absorb_content=True,
-            delete_after_upload=False,
-            async_upload=False,
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(_ONE_SAMPLE_SCRIPT),
+                "--config",
+                os.path.abspath(config_path),
+                "--sample_json",
+                sample_path,
+                "--home_dir",
+                str(home_dir),
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
         )
-        agent.prepare_before_asking_questions()
-    return agent.send_message(
-        message=question,
-        memorizing=False,
-    )
+        if proc.returncode != 0:
+            err_tail = (proc.stderr or proc.stdout or "")[-800:]
+            return f"ERROR: subprocess exit {proc.returncode}: {err_tail}"
+        lines = [ln for ln in (proc.stdout or "").strip().splitlines() if ln.strip()]
+        if not lines:
+            return "ERROR: empty subprocess stdout"
+        payload = json.loads(lines[-1])
+        return payload.get("prediction", "ERROR: missing prediction in subprocess output")
+    finally:
+        try:
+            os.unlink(sample_path)
+        except OSError:
+            pass
 
 
 def _run_variant(
@@ -240,44 +202,21 @@ def _run_variant(
     samples: List[Dict[str, Any]],
     use_speculative_baseline: bool = False,
 ) -> List[Dict[str, Any]]:
-    """
-    Run one variant (baseline or ours) over all samples.
-
-    Args:
-        variant_name: "baseline" or "ours" (used only for logging/metadata).
-        config_path:  MMA config file path for this variant.
-        samples:      List of QA items.
-        use_speculative_baseline: If True, baseline runs with MMA_SPECULATIVE_BASELINE=1 (no memory, 0 draft).
-    Returns:
-        List of result dicts with predictions.
-    """
-    _clear_speculative_client_cache()
-    if variant_name == "baseline" and use_speculative_baseline:
-        os.environ["MMA_SPECULATIVE_BASELINE"] = "1"
-    else:
-        os.environ.pop("MMA_SPECULATIVE_BASELINE", None)
-
-    agent: Optional[AgentWrapper] = None
+    baseline_flag = variant_name == "baseline" and use_speculative_baseline
     results: List[Dict[str, Any]] = []
 
     for idx, sample in enumerate(samples):
         question: str = sample.get("question", "")
         if not question:
-            # Skip malformed samples
             continue
 
-        image_paths: Optional[List[str]] = sample.get("image_paths") or sample.get("images")
-        # Normalize image paths to list[str] or None
-        if isinstance(image_paths, str):
-            image_paths = [image_paths]
-
-        if agent is None:
-            agent = _create_mma_agent(config_path, idx)
-        else:
-            _reinit_mma_agent(agent, config_path, idx)
-
         try:
-            prediction = _predict_sample(agent, question, image_paths)
+            prediction = _run_sample_subprocess(
+                sample=sample,
+                sample_idx=idx,
+                config_path=config_path,
+                use_speculative_baseline=baseline_flag,
+            )
         except Exception as e:  # pragma: no cover - defensive
             prediction = f"ERROR: {e}"
 
@@ -289,15 +228,11 @@ def _run_variant(
             "prediction": prediction,
         }
 
-        # Preserve any extra metadata fields from the sample
         for k, v in sample.items():
             if k not in {"id", "question", "answer", "image_paths", "images"}:
                 result.setdefault("metadata", {})[k] = v
 
         results.append(result)
-
-    if agent is not None:
-        _close_mma_agent(agent)
 
     return results
 
@@ -318,15 +253,6 @@ def main() -> None:
             samples=samples,
             use_speculative_baseline=use_speculative_baseline,
         )
-        if args.variants == "both":
-            try:
-                import gc
-                import torch
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            except Exception:
-                pass
 
     if args.variants in ("both", "ours"):
         results["ours"] = _run_variant(
@@ -346,4 +272,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

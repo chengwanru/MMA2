@@ -50,7 +50,7 @@ python make_openeqa_multimodal.py --max_samples 20
 
 ## 2. 跑评测
 
-MMA 按 **Episodic Memory** 流程：每条样本先 `memorizing=True` + `force_absorb_content=True` 写入 episode 帧（本地 VL 默认要攒满 20 帧才 absorb，OpenEQA 帧数少必须强制），再 `memorizing=False` 只问问题（与 LOCOMO 相同）。
+MMA 按 **Episodic Memory** 流程：每条样本在**独立子进程**（`HOME=$SLURM_TMPDIR/...`）里先 `memorizing=True` + `force_absorb_content=True` 写入帧，再 `memorizing=False` 只问问题。避免多条样本共用 `~/.mma/sqlite.db` 导致 schema 损坏。
 
 先试 2 条：
 

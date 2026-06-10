@@ -38,7 +38,7 @@ export MMA_OFFLINE="${MMA_OFFLINE:-1}"
 export HF_HOME="${HF_HOME:-/data/group/zhaolab/project/hf_cache}"
 export PYTHONPATH="${ROOT}:${PEV}:${PYTHONPATH:-}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
-export OPENEQA_SQLITE_DIR="${OPENEQA_SQLITE_DIR:-${SLURM_TMPDIR:-/tmp}}"
+export OPENEQA_HOME_ROOT="${OPENEQA_HOME_ROOT:-${SLURM_TMPDIR:-/tmp}}"
 
 mkdir -p "${OEQA}/logs" "${OEQA}/results"
 
