@@ -67,12 +67,11 @@ ln -sfn "${DATA_DIR}/hm3d-v0"   data/frames/hm3d-v0
 ln -sfn "${DATA_DIR}/scannet-v0" data/frames/scannet-v0
 
 INPUT="${INPUT:-data/open-eqa-multimodal.json}"
-if [[ ! -f "${INPUT}" ]]; then
-  python make_openeqa_multimodal.py \
-    --src "${DATA_DIR}/open-eqa-v0.json" \
-    --frames_root data/frames \
-    --dst "${INPUT}"
-fi
+# Rebuild if missing or empty (repo may ship [] placeholder)
+python make_openeqa_multimodal.py \
+  --src "${DATA_DIR}/open-eqa-v0.json" \
+  --frames_root data/frames \
+  --dst "${INPUT}"
 
 OUTPUT="${OUTPUT:-results/smoke_${SLURM_JOB_ID}.json}"
 LIMIT="${LIMIT:-5}"

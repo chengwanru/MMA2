@@ -30,6 +30,7 @@ ln -sfn "$(pwd)/data/open_eqa_data/hm3d-v0"   data/frames/hm3d-v0
 ln -sfn "$(pwd)/data/open_eqa_data/scannet-v0" data/frames/scannet-v0
 
 python make_openeqa_multimodal.py
+# 应输出 Wrote N multimodal samples（N > 0）
 ```
 
 ## 2. 跑评测
