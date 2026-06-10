@@ -538,16 +538,16 @@ class AgentWrapper():
                     context_window=128000,
                 )
             elif new_model == "qwen3-vl-speculative":
-                # Use same config for consistency, but do NOT assign to memory agents below:
-                # only chat_agent should use speculative_memory to avoid loading draft+target
-                # twice on a single GPU (would OOM on 32GB).
                 llm_config = LLMConfig(
                     model=new_model,
                     model_endpoint_type="speculative_memory",
                     context_window=8192,
                     max_tokens=256,
                 )
-                _skip_memory_agent_update = True
+                # Offline GPU eval needs memory agents on local VL too (default gpt-4o-mini needs API).
+                # SpeculativeMemoryClient is cached in llm_client (single draft+target load).
+                offline = os.environ.get("MMA_OFFLINE", "").strip().lower() in ("1", "true", "yes")
+                _skip_memory_agent_update = not offline
             else:
                 raise ValueError(f"Invalid memory model: {new_model}")
         
