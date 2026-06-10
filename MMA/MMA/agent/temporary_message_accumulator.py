@@ -329,7 +329,8 @@ class TemporaryMessageAccumulator:
                                     # Already uploaded file reference
                                     processed_image_uris.append(file_ref)
                             else:
-                                raise NotImplementedError("Non-GEMINI models do not support file uploads")
+                                # Local disk paths (e.g. Qwen3-VL offline / OpenEQA frame cache)
+                                processed_image_uris.append(file_ref)
                         
                         if has_pending_uploads:
                             # Keep for next cycle if any uploads are still pending
@@ -492,10 +493,16 @@ class TemporaryMessageAccumulator:
                 
                 # Add each image
                 for file_ref in file_refs:
-                    message_parts.append({
-                        'type': 'google_cloud_file_uri',
-                        'google_cloud_file_uri': file_ref.uri
-                    })
+                    if isinstance(file_ref, str):
+                        message_parts.append({
+                            'type': 'file_uri',
+                            'file_uri': file_ref,
+                        })
+                    else:
+                        message_parts.append({
+                            'type': 'google_cloud_file_uri',
+                            'google_cloud_file_uri': file_ref.uri,
+                        })
         
         # Add voice transcription if any
         if voice_transcription:

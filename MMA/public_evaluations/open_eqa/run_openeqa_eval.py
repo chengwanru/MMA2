@@ -215,13 +215,19 @@ def _predict_sample(agent: AgentWrapper, question: str, image_paths: Optional[Li
     Episodic-memory EQA: memorize episode frames, then answer from memory.
 
     Matches LOCOMO / OpenEQA EM-EQA — do not pass images with the question.
+    Local VL models need force_absorb_content: default limit is 20 frames before
+    auto-absorb, but OpenEQA smoke uses far fewer frames per episode.
     """
     if image_paths:
-        agent.send_message(
+        agent.agent.send_message(
             message=None,
             image_uris=image_paths,
             memorizing=True,
+            force_absorb_content=True,
+            delete_after_upload=False,
+            async_upload=False,
         )
+        agent.prepare_before_asking_questions()
     return agent.send_message(
         message=question,
         memorizing=False,
