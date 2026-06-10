@@ -50,7 +50,9 @@ python make_openeqa_multimodal.py --max_samples 20
 
 ## 2. 跑评测
 
-先试 20 条：
+MMA 按 **Episodic Memory** 流程：每条样本先 `memorizing=True` 写入 episode 帧，再 `memorizing=False` 只问问题（与 LOCOMO 相同）。
+
+先试 2 条：
 
 ```bash
 python run_openeqa_eval.py \

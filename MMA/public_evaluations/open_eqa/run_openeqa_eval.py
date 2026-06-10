@@ -42,6 +42,10 @@ Notes:
   baseline = same model with MMA_SPECULATIVE_BASELINE=1 (no memory, 0 draft steps);
   ours = same config with memory and speculative decoding. Use this on clusters
   where the baseline config (e.g. mma_gpt4.yaml) cannot reach external APIs.
+
+OpenEQA episodic-memory eval (MMA): for each sample, ingest episode frames with
+memorizing=True, then ask the question with memorizing=False (same as LOCOMO).
+Memory is cleared between samples so episodes do not leak into each other.
 """
 
 import argparse
@@ -126,6 +130,40 @@ def _load_samples(path: str, limit: Optional[int] = None) -> List[Dict[str, Any]
     return samples
 
 
+def _reset_mma_memory() -> None:
+    """Clear persisted MMA memory so each OpenEQA episode starts fresh."""
+    mma_dir = Path.home() / ".mma"
+    if mma_dir.exists():
+        for path in mma_dir.glob("sqlite.db*"):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+    try:
+        import mma.llm_api.llm_client as _llm_client_module
+        _llm_client_module._speculative_memory_client_cache = None
+    except Exception:
+        pass
+
+
+def _predict_sample(agent: AgentWrapper, question: str, image_paths: Optional[List[str]]) -> str:
+    """
+    Episodic-memory EQA: memorize episode frames, then answer from memory.
+
+    Matches LOCOMO / OpenEQA EM-EQA — do not pass images with the question.
+    """
+    if image_paths:
+        agent.send_message(
+            message=None,
+            image_uris=image_paths,
+            memorizing=True,
+        )
+    return agent.send_message(
+        message=question,
+        memorizing=False,
+    )
+
+
 def _run_variant(
     variant_name: str,
     config_path: str,
@@ -153,6 +191,8 @@ def _run_variant(
     else:
         os.environ.pop("MMA_SPECULATIVE_BASELINE", None)
 
+    _reset_mma_memory()
+
     # Instantiate MMA agent via public_evaluations AgentWrapper
     agent = AgentWrapper(
         agent_name="mma",
@@ -174,12 +214,10 @@ def _run_variant(
         if isinstance(image_paths, str):
             image_paths = [image_paths]
 
+        _reset_mma_memory()
+
         try:
-            prediction = agent.send_message(
-                message=question,
-                image_uris=image_paths,
-                memorizing=False,
-            )
+            prediction = _predict_sample(agent, question, image_paths)
         except Exception as e:  # pragma: no cover - defensive
             prediction = f"ERROR: {e}"
 
