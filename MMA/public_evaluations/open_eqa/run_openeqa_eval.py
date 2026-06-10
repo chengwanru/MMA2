@@ -92,6 +92,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional limit on number of samples to evaluate (for smoke tests).",
     )
+    parser.add_argument(
+        "--variants",
+        type=str,
+        default="both",
+        choices=("both", "baseline", "ours"),
+        help="Run baseline only, ours only, or both (both needs more GPU memory).",
+    )
 
     return parser.parse_args()
 
@@ -201,35 +208,39 @@ def main() -> None:
 
     use_speculative_baseline = os.path.abspath(args.baseline_config) == os.path.abspath(args.ours_config)
 
-    # Run baseline
-    baseline_results = _run_variant(
-        variant_name="baseline",
-        config_path=args.baseline_config,
-        samples=samples,
-        use_speculative_baseline=use_speculative_baseline,
-    )
+    results: Dict[str, List[Dict[str, Any]]] = {}
 
-    # Run ours (speculative + memory)
-    ours_results = _run_variant(
-        variant_name="ours",
-        config_path=args.ours_config,
-        samples=samples,
-        use_speculative_baseline=use_speculative_baseline,
-    )
+    if args.variants in ("both", "baseline"):
+        results["baseline"] = _run_variant(
+            variant_name="baseline",
+            config_path=args.baseline_config,
+            samples=samples,
+            use_speculative_baseline=use_speculative_baseline,
+        )
+        if args.variants == "both":
+            try:
+                import gc
+                import torch
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
+
+    if args.variants in ("both", "ours"):
+        results["ours"] = _run_variant(
+            variant_name="ours",
+            config_path=args.ours_config,
+            samples=samples,
+            use_speculative_baseline=use_speculative_baseline,
+        )
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output_file)), exist_ok=True)
     with open(args.output_file, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "baseline": baseline_results,
-                "ours": ours_results,
-            },
-            f,
-            ensure_ascii=False,
-            indent=2,
-        )
+        json.dump(results, f, ensure_ascii=False, indent=2)
 
-    print(f"Wrote results for {len(baseline_results)} samples to {args.output_file}")
+    ran = " + ".join(f"{k}={len(v)}" for k, v in results.items())
+    print(f"Wrote results ({ran}) to {args.output_file}")
 
 
 if __name__ == "__main__":

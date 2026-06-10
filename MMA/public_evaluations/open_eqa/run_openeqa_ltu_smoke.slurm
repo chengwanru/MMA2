@@ -37,6 +37,7 @@ fi
 export MMA_OFFLINE="${MMA_OFFLINE:-1}"
 export HF_HOME="${HF_HOME:-/data/group/zhaolab/project/hf_cache}"
 export PYTHONPATH="${ROOT}:${PEV}:${PYTHONPATH:-}"
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
 mkdir -p "${OEQA}/logs" "${OEQA}/results"
 
@@ -78,16 +79,19 @@ FRAME_CACHE="${FRAME_CACHE:-${SLURM_TMPDIR:-${OEQA}/data}/frame_cache}"
 mkdir -p "${FRAME_CACHE}"
 
 INPUT="${INPUT:-data/open-eqa-multimodal.json}"
-MAX_SAMPLES="${MAX_SAMPLES:-20}"
+MAX_SAMPLES="${MAX_SAMPLES:-10}"
+FRAMES_PER_EPISODE="${FRAMES_PER_EPISODE:-2}"
 python make_openeqa_multimodal.py \
   --src "${QA_SRC}" \
   --frames_root "${FRAMES_ROOT}" \
   --frame_cache "${FRAME_CACHE}" \
   --dst "${INPUT}" \
-  --max_samples "${MAX_SAMPLES}"
+  --max_samples "${MAX_SAMPLES}" \
+  --frames_per_episode "${FRAMES_PER_EPISODE}"
 
 OUTPUT="${OUTPUT:-results/smoke_${SLURM_JOB_ID}.json}"
-LIMIT="${LIMIT:-5}"
+LIMIT="${LIMIT:-2}"
+VARIANTS="${VARIANTS:-ours}"
 CFG="${ROOT}/configs/mma_speculative_memory.yaml"
 
 echo "=== preflight ==="
@@ -105,6 +109,7 @@ python run_openeqa_eval.py \
   --output_file "${OUTPUT}" \
   --baseline_config "${CFG}" \
   --ours_config "${CFG}" \
-  --limit "${LIMIT}"
+  --limit "${LIMIT}" \
+  --variants "${VARIANTS}"
 
 echo "Wrote ${OUTPUT}"

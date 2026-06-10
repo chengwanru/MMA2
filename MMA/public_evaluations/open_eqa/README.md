@@ -88,4 +88,4 @@ tail -f logs/openeqa_smoke_<jobid>.log
 | `No module named mma` | `cd MMA2/MMA && ln -sfn MMA mma` |
 | multimodal 条数为 0 | 确认 `../data/open_eqa_data/hm3d-v0/*.tar` 存在 |
 | inode 满 / 磁盘占满 | 勿整包解压 tar；跑 `bash cleanup_openeqa_extracted.sh` |
-| CUDA / 模型加载失败 | 确认 `HF_HOME` 里已有 Qwen3-VL 权重 |
+| CUDA OOM（40G GPU） | 默认 smoke 只跑 `VARIANTS=ours`、`LIMIT=2`、2 帧；baseline 另开 job：`VARIANTS=baseline sbatch ...` |
