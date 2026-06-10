@@ -9,11 +9,9 @@
 
 ## 环境
 
-```bash
-conda activate mma
-cd /data/group/zhaolab/project/MMA2/MMA
-ln -sfn MMA mma    # 只需一次
+LTU 用 group miniconda 的 **`embench`** 环境（与 EmbodiedBench 相同），脚本会自动 activate。
 
+```bash
 export MMA_OFFLINE=1
 export HF_HOME=/data/group/zhaolab/project/hf_cache
 ```

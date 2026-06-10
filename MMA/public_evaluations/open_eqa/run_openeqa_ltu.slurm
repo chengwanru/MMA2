@@ -14,11 +14,17 @@
 set -euo pipefail
 
 ROOT="${ROOT:-/data/group/zhaolab/project/MMA2/MMA}"
+PROJECT_ROOT="${PROJECT_ROOT:-/data/group/zhaolab/project}"
 PEV="${ROOT}/public_evaluations"
 OEQA="${PEV}/open_eqa"
 
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate "${CONDA_ENV:-mma}"
+if [[ -f "${PROJECT_ROOT}/miniconda/bin/activate" ]]; then
+  # shellcheck source=/dev/null
+  source "${PROJECT_ROOT}/miniconda/bin/activate" "${CONDA_ENV:-embench}"
+else
+  source "$(conda info --base)/etc/profile.d/conda.sh"
+  conda activate "${CONDA_ENV:-mma}"
+fi
 
 cd "${OEQA}"
 mkdir -p logs results

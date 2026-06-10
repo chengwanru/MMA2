@@ -21,11 +21,18 @@
 set -euo pipefail
 
 ROOT="${ROOT:-/data/group/zhaolab/project/MMA2/MMA}"
+PROJECT_ROOT="${PROJECT_ROOT:-/data/group/zhaolab/project}"
 PEV="${ROOT}/public_evaluations"
 OEQA="${PEV}/open_eqa"
 
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate "${CONDA_ENV:-mma}"
+# LTU: group miniconda + embench (same as run_embench_mma_one_node.sh)
+if [[ -f "${PROJECT_ROOT}/miniconda/bin/activate" ]]; then
+  # shellcheck source=/dev/null
+  source "${PROJECT_ROOT}/miniconda/bin/activate" "${CONDA_ENV:-embench}"
+else
+  source "$(conda info --base)/etc/profile.d/conda.sh"
+  conda activate "${CONDA_ENV:-mma}"
+fi
 
 export MMA_OFFLINE="${MMA_OFFLINE:-1}"
 export HF_HOME="${HF_HOME:-/data/group/zhaolab/project/hf_cache}"
