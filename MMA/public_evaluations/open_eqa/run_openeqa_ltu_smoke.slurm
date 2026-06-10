@@ -73,11 +73,16 @@ echo "Using FRAMES_ROOT=${FRAMES_ROOT}"
 
 cd "${OEQA}"
 
+# Minimal PNG cache: prefer node-local tmp (auto-freed); avoids inode blow-up on shared FS
+FRAME_CACHE="${FRAME_CACHE:-${SLURM_TMPDIR:-${OEQA}/data}/frame_cache}"
+mkdir -p "${FRAME_CACHE}"
+
 INPUT="${INPUT:-data/open-eqa-multimodal.json}"
 MAX_SAMPLES="${MAX_SAMPLES:-20}"
 python make_openeqa_multimodal.py \
   --src "${QA_SRC}" \
   --frames_root "${FRAMES_ROOT}" \
+  --frame_cache "${FRAME_CACHE}" \
   --dst "${INPUT}" \
   --max_samples "${MAX_SAMPLES}"
 

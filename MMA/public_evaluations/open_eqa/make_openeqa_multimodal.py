@@ -2,8 +2,9 @@
 """
 Build multimodal OpenEQA JSON for MMA eval.
 
-Reads open-eqa-v0.json plus episode frames under frames_root.
-Supports extracted episode folders or per-episode .tar archives (AIGeeksGroup HF layout).
+Reads open-eqa-v0.json and episode frames. Tar archives are NOT fully extracted;
+only up to --frames_per_episode PNGs per episode are written to --frame_cache
+to avoid inode exhaustion on shared filesystems.
 """
 
 import argparse
@@ -32,7 +33,6 @@ def _default_frames_root() -> str:
     for candidate in (
         _PEV_DIR / "data/open_eqa_data",
         _OPEN_EQA_DIR / "data/open_eqa_data",
-        _OPEN_EQA_DIR / "data/frames",
     ):
         if candidate.is_dir():
             return str(candidate)
@@ -46,7 +46,13 @@ def parse_args() -> argparse.Namespace:
         "--frames_root",
         type=str,
         default=_default_frames_root(),
-        help="Root with hm3d-v0/<episode>/ or hm3d-v0/<episode>.tar",
+        help="Root with hm3d-v0/<episode>.tar (read-only; do not full-extract here).",
+    )
+    parser.add_argument(
+        "--frame_cache",
+        type=str,
+        default=str(_OPEN_EQA_DIR / "data/frame_cache"),
+        help="Small cache for a few PNGs per episode (safe to delete after eval).",
     )
     parser.add_argument(
         "--dst",
@@ -59,7 +65,7 @@ def parse_args() -> argparse.Namespace:
         "--max_samples",
         type=int,
         default=None,
-        help="Stop after this many multimodal samples (smoke: avoids extracting all tars).",
+        help="Stop after this many samples (smoke).",
     )
     return parser.parse_args()
 
@@ -83,29 +89,60 @@ def _episode_tar_path(frames_root: str, episode: str) -> Optional[str]:
     return None
 
 
-def _extract_episode_tar(frames_root: str, episode: str, tar_path: str) -> None:
-    episode_dir = os.path.join(frames_root, episode)
-    if os.path.isdir(episode_dir) and _list_pngs(episode_dir):
-        return
+def _minimal_frames_from_tar(tar_path: str, cache_episode_dir: str, max_frames: int) -> List[str]:
+    """Extract at most max_frames PNGs from tar into cache (not the full episode)."""
+    os.makedirs(cache_episode_dir, exist_ok=True)
+    existing = _list_pngs(cache_episode_dir)
+    if len(existing) >= max_frames:
+        return existing[:max_frames]
 
-    extract_to = os.path.dirname(episode_dir)
-    os.makedirs(extract_to, exist_ok=True)
+    out_paths = list(existing)
     with tarfile.open(tar_path, "r:*") as tar:
-        tar.extractall(path=extract_to)
+        png_members = sorted(
+            (m for m in tar.getmembers() if m.isfile() and m.name.lower().endswith(".png")),
+            key=lambda m: m.name,
+        )
+        for member in png_members:
+            if len(out_paths) >= max_frames:
+                break
+            out_path = os.path.join(cache_episode_dir, os.path.basename(member.name))
+            if os.path.isfile(out_path):
+                if out_path not in out_paths:
+                    out_paths.append(out_path)
+                continue
+            extracted = tar.extractfile(member)
+            if extracted is None:
+                continue
+            with open(out_path, "wb") as f:
+                f.write(extracted.read())
+            out_paths.append(out_path)
+
+    return sorted(out_paths)[:max_frames]
 
 
-def _frame_paths_for_episode(frames_root: str, episode: str) -> List[str]:
-    episode_dir = os.path.join(frames_root, episode)
-    frame_paths = _list_pngs(episode_dir)
-    if frame_paths:
-        return frame_paths
+def _frame_paths_for_episode(
+    frames_root: str,
+    frame_cache: str,
+    episode: str,
+    max_frames: int,
+) -> tuple[List[str], bool]:
+    """Return (paths, pulled_from_tar)."""
+    cache_dir = os.path.join(frame_cache, episode)
+    cached = _list_pngs(cache_dir)
+    if len(cached) >= max_frames:
+        return cached[:max_frames], False
 
     tar_path = _episode_tar_path(frames_root, episode)
-    if not tar_path:
-        return []
+    if tar_path:
+        return _minimal_frames_from_tar(tar_path, cache_dir, max_frames), True
 
-    _extract_episode_tar(frames_root, episode, tar_path)
-    return _list_pngs(episode_dir)
+    # Legacy: fully extracted episode dir (avoid creating new ones)
+    legacy_dir = os.path.join(frames_root, episode)
+    legacy = _list_pngs(legacy_dir)
+    if legacy:
+        return legacy[:max_frames], False
+
+    return [], False
 
 
 def main() -> None:
@@ -114,12 +151,14 @@ def main() -> None:
     if not os.path.exists(args.src):
         raise FileNotFoundError(f"Source QA JSON not found: {args.src}")
 
+    os.makedirs(args.frame_cache, exist_ok=True)
+
     with open(args.src, "r", encoding="utf-8") as f:
         data: List[Dict[str, Any]] = json.load(f)
 
     out: List[Dict[str, Any]] = []
     missing_episodes = 0
-    extracted_tars = 0
+    tars_touched = 0
 
     for item in data:
         episode = item.get("episode_history")
@@ -129,22 +168,25 @@ def main() -> None:
         if not episode or not question:
             continue
 
-        before = os.path.isdir(os.path.join(args.frames_root, episode))
-        frame_paths = _frame_paths_for_episode(args.frames_root, episode)
-        if not before and frame_paths and _episode_tar_path(args.frames_root, episode):
-            extracted_tars += 1
+        frame_paths, from_tar = _frame_paths_for_episode(
+            args.frames_root,
+            args.frame_cache,
+            episode,
+            args.frames_per_episode,
+        )
+        if from_tar:
+            tars_touched += 1
 
         if not frame_paths:
             missing_episodes += 1
             continue
 
-        selected = frame_paths[: args.frames_per_episode]
         out.append(
             {
                 "id": item.get("question_id") or question,
                 "question": question,
                 "answer": answer,
-                "image_paths": [os.path.abspath(p) for p in selected],
+                "image_paths": [os.path.abspath(p) for p in frame_paths],
                 "episode_history": episode,
                 "category": item.get("category", ""),
             }
@@ -157,8 +199,9 @@ def main() -> None:
         json.dump(out, f, ensure_ascii=False, indent=2)
 
     print(f"Wrote {len(out)} multimodal samples to {args.dst}")
-    if extracted_tars:
-        print(f"Extracted frames from {extracted_tars} episode tar(s)")
+    print(f"Frame cache: {os.path.abspath(args.frame_cache)}")
+    if tars_touched:
+        print(f"Pulled minimal PNGs from {tars_touched} tar(s) (not full extract)")
     if missing_episodes:
         print(f"Skipped {missing_episodes} samples with no frames under {args.frames_root}")
 
