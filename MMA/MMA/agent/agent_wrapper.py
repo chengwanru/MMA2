@@ -475,11 +475,12 @@ class AgentWrapper():
                     context_window=128000,
                 )
             elif model_name == "qwen3-vl-speculative":
+                offline = os.environ.get("MMA_OFFLINE", "").strip().lower() in ("1", "true", "yes")
                 llm_config = LLMConfig(
                     model=model_name,
                     model_endpoint_type="speculative_memory",
                     context_window=8192,
-                    max_tokens=256,
+                    max_tokens=128 if offline else 256,
                 )
             else:
                 # Fallback to default_config for unsupported models
@@ -914,6 +915,14 @@ class AgentWrapper():
                 self.logger.warning("exception extracting response text: %s", e, exc_info=True)
                 return "ERROR"
             
+            # Speculative/offline VL may emit send_message("...") as plain text (no tool_calls).
+            if response_text and "send_message" in response_text:
+                m = re.search(r'send_message\s*\(\s*["\'](.+)', response_text, re.DOTALL)
+                if m:
+                    inner = re.sub(r'["\']?\s*\)\s*$', "", m.group(1)).strip()
+                    if inner:
+                        response_text = inner
+
             # Add conversation to accumulator
             self.temp_message_accumulator.add_user_conversation(message, response_text)
             

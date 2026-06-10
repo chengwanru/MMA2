@@ -25,6 +25,15 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _format_eqa_question(question: str) -> str:
+  return (
+      "Answer using episodic memory from the scene you memorized. "
+      "Reply with ONLY the brief factual answer (a few words). "
+      "Do not ask clarifying questions or call tools.\n\n"
+      f"Question: {question}"
+  )
+
+
 def _configure_offline_mma(agent) -> None:
     """Offline OpenEQA: BM25 memory search, no screenshot injection at QA."""
     agent.agent.include_recent_screenshots = False
@@ -63,7 +72,7 @@ def _predict_sample(sample: Dict[str, Any], config_path: str) -> Tuple[str, str]
         )
         agent.prepare_before_asking_questions()
 
-    prediction = agent.send_message(message=question, memorizing=False)
+    prediction = agent.send_message(message=_format_eqa_question(question), memorizing=False)
     if prediction == "ERROR":
         return "ERROR:qa:agent returned ERROR (see stderr_tail)", ""
     return prediction, ""
