@@ -181,14 +181,25 @@ def _run_sample_subprocess(
             capture_output=True,
             text=True,
         )
+        stderr_tail = (proc.stderr or "")[-4000:]
         if proc.returncode != 0:
             err_tail = (proc.stderr or proc.stdout or "")[-800:]
             return f"ERROR: subprocess exit {proc.returncode}: {err_tail}"
         lines = [ln for ln in (proc.stdout or "").strip().splitlines() if ln.strip()]
         if not lines:
-            return "ERROR: empty subprocess stdout"
+            return f"ERROR: empty subprocess stdout; stderr={stderr_tail[-500:]}"
         payload = json.loads(lines[-1])
-        return payload.get("prediction", "ERROR: missing prediction in subprocess output")
+        prediction = payload.get("prediction", "ERROR: missing prediction in subprocess output")
+        if str(prediction).startswith("ERROR"):
+            extra = payload.get("stderr_tail") or stderr_tail
+            if extra:
+                prediction = f"{prediction} | stderr={extra[-800:]}"
+            log_path = home_dir / "subprocess.stderr"
+            try:
+                log_path.write_text(stderr_tail, encoding="utf-8")
+            except OSError:
+                pass
+        return prediction
     finally:
         try:
             os.unlink(sample_path)

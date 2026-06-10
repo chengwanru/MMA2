@@ -12,8 +12,9 @@ import argparse
 import json
 import os
 import sys
+import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def _parse_args() -> argparse.Namespace:
@@ -24,13 +25,23 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _predict_sample(sample: Dict[str, Any], config_path: str) -> str:
+def _configure_offline_mma(agent) -> None:
+    """Use local HF embeddings and avoid injecting raw screenshots at QA time."""
+    from mma import EmbeddingConfig
+
+    agent.agent.include_recent_screenshots = False
+    if os.environ.get("MMA_OFFLINE", "").strip().lower() in ("1", "true", "yes"):
+        agent.agent.client.set_default_embedding_config(EmbeddingConfig.default_config("mma"))
+
+
+def _predict_sample(sample: Dict[str, Any], config_path: str) -> Tuple[str, str]:
     from common.paths import ensure_pev_on_syspath
 
     ensure_pev_on_syspath()
     from common.agent import AgentWrapper
 
     agent = AgentWrapper(agent_name="mma", config_path=config_path, model_name=None)
+    _configure_offline_mma(agent)
     agent.prepare_before_asking_questions()
 
     question: str = sample.get("question", "")
@@ -39,6 +50,10 @@ def _predict_sample(sample: Dict[str, Any], config_path: str) -> str:
         image_paths = [image_paths]
 
     if image_paths:
+        missing = [p for p in image_paths if not os.path.isfile(p)]
+        if missing:
+            return f"ERROR:memorize:missing frames: {missing[:2]}", ""
+
         agent.agent.send_message(
             message=None,
             image_uris=image_paths,
@@ -49,7 +64,10 @@ def _predict_sample(sample: Dict[str, Any], config_path: str) -> str:
         )
         agent.prepare_before_asking_questions()
 
-    return agent.send_message(message=question, memorizing=False)
+    prediction = agent.send_message(message=question, memorizing=False)
+    if prediction == "ERROR":
+        return "ERROR:qa:agent returned ERROR (see stderr_tail)", ""
+    return prediction, ""
 
 
 def main() -> None:
@@ -69,12 +87,17 @@ def main() -> None:
     with open(args.sample_json, "r", encoding="utf-8") as f:
         sample = json.load(f)
 
+    stderr_tail = ""
     try:
-        prediction = _predict_sample(sample, args.config)
-    except Exception as e:
-        prediction = f"ERROR: {e}"
+        prediction, _ = _predict_sample(sample, args.config)
+    except Exception:
+        prediction = "ERROR:exception"
+        stderr_tail = traceback.format_exc()
 
-    print(json.dumps({"prediction": prediction}, ensure_ascii=False))
+    print(json.dumps({
+        "prediction": prediction,
+        "stderr_tail": stderr_tail,
+    }, ensure_ascii=False))
 
 
 if __name__ == "__main__":

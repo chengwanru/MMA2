@@ -42,10 +42,15 @@ export OPENEQA_HOME_ROOT="${OPENEQA_HOME_ROOT:-${SLURM_TMPDIR:-/tmp}}"
 
 mkdir -p "${OEQA}/logs" "${OEQA}/results"
 
-# Linux: import mma needs MMA/mma -> MMA
+# Linux: import mma needs ${ROOT}/mma -> ${ROOT}/MMA (package lives under MMA/MMA)
 if [[ ! -e "${ROOT}/mma/__init__.py" ]]; then
-  ln -sfn MMA "${ROOT}/mma"
-  echo "Created symlink ${ROOT}/mma -> MMA"
+  if [[ -e "${ROOT}/MMA/__init__.py" ]]; then
+    ln -sfn MMA "${ROOT}/mma"
+    echo "Created symlink ${ROOT}/mma -> MMA"
+  else
+    echo "ERROR: missing ${ROOT}/MMA/__init__.py" >&2
+    exit 1
+  fi
 fi
 
 # QA json and frame tars may live in different directories on LTU
@@ -101,8 +106,6 @@ import sys
 print("python:", sys.executable)
 import torch
 print("cuda:", torch.cuda.is_available(), "gpus:", torch.cuda.device_count())
-import mma
-print("mma:", mma.__path__)
 PY
 
 python run_openeqa_eval.py \
