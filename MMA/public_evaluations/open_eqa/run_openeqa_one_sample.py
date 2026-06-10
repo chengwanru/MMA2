@@ -26,12 +26,11 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _configure_offline_mma(agent) -> None:
-    """Use local HF embeddings and avoid injecting raw screenshots at QA time."""
-    from mma import EmbeddingConfig
-
+    """Offline OpenEQA: BM25 memory search, no screenshot injection at QA."""
     agent.agent.include_recent_screenshots = False
     if os.environ.get("MMA_OFFLINE", "").strip().lower() in ("1", "true", "yes"):
-        agent.agent.client.set_default_embedding_config(EmbeddingConfig.default_config("mma"))
+        # Avoid OpenAI/llama_index embeddings on HPC; episodic retrieval uses BM25.
+        os.environ.setdefault("MMA_MEMORY_SEARCH_METHOD", "bm25")
 
 
 def _predict_sample(sample: Dict[str, Any], config_path: str) -> Tuple[str, str]:

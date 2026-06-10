@@ -12,7 +12,8 @@
 LTU 用 group miniconda 的 **`embench`** 环境（与 EmbodiedBench 相同），脚本会自动 activate。
 
 ```bash
-export MMA_OFFLINE=1   # required: routes memory agents to local Qwen (not gpt-4o-mini API)
+export MMA_OFFLINE=1   # required: memory agents use local Qwen (not gpt-4o-mini API)
+export MMA_MEMORY_SEARCH_METHOD=bm25   # required on HPC: no llama_index / OpenAI embeddings
 export HF_HOME=/data/group/zhaolab/project/hf_cache
 ```
 

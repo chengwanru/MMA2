@@ -35,6 +35,7 @@ else
 fi
 
 export MMA_OFFLINE="${MMA_OFFLINE:-1}"
+export MMA_MEMORY_SEARCH_METHOD="${MMA_MEMORY_SEARCH_METHOD:-bm25}"
 export HF_HOME="${HF_HOME:-/data/group/zhaolab/project/hf_cache}"
 export PYTHONPATH="${ROOT}:${PEV}:${PYTHONPATH:-}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
