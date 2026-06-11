@@ -43,9 +43,9 @@ Notes:
   ours = same config with memory and speculative decoding. Use this on clusters
   where the baseline config (e.g. mma_gpt4.yaml) cannot reach external APIs.
 
-OpenEQA episodic-memory eval (MMA): each sample runs in a **subprocess** with a
-fresh HOME (isolated ~/.mma/sqlite.db), ingests frames with memorizing=True +
-force_absorb_content=True, then asks the question with memorizing=False.
+OpenEQA episodic-memory eval (MMA): each sample uses a fresh HOME (isolated
+~/.mma/sqlite.db). By default memorize and QA run in **two subprocesses** so QA
+loads draft+target on an empty GPU (40GB A100 OOM fix after frame absorb).
 """
 
 import argparse
@@ -139,6 +139,67 @@ def _sample_home_dir(sample_idx: int, sample_id: Any) -> Path:
     return root / "openeqa_home" / f"{sample_idx}_{safe_id}"
 
 
+def _subprocess_env(use_speculative_baseline: bool) -> Dict[str, str]:
+    env = os.environ.copy()
+    if use_speculative_baseline:
+        env["MMA_SPECULATIVE_BASELINE"] = "1"
+    else:
+        env.pop("MMA_SPECULATIVE_BASELINE", None)
+    if env.get("MMA_OFFLINE", "").strip().lower() in ("1", "true", "yes"):
+        env["MMA_MEMORY_SEARCH_METHOD"] = "bm25"
+    if env.get("OPENEQA_NO_OFFLOAD", "").strip().lower() not in ("1", "true", "yes"):
+        env.setdefault("MMA_SPECULATIVE_OFFLOAD_TARGET", "1")
+    env.setdefault("OPENEQA_ABSORB_BATCH_SIZE", "4")
+    return env
+
+
+def _invoke_one_sample_phase(
+    *,
+    phase: str,
+    sample_path: str,
+    config_path: str,
+    home_dir: Path,
+    env: Dict[str, str],
+) -> Dict[str, Any]:
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(_ONE_SAMPLE_SCRIPT),
+            "--config",
+            os.path.abspath(config_path),
+            "--sample_json",
+            sample_path,
+            "--home_dir",
+            str(home_dir),
+            "--phase",
+            phase,
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    stderr_tail = (proc.stderr or "")[-4000:]
+    if proc.returncode != 0:
+        err_tail = (proc.stderr or proc.stdout or "")[-800:]
+        return {
+            "prediction": f"ERROR: subprocess exit {proc.returncode}: {err_tail}",
+            "stderr_tail": stderr_tail,
+        }
+    lines = [ln for ln in (proc.stdout or "").strip().splitlines() if ln.strip()]
+    if not lines:
+        return {
+            "prediction": f"ERROR: empty subprocess stdout; stderr={stderr_tail[-500:]}",
+            "stderr_tail": stderr_tail,
+        }
+    payload = json.loads(lines[-1])
+    prediction = payload.get("prediction", "ERROR: missing prediction in subprocess output")
+    if str(prediction).startswith("ERROR"):
+        extra = payload.get("stderr_tail") or stderr_tail
+        if extra:
+            prediction = f"{prediction} | stderr={extra[-800:]}"
+    return {"prediction": prediction, "stderr_tail": stderr_tail}
+
+
 def _run_sample_subprocess(
     sample: Dict[str, Any],
     sample_idx: int,
@@ -148,12 +209,14 @@ def _run_sample_subprocess(
     """Fresh Python process + HOME => clean ~/.mma per sample."""
     home_dir = _sample_home_dir(sample_idx, sample.get("id", sample_idx))
     home_dir.mkdir(parents=True, exist_ok=True)
+    env = _subprocess_env(use_speculative_baseline)
 
-    env = os.environ.copy()
-    if use_speculative_baseline:
-        env["MMA_SPECULATIVE_BASELINE"] = "1"
-    else:
-        env.pop("MMA_SPECULATIVE_BASELINE", None)
+    has_frames = bool(sample.get("image_paths") or sample.get("images"))
+    split_phases = env.get("OPENEQA_SPLIT_PHASES", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
 
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -166,45 +229,53 @@ def _run_sample_subprocess(
         sample_path = tmp.name
 
     try:
-        proc = subprocess.run(
-            [
-                sys.executable,
-                str(_ONE_SAMPLE_SCRIPT),
-                "--config",
-                os.path.abspath(config_path),
-                "--sample_json",
-                sample_path,
-                "--home_dir",
-                str(home_dir),
-            ],
+        if split_phases and has_frames:
+            mem = _invoke_one_sample_phase(
+                phase="memorize",
+                sample_path=sample_path,
+                config_path=config_path,
+                home_dir=home_dir,
+                env=env,
+            )
+            if str(mem["prediction"]).startswith("ERROR"):
+                _write_subprocess_stderr(home_dir, mem.get("stderr_tail", ""))
+                return mem["prediction"]
+            print(f"  memorize phase: {mem['prediction']}", flush=True)
+
+            qa = _invoke_one_sample_phase(
+                phase="qa",
+                sample_path=sample_path,
+                config_path=config_path,
+                home_dir=home_dir,
+                env=env,
+            )
+            if str(qa["prediction"]).startswith("ERROR"):
+                _write_subprocess_stderr(home_dir, qa.get("stderr_tail", ""))
+            return qa["prediction"]
+
+        payload = _invoke_one_sample_phase(
+            phase="all",
+            sample_path=sample_path,
+            config_path=config_path,
+            home_dir=home_dir,
             env=env,
-            capture_output=True,
-            text=True,
         )
-        stderr_tail = (proc.stderr or "")[-4000:]
-        if proc.returncode != 0:
-            err_tail = (proc.stderr or proc.stdout or "")[-800:]
-            return f"ERROR: subprocess exit {proc.returncode}: {err_tail}"
-        lines = [ln for ln in (proc.stdout or "").strip().splitlines() if ln.strip()]
-        if not lines:
-            return f"ERROR: empty subprocess stdout; stderr={stderr_tail[-500:]}"
-        payload = json.loads(lines[-1])
-        prediction = payload.get("prediction", "ERROR: missing prediction in subprocess output")
-        if str(prediction).startswith("ERROR"):
-            extra = payload.get("stderr_tail") or stderr_tail
-            if extra:
-                prediction = f"{prediction} | stderr={extra[-800:]}"
-            log_path = home_dir / "subprocess.stderr"
-            try:
-                log_path.write_text(stderr_tail, encoding="utf-8")
-            except OSError:
-                pass
-        return prediction
+        if str(payload["prediction"]).startswith("ERROR"):
+            _write_subprocess_stderr(home_dir, payload.get("stderr_tail", ""))
+        return payload["prediction"]
     finally:
         try:
             os.unlink(sample_path)
         except OSError:
             pass
+
+
+def _write_subprocess_stderr(home_dir: Path, stderr_tail: str) -> None:
+    log_path = home_dir / "subprocess.stderr"
+    try:
+        log_path.write_text(stderr_tail or "", encoding="utf-8")
+    except OSError:
+        pass
 
 
 def _run_variant(
@@ -221,6 +292,10 @@ def _run_variant(
         if not question:
             continue
 
+        print(
+            f"[{variant_name}] sample {idx + 1}/{len(samples)}: {question[:80]}...",
+            flush=True,
+        )
         try:
             prediction = _run_sample_subprocess(
                 sample=sample,
@@ -230,6 +305,11 @@ def _run_variant(
             )
         except Exception as e:  # pragma: no cover - defensive
             prediction = f"ERROR: {e}"
+
+        print(
+            f"[{variant_name}] sample {idx + 1} done: {str(prediction)[:120]}",
+            flush=True,
+        )
 
         result: Dict[str, Any] = {
             "id": sample.get("id", idx),

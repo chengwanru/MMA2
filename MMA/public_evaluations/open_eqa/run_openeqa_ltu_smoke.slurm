@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=openeqa_smoke
 #SBATCH -p day
-#SBATCH -t 02:00:00
+#SBATCH -t 06:00:00
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH --cpus-per-task=8
@@ -35,7 +35,11 @@ else
 fi
 
 export MMA_OFFLINE="${MMA_OFFLINE:-1}"
-export MMA_MEMORY_SEARCH_METHOD="${MMA_MEMORY_SEARCH_METHOD:-bm25}"
+export MMA_MEMORY_SEARCH_METHOD=bm25
+export MMA_SPECULATIVE_OFFLOAD_TARGET="${MMA_SPECULATIVE_OFFLOAD_TARGET:-1}"
+export OPENEQA_ABSORB_BATCH_SIZE="${OPENEQA_ABSORB_BATCH_SIZE:-4}"
+export OPENEQA_SPLIT_PHASES="${OPENEQA_SPLIT_PHASES:-1}"
+export PYTHONUNBUFFERED=1
 export HF_HOME="${HF_HOME:-/data/group/zhaolab/project/hf_cache}"
 export PYTHONPATH="${ROOT}:${PEV}:${PYTHONPATH:-}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
@@ -87,14 +91,16 @@ mkdir -p "${FRAME_CACHE}"
 
 INPUT="${INPUT:-data/open-eqa-multimodal.json}"
 MAX_SAMPLES="${MAX_SAMPLES:-10}"
-FRAMES_PER_EPISODE="${FRAMES_PER_EPISODE:-2}"
+FRAMES_PER_EPISODE="${FRAMES_PER_EPISODE:-16}"
+FRAME_SAMPLING="${FRAME_SAMPLING:-uniform}"
 python make_openeqa_multimodal.py \
   --src "${QA_SRC}" \
   --frames_root "${FRAMES_ROOT}" \
   --frame_cache "${FRAME_CACHE}" \
   --dst "${INPUT}" \
   --max_samples "${MAX_SAMPLES}" \
-  --frames_per_episode "${FRAMES_PER_EPISODE}"
+  --frames_per_episode "${FRAMES_PER_EPISODE}" \
+  --frame_sampling "${FRAME_SAMPLING}"
 
 OUTPUT="${OUTPUT:-results/smoke_${SLURM_JOB_ID}.json}"
 LIMIT="${LIMIT:-2}"

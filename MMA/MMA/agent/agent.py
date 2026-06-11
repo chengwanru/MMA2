@@ -1601,7 +1601,10 @@ class Agent(BaseAgent):
         memory_items_list: List[dict] = []
 
         # LOCOMO defaults to embedding; offline GPU eval uses bm25 (no llama_index / OpenAI embeddings).
-        search_method = os.environ.get("MMA_MEMORY_SEARCH_METHOD", "embedding")
+        search_method = os.environ.get("MMA_MEMORY_SEARCH_METHOD", "").strip().lower()
+        if not search_method:
+            offline = os.environ.get("MMA_OFFLINE", "").strip().lower() in ("1", "true", "yes")
+            search_method = "bm25" if offline else "embedding"
 
         # Prepare embedding for semantic search
         if key_words != "" and search_method == "embedding":
