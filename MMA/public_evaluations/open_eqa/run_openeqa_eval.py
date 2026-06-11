@@ -55,7 +55,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 _OPEN_EQA_DIR = Path(__file__).resolve().parent
 _CONFIGS_DIR = _OPEN_EQA_DIR.parent.parent / "configs"
@@ -197,7 +197,32 @@ def _invoke_one_sample_phase(
         extra = payload.get("stderr_tail") or stderr_tail
         if extra:
             prediction = f"{prediction} | stderr={extra[-800:]}"
-    return {"prediction": prediction, "stderr_tail": stderr_tail}
+    return {
+        "prediction": prediction,
+        "stderr_tail": stderr_tail,
+        "debug": payload.get("debug"),
+        "debug_dir": payload.get("debug_dir"),
+    }
+
+
+def _persist_sample_debug(
+    output_file: str,
+    sample_idx: int,
+    sample_id: Any,
+    debug: Optional[Dict[str, Any]],
+) -> Optional[str]:
+    if not debug:
+        return None
+    out_dir = Path(output_file).resolve().parent / "openeqa_debug"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe_id = str(sample_id).replace("/", "_")[:48]
+    path = out_dir / f"sample_{sample_idx}_{safe_id}.json"
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(debug, f, ensure_ascii=False, indent=2)
+        return str(path)
+    except OSError:
+        return None
 
 
 def _run_sample_subprocess(
@@ -205,7 +230,7 @@ def _run_sample_subprocess(
     sample_idx: int,
     config_path: str,
     use_speculative_baseline: bool,
-) -> str:
+) -> Tuple[str, Optional[Dict[str, Any]]]:
     """Fresh Python process + HOME => clean ~/.mma per sample."""
     home_dir = _sample_home_dir(sample_idx, sample.get("id", sample_idx))
     home_dir.mkdir(parents=True, exist_ok=True)
@@ -239,7 +264,7 @@ def _run_sample_subprocess(
             )
             if str(mem["prediction"]).startswith("ERROR"):
                 _write_subprocess_stderr(home_dir, mem.get("stderr_tail", ""))
-                return mem["prediction"]
+                return mem["prediction"], {"memorize": mem.get("debug"), "home_dir": mem.get("debug_dir")}
             print(f"  memorize phase: {mem['prediction']}", flush=True)
 
             qa = _invoke_one_sample_phase(
@@ -251,7 +276,12 @@ def _run_sample_subprocess(
             )
             if str(qa["prediction"]).startswith("ERROR"):
                 _write_subprocess_stderr(home_dir, qa.get("stderr_tail", ""))
-            return qa["prediction"]
+            debug = {
+                "memorize": mem.get("debug"),
+                "qa": qa.get("debug"),
+                "home_dir": qa.get("debug_dir") or mem.get("debug_dir"),
+            }
+            return qa["prediction"], debug
 
         payload = _invoke_one_sample_phase(
             phase="all",
@@ -262,7 +292,7 @@ def _run_sample_subprocess(
         )
         if str(payload["prediction"]).startswith("ERROR"):
             _write_subprocess_stderr(home_dir, payload.get("stderr_tail", ""))
-        return payload["prediction"]
+        return payload["prediction"], payload.get("debug")
     finally:
         try:
             os.unlink(sample_path)
@@ -283,6 +313,7 @@ def _run_variant(
     config_path: str,
     samples: List[Dict[str, Any]],
     use_speculative_baseline: bool = False,
+    output_file: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     baseline_flag = variant_name == "baseline" and use_speculative_baseline
     results: List[Dict[str, Any]] = []
@@ -296,8 +327,9 @@ def _run_variant(
             f"[{variant_name}] sample {idx + 1}/{len(samples)}: {question[:80]}...",
             flush=True,
         )
+        debug_info: Optional[Dict[str, Any]] = None
         try:
-            prediction = _run_sample_subprocess(
+            prediction, debug_info = _run_sample_subprocess(
                 sample=sample,
                 sample_idx=idx,
                 config_path=config_path,
@@ -318,6 +350,14 @@ def _run_variant(
             "gold_answer": sample.get("answer"),
             "prediction": prediction,
         }
+        if debug_info:
+            result["debug"] = debug_info
+            if output_file:
+                saved = _persist_sample_debug(
+                    output_file, idx, sample.get("id", idx), debug_info
+                )
+                if saved:
+                    result["debug_file"] = saved
 
         for k, v in sample.items():
             if k not in {"id", "question", "answer", "image_paths", "images"}:
@@ -343,6 +383,7 @@ def main() -> None:
             config_path=args.baseline_config,
             samples=samples,
             use_speculative_baseline=use_speculative_baseline,
+            output_file=args.output_file,
         )
 
     if args.variants in ("both", "ours"):
@@ -351,6 +392,7 @@ def main() -> None:
             config_path=args.ours_config,
             samples=samples,
             use_speculative_baseline=use_speculative_baseline,
+            output_file=args.output_file,
         )
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output_file)), exist_ok=True)

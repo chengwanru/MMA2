@@ -17,6 +17,7 @@ export MMA_MEMORY_SEARCH_METHOD=bm25   # required on HPC: no llama_index / OpenA
 export MMA_SPECULATIVE_OFFLOAD_TARGET=1   # 40GB A100: offload part of 8B target to CPU for QA memory KV
 export OPENEQA_ABSORB_BATCH_SIZE=4   # 16 frames -> 4 absorbs
 export OPENEQA_SPLIT_PHASES=1   # memorize + QA in separate processes (avoids QA OOM after absorb)
+export OPENEQA_DEBUG=1   # episodic + BM25 debug in results/openeqa_debug/*.json and slurm log
 export HF_HOME=/data/group/zhaolab/project/hf_cache
 ```
 

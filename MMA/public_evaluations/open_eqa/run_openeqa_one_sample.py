@@ -19,6 +19,14 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from openeqa_debug import (
+    collect_memorize_debug,
+    collect_qa_debug,
+    debug_enabled,
+    log_debug_summary,
+    write_debug_file,
+)
+
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="OpenEQA single-sample worker")
@@ -121,40 +129,69 @@ def _image_paths_from_sample(sample: Dict[str, Any]) -> Optional[List[str]]:
     return image_paths
 
 
-def _run_memorize(sample: Dict[str, Any], config_path: str) -> Tuple[str, str]:
+def _run_memorize(
+    sample: Dict[str, Any],
+    config_path: str,
+    home_dir: Path,
+) -> Tuple[str, str, Optional[Dict[str, Any]]]:
     image_paths = _image_paths_from_sample(sample)
     if not image_paths:
-        return "OK:no_frames", ""
+        return "OK:no_frames", "", None
 
     missing = [p for p in image_paths if not os.path.isfile(p)]
     if missing:
-        return f"ERROR:memorize:missing frames: {missing[:2]}", ""
+        return f"ERROR:memorize:missing frames: {missing[:2]}", "", None
 
     agent = _init_agent(config_path)
     _memorize_frames(agent.agent, image_paths)
     agent.prepare_before_asking_questions()
     _release_gpu_cache()
-    return "OK", ""
+
+    debug_payload: Optional[Dict[str, Any]] = None
+    if debug_enabled():
+        debug_payload = collect_memorize_debug(sample, image_paths, agent.agent)
+        write_debug_file(home_dir, "memorize", debug_payload)
+        log_debug_summary(debug_payload, "memorize")
+
+    return "OK", "", debug_payload
 
 
-def _run_qa(sample: Dict[str, Any], config_path: str) -> Tuple[str, str]:
+def _run_qa(
+    sample: Dict[str, Any],
+    config_path: str,
+    home_dir: Path,
+) -> Tuple[str, str, Optional[Dict[str, Any]]]:
     question: str = sample.get("question", "")
     if not question:
-        return "ERROR:qa:empty question", ""
+        return "ERROR:qa:empty question", "", None
 
     agent = _init_agent(config_path)
     _set_chat_topic(agent.agent, question)
-    prediction = agent.send_message(message=_format_eqa_question(question), memorizing=False)
+    formatted = _format_eqa_question(question)
+    prediction = agent.send_message(message=formatted, memorizing=False)
+
+    debug_payload: Optional[Dict[str, Any]] = None
+    if debug_enabled():
+        debug_payload = collect_qa_debug(sample, agent.agent, prediction, formatted)
+        write_debug_file(home_dir, "qa", debug_payload)
+        log_debug_summary(debug_payload, "qa")
+
     if prediction == "ERROR":
-        return "ERROR:qa:agent returned ERROR (see stderr_tail)", ""
-    return prediction, ""
+        return "ERROR:qa:agent returned ERROR (see stderr_tail)", "", debug_payload
+    return prediction, "", debug_payload
 
 
-def _run_all(sample: Dict[str, Any], config_path: str) -> Tuple[str, str]:
-    status, err = _run_memorize(sample, config_path)
+def _run_all(
+    sample: Dict[str, Any],
+    config_path: str,
+    home_dir: Path,
+) -> Tuple[str, str, Optional[Dict[str, Any]]]:
+    status, err, mem_debug = _run_memorize(sample, config_path, home_dir)
     if status.startswith("ERROR"):
-        return status, err
-    return _run_qa(sample, config_path)
+        return status, err, mem_debug
+    pred, err, qa_debug = _run_qa(sample, config_path, home_dir)
+    merged = {"memorize": mem_debug, "qa": qa_debug} if debug_enabled() else None
+    return pred, err, merged
 
 
 def main() -> None:
@@ -176,22 +213,27 @@ def main() -> None:
         sample = json.load(f)
 
     stderr_tail = ""
+    debug_payload: Optional[Dict[str, Any]] = None
     try:
         if args.phase == "memorize":
-            prediction, _ = _run_memorize(sample, args.config)
+            prediction, _, debug_payload = _run_memorize(sample, args.config, home_dir)
         elif args.phase == "qa":
-            prediction, _ = _run_qa(sample, args.config)
+            prediction, _, debug_payload = _run_qa(sample, args.config, home_dir)
         else:
-            prediction, _ = _run_all(sample, args.config)
+            prediction, _, debug_payload = _run_all(sample, args.config, home_dir)
     except Exception:
         prediction = "ERROR:exception"
         stderr_tail = traceback.format_exc()
 
-    print(json.dumps({
+    out: Dict[str, Any] = {
         "prediction": prediction,
         "phase": args.phase,
         "stderr_tail": stderr_tail,
-    }, ensure_ascii=False))
+    }
+    if debug_payload is not None:
+        out["debug"] = debug_payload
+        out["debug_dir"] = str(home_dir)
+    print(json.dumps(out, ensure_ascii=False))
 
 
 if __name__ == "__main__":
