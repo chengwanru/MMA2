@@ -850,10 +850,10 @@ class AgentWrapper():
             if response == "ERROR":
                 self.logger.warning("send_message_in_queue returned ERROR (exception likely printed above)")
                 return "ERROR"
-            # Check if response has the expected structure
-            if not hasattr(response, 'messages') or len(response.messages) < 2:
+            # Check if response has the expected structure (offline VL may return a single assistant_message).
+            if not hasattr(response, 'messages') or len(response.messages) < 1:
                 self.logger.warning(
-                    "send_message response missing .messages or len < 2: has_attr=%s len=%s",
+                    "send_message response missing .messages or empty: has_attr=%s len=%s",
                     hasattr(response, 'messages'),
                     len(getattr(response, 'messages', [])) if hasattr(response, 'messages') else 0,
                 )

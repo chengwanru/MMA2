@@ -1289,14 +1289,23 @@ class Agent(BaseAgent):
                     openai_message_dict=response_message.model_dump(),
                 )
             )  # extend conversation with assistant's reply
-            self.interface.internal_monologue(
-                response_message.content, msg_obj=messages[-1]
-            )
-            continue_chaining = True
+            # Offline speculative VL returns plain text (no send_message tool_call).
+            # force_response: surface as assistant_message and stop chaining.
+            if force_response and response_message.content:
+                self.interface.assistant_message(
+                    response_message.content, msg_obj=messages[-1]
+                )
+                continue_chaining = False
+            else:
+                self.interface.internal_monologue(
+                    response_message.content, msg_obj=messages[-1]
+                )
+                continue_chaining = True
             function_failed = False
             if display_intermediate_message:
                 display_intermediate_message(
-                    "internal_monologue", response_message.content
+                    "assistant_message" if force_response else "internal_monologue",
+                    response_message.content,
                 )
 
         # Update ToolRulesSolver state with last called function
@@ -1362,12 +1371,16 @@ class Agent(BaseAgent):
             kwargs["first_message"] = False
             kwargs["step_count"] = step_count
 
+            skip_topic_extract = (
+                self.agent_state.name == "chat_agent"
+                and (self.agent_state.topic or "").strip()
+            )
             if (
                 self.agent_state.name in ["meta_memory_agent", "chat_agent"]
                 and step_count == 0
+                and not skip_topic_extract
             ):
                 # When the agent first gets the screenshots, we need to extract the topic to search the query.
-
                 try:
                     topics = None
 
