@@ -108,6 +108,18 @@ else
 fi
 python make_openeqa_multimodal.py "${MULTIMODAL_ARGS[@]}"
 
+python - <<'PY'
+import json, os
+inp = os.environ.get("INPUT", "data/open-eqa-multimodal.json")
+with open(inp) as f:
+    data = json.load(f)
+if data:
+    s = data[0]
+    print(f"=== multimodal sample 0: {len(s.get('image_paths', []))} frames, all_frames={s.get('all_frames')}")
+    print(f"    question: {s.get('question', '')[:80]}")
+    print(f"    gold: {s.get('answer')}")
+PY
+
 OUTPUT="${OUTPUT:-results/smoke_${SLURM_JOB_ID}.json}"
 LIMIT="${LIMIT:-2}"
 VARIANTS="${VARIANTS:-ours}"

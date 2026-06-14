@@ -83,8 +83,27 @@ python run_openeqa_eval.py \
 
 ## Slurm smoke（LTU）
 
+**一条全帧（推荐先跑）：**
+
 ```bash
 cd /data/group/zhaolab/project/MMA2/MMA/public_evaluations/open_eqa
+git pull
+mkdir -p logs
+sbatch run_openeqa_ltu_one_fullframe.slurm
+tail -f logs/openeqa_one_fullframe_<jobid>.log
+```
+
+Wall time 2 天（`day` 分区若拒收，改 `-p week`）。约 80–120 帧 / 条，memorize 可能十数小时。
+
+**快速 16 帧 smoke：**
+
+```bash
+ALL_FRAMES=0 FRAMES_PER_EPISODE=16 LIMIT=1 MAX_SAMPLES=1 sbatch run_openeqa_ltu_smoke.slurm
+```
+
+默认 smoke（`run_openeqa_ltu_smoke.slurm`）：全帧、`MAX_SAMPLES=10`、`LIMIT=2`。
+
+```bash
 mkdir -p logs
 sbatch run_openeqa_ltu_smoke.slurm
 ```
