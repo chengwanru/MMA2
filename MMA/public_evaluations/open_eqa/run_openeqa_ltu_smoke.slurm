@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=openeqa_smoke
 #SBATCH -p day
-#SBATCH -t 06:00:00
+#SBATCH -t 24:00:00
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH --cpus-per-task=8
@@ -91,17 +91,22 @@ FRAME_CACHE="${FRAME_CACHE:-${SLURM_TMPDIR:-${OEQA}/data}/frame_cache}"
 mkdir -p "${FRAME_CACHE}"
 
 INPUT="${INPUT:-data/open-eqa-multimodal.json}"
+# Override quick smoke: ALL_FRAMES=0 FRAMES_PER_EPISODE=16 LIMIT=1 sbatch ...
+ALL_FRAMES="${ALL_FRAMES:-1}"
 MAX_SAMPLES="${MAX_SAMPLES:-10}"
 FRAMES_PER_EPISODE="${FRAMES_PER_EPISODE:-16}"
 FRAME_SAMPLING="${FRAME_SAMPLING:-uniform}"
-python make_openeqa_multimodal.py \
-  --src "${QA_SRC}" \
-  --frames_root "${FRAMES_ROOT}" \
-  --frame_cache "${FRAME_CACHE}" \
-  --dst "${INPUT}" \
-  --max_samples "${MAX_SAMPLES}" \
-  --frames_per_episode "${FRAMES_PER_EPISODE}" \
-  --frame_sampling "${FRAME_SAMPLING}"
+
+echo "=== data check ==="
+python check_openeqa_data.py --frames_root "${FRAMES_ROOT}" --qa_json "${QA_SRC}"
+
+MULTIMODAL_ARGS=(--src "${QA_SRC}" --frames_root "${FRAMES_ROOT}" --frame_cache "${FRAME_CACHE}" --dst "${INPUT}" --max_samples "${MAX_SAMPLES}")
+if [[ "${ALL_FRAMES}" == "1" ]]; then
+  MULTIMODAL_ARGS+=(--all_frames)
+else
+  MULTIMODAL_ARGS+=(--frames_per_episode "${FRAMES_PER_EPISODE}" --frame_sampling "${FRAME_SAMPLING}")
+fi
+python make_openeqa_multimodal.py "${MULTIMODAL_ARGS[@]}"
 
 OUTPUT="${OUTPUT:-results/smoke_${SLURM_JOB_ID}.json}"
 LIMIT="${LIMIT:-2}"

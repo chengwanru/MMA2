@@ -43,14 +43,25 @@ bash cleanup_openeqa_extracted.sh
 bash cleanup_openeqa_extracted.sh /data/group/zhaolab/project/MMA2/MMA/public_evaluations/data/open_eqa_data
 ```
 
-## 1. 多模态 JSON
+## 0. 检查数据（LTU 上跑）
+
+OpenEQA 共 **1636** 题、**152** 个 episode：**hm3d 63** + **scannet 89**。两者缺一都会 skip 题目。
 
 ```bash
 cd /data/group/zhaolab/project/MMA2/MMA/public_evaluations/open_eqa
-source /data/group/zhaolab/project/miniconda/bin/activate embench
+python check_openeqa_data.py
+# 期望: hm3d 63/63, scannet 89/89, missing 0
+```
 
-python make_openeqa_multimodal.py --max_samples 20 --frames_per_episode 16 --frame_sampling uniform
-# uniform 在整段 episode 上均匀抽帧（比 tar 头部前几帧更易覆盖 TV/天花板等）；评测完可删 frame_cache
+若只有 hm3d、没有 scannet：Mac 上 `bash upload_from_mac.sh --with-data`（会下 hm3d + scannet 两个包）。
+
+## 1. 多模态 JSON
+
+默认 **全帧**（`--all_frames`）；快速 smoke 可只取 16 帧：
+
+```bash
+python make_openeqa_multimodal.py --all_frames --max_samples 5
+# 或: --frames_per_episode 16 --frame_sampling uniform
 ```
 
 ## 2. 跑评测

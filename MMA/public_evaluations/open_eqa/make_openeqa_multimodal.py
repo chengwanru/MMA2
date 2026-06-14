@@ -2,10 +2,12 @@
 """
 Build multimodal OpenEQA JSON for MMA eval.
 
-Reads open-eqa-v0.json and episode frames. Tar archives are NOT fully extracted;
-only up to --frames_per_episode PNGs per episode are written to --frame_cache
-to avoid inode exhaustion on shared filesystems. Default sampling is uniform
-(spread across the episode) rather than the first N frames in each tar.
+Reads open-eqa-v0.json and episode frames. Tar archives are NOT fully extracted
+on the shared filesystem by default; selected PNGs are written to --frame_cache.
+
+Use --all_frames (or --frames_per_episode 0) to extract every PNG in each tar
+into frame_cache (prefer $SLURM_TMPDIR for large caches). Default sampling is
+uniform (spread across the episode) rather than the first N frames in each tar.
 """
 
 import argparse
@@ -63,13 +65,23 @@ def parse_args() -> argparse.Namespace:
         default=str(_OPEN_EQA_DIR / "data/open-eqa-multimodal.json"),
         help="Output JSON path.",
     )
-    parser.add_argument("--frames_per_episode", type=int, default=16)
+    parser.add_argument(
+        "--frames_per_episode",
+        type=int,
+        default=16,
+        help="Max frames per episode; 0 = all frames (same as --all_frames).",
+    )
+    parser.add_argument(
+        "--all_frames",
+        action="store_true",
+        help="Use every PNG in each episode tar (overrides --frames_per_episode).",
+    )
     parser.add_argument(
         "--frame_sampling",
         type=str,
         default="uniform",
-        choices=("uniform", "head"),
-        help="uniform: spread frames across episode; head: first N PNGs in tar.",
+        choices=("uniform", "head", "all"),
+        help="uniform/head: sample up to frames_per_episode; all: every PNG (set via --all_frames).",
     )
     parser.add_argument(
         "--max_samples",
@@ -99,6 +111,8 @@ def _uniform_sample_indices(total: int, k: int) -> List[int]:
 
 
 def _sample_indices(total: int, k: int, sampling: str) -> List[int]:
+    if sampling == "all" or k <= 0 or k >= total:
+        return list(range(total))
     if sampling == "head":
         return list(range(min(total, k)))
     return _uniform_sample_indices(total, k)
@@ -260,6 +274,7 @@ def _frame_paths_for_episode(
 
 def main() -> None:
     args = parse_args()
+    all_frames = args.all_frames or args.frames_per_episode <= 0
 
     if not os.path.exists(args.src):
         raise FileNotFoundError(f"Source QA JSON not found: {args.src}")
@@ -285,8 +300,8 @@ def main() -> None:
             args.frames_root,
             args.frame_cache,
             episode,
-            args.frames_per_episode,
-            args.frame_sampling,
+            0 if all_frames else args.frames_per_episode,
+            "all" if all_frames else args.frame_sampling,
         )
         if from_tar:
             tars_touched += 1
@@ -303,6 +318,8 @@ def main() -> None:
                 "image_paths": [os.path.abspath(p) for p in frame_paths],
                 "episode_history": episode,
                 "category": item.get("category", ""),
+                "num_frames": len(frame_paths),
+                "all_frames": all_frames,
             }
         )
         if args.max_samples is not None and len(out) >= args.max_samples:
@@ -312,10 +329,12 @@ def main() -> None:
     with open(args.dst, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
 
-    print(f"Wrote {len(out)} multimodal samples to {args.dst}")
+    mode = "all frames" if all_frames else f"up to {args.frames_per_episode} ({args.frame_sampling})"
+    print(f"Wrote {len(out)} multimodal samples to {args.dst} [{mode}]")
     print(f"Frame cache: {os.path.abspath(args.frame_cache)}")
     if tars_touched:
-        print(f"Pulled minimal PNGs from {tars_touched} tar(s) (not full extract)")
+        verb = "full episode PNGs" if all_frames else "sampled PNGs"
+        print(f"Pulled {verb} from {tars_touched} tar(s) into cache")
     if missing_episodes:
         print(f"Skipped {missing_episodes} samples with no frames under {args.frames_root}")
 
