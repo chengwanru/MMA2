@@ -93,7 +93,7 @@ sbatch run_openeqa_ltu_one_fullframe.slurm
 tail -f logs/openeqa_one_fullframe_<jobid>.log
 ```
 
-Wall time 2 天（`day` 分区若拒收，改 `-p week`）。约 80–120 帧 / 条，memorize 可能十数小时。
+Wall time **24h**（LTU `day` 分区上限）。约 80–120 帧 / 条；若超时改用 `-p week -t 48:00:00`。
 
 **快速 16 帧 smoke：**
 

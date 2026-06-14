@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=openeqa_1full
 #SBATCH -p day
-#SBATCH -t 2-00:00:00
+#SBATCH -t 24:00:00
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH --cpus-per-task=8
@@ -17,8 +17,9 @@
 #   mkdir -p logs
 #   sbatch run_openeqa_ltu_one_fullframe.slurm
 #
-# If day partition rejects 2-day walltime, use:
-#   sbatch -p week -t 2-00:00:00 run_openeqa_ltu_one_fullframe.slurm
+# Wall time: LTU `day` partition max is 24h (2-day requests are rejected).
+# If one sample exceeds 24h, try a longer partition, e.g.:
+#   sbatch -p week -t 48:00:00 run_openeqa_ltu_one_fullframe.slurm
 
 set -euo pipefail
 
