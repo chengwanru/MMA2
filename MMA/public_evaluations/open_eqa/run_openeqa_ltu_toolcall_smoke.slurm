@@ -27,6 +27,7 @@ export OPENEQA_DEBUG=1
 export OPENEQA_EPISODIC_TOOL_CALL=1
 export OPENEQA_DIRECT_EPISODIC=1
 export OPENEQA_ABSORB_BATCH_SIZE=1
+export OPENEQA_VL_MAX_PIXELS="${OPENEQA_VL_MAX_PIXELS:-401408}"
 export OUTPUT="${OUTPUT:-results/toolcall_smoke_${SLURM_JOB_ID:-local}.json}"
 
 exec bash run_openeqa_ltu_smoke.slurm

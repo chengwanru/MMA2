@@ -149,6 +149,7 @@ def _apply_openeqa_env() -> None:
         os.environ["OPENEQA_SKIP_META"] = "1"
     os.environ.setdefault("OPENEQA_SKIP_EMBEDDINGS", "1")
     os.environ.setdefault("MMA_VL_MAX_LENGTH", "32768")
+    os.environ.setdefault("OPENEQA_VL_MAX_PIXELS", "401408")
 
 
 def _clear_memorize_only_env() -> None:

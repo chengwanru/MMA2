@@ -151,8 +151,10 @@ def _run_vl_processor(
                     **mm_kwargs,
                 )
         except Exception as exc:
-            if os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes"):
-                print(f"[vl_tokenize] apply_chat_template failed: {exc!r}; falling back", flush=True)
+            print(
+                f"[vl_tokenize] apply_chat_template failed: {exc!r}; fallback to legacy processor()",
+                flush=True,
+            )
             if not images_list:
                 raise
 
@@ -345,8 +347,10 @@ class SpeculativeMemoryClient(LLMClientBase):
             proc_kw = dict(trust_remote_code=True)
             if _local:
                 proc_kw["local_files_only"] = True
+            # Tokenize with the draft-family processor (same as load_draft_model / direct SD).
+            # Target-only 8B AutoProcessor can truncate image tokens; draft processor matches 8B inference.
             self._draft_processor = AutoProcessor.from_pretrained(
-                target_path,
+                draft_path,
                 **proc_kw,
             )
             self._tokenizer = self._draft_processor.tokenizer

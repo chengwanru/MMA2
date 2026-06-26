@@ -154,6 +154,7 @@ def _subprocess_env(use_speculative_baseline: bool, phase: str = "all") -> Dict[
     env.setdefault("OPENEQA_SKIP_META", "1")
     env.setdefault("OPENEQA_SKIP_EMBEDDINGS", "1")
     env.setdefault("MMA_VL_MAX_LENGTH", "32768")
+    env.setdefault("OPENEQA_VL_MAX_PIXELS", "401408")
     env.setdefault("OPENEQA_REQUIRE_EPISODIC", "1")
     env.setdefault("OPENEQA_DIRECT_EPISODIC", "1")
 
