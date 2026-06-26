@@ -12,6 +12,7 @@ import datetime
 import json
 import os
 import time
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple
 
 # Patch json.dumps(set) before any transformers / generate path runs.
@@ -43,25 +44,119 @@ def _vl_max_length() -> int:
     return int(os.environ.get("MMA_VL_MAX_LENGTH", "32768"))
 
 
-def _run_vl_processor(processor: Any, *, text: str, images_list: List[Any]) -> Any:
-    """
-    Call Qwen3-VL processor without truncating image placeholder tokens.
+@contextmanager
+def _patch_tokenizer_no_trunc(tokenizer: Any):
+    """Force tokenizer calls inside the processor to keep all image placeholder ids."""
+    if tokenizer is None:
+        yield
+        return
 
-    Pretrained tokenizer init_kwargs often set truncation=True and a small max_length,
-    which strips <|image_pad|> ids and triggers a text/ids mismatch even for one frame.
-    """
+    orig_call = tokenizer.__call__
+    orig_encode = getattr(tokenizer, "encode", None)
+    saved_mml = getattr(tokenizer, "model_max_length", None)
+    tokenizer.model_max_length = _vl_max_length()
+
+    def _call(*args: Any, **kwargs: Any):
+        kwargs["truncation"] = False
+        kwargs.pop("max_length", None)
+        return orig_call(*args, **kwargs)
+
+    tokenizer.__call__ = _call  # type: ignore[method-assign]
+    if orig_encode is not None:
+        def _encode(*args: Any, **kwargs: Any):
+            kwargs["truncation"] = False
+            kwargs.pop("max_length", None)
+            return orig_encode(*args, **kwargs)
+
+        tokenizer.encode = _encode  # type: ignore[method-assign]
+    try:
+        yield
+    finally:
+        tokenizer.__call__ = orig_call  # type: ignore[method-assign]
+        if orig_encode is not None:
+            tokenizer.encode = orig_encode  # type: ignore[method-assign]
+        if saved_mml is not None:
+            tokenizer.model_max_length = saved_mml
+
+
+def _vl_parts_to_messages(
+    vl_content_parts: List[Tuple[str, str]],
+    *,
+    chat: Optional[List[Dict[str, str]]] = None,
+    tool_instructions: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    system_chunks: List[str] = []
+    if tool_instructions:
+        system_chunks.append(tool_instructions.strip())
+    for item in chat or []:
+        if item.get("role") == "system" and item.get("content"):
+            system_chunks.append(str(item["content"]).strip())
+
+    user_content: List[Dict[str, Any]] = []
+    for kind, value in vl_content_parts:
+        if kind == "text":
+            text = str(value).strip()
+            if text.lower().startswith("user:"):
+                text = text[5:].lstrip()
+            if text:
+                user_content.append({"type": "text", "text": text})
+        else:
+            user_content.append({"type": "image", "image": value})
+
+    messages: List[Dict[str, Any]] = []
+    if system_chunks:
+        messages.append({"role": "system", "content": "\n\n".join(system_chunks)})
+    messages.append({"role": "user", "content": user_content})
+    return messages
+
+
+def _processor_mm_kwargs() -> Dict[str, Any]:
+    mm: Dict[str, Any] = {}
+    max_pixels = os.environ.get("OPENEQA_VL_MAX_PIXELS", "").strip()
+    if max_pixels:
+        mm["max_pixels"] = int(max_pixels)
+    min_pixels = os.environ.get("OPENEQA_VL_MIN_PIXELS", "").strip()
+    if min_pixels:
+        mm["min_pixels"] = int(min_pixels)
+    return mm
+
+
+def _run_vl_processor(
+    processor: Any,
+    *,
+    text: str,
+    images_list: List[Any],
+    chat: Optional[List[Dict[str, str]]] = None,
+    vl_content_parts: Optional[List[Tuple[str, str]]] = None,
+    tool_instructions: Optional[str] = None,
+) -> Any:
+    """Tokenize multimodal inputs; prefer apply_chat_template, force no truncation."""
     tokenizer = getattr(processor, "tokenizer", None)
-    saved_tokenizer: Dict[str, Any] = {}
-    saved_init: Optional[Dict[str, Any]] = None
-    if tokenizer is not None:
-        if hasattr(tokenizer, "model_max_length"):
-            saved_tokenizer["model_max_length"] = tokenizer.model_max_length
-            tokenizer.model_max_length = _vl_max_length()
-        init = getattr(tokenizer, "init_kwargs", None)
-        if isinstance(init, dict):
-            saved_init = dict(init)
-            init["truncation"] = False
-            init.pop("max_length", None)
+    mm_kwargs = _processor_mm_kwargs()
+
+    if vl_content_parts and hasattr(processor, "apply_chat_template"):
+        messages = _vl_parts_to_messages(
+            vl_content_parts,
+            chat=chat,
+            tool_instructions=tool_instructions,
+        )
+        try:
+            with _patch_tokenizer_no_trunc(tokenizer):
+                return processor.apply_chat_template(
+                    messages,
+                    tokenize=True,
+                    add_generation_prompt=True,
+                    return_dict=True,
+                    return_tensors="pt",
+                    truncation=False,
+                    padding=False,
+                    **mm_kwargs,
+                )
+        except Exception as exc:
+            if os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes"):
+                print(f"[vl_tokenize] apply_chat_template failed: {exc!r}; falling back", flush=True)
+            if not images_list:
+                raise
 
     proc_kwargs: Dict[str, Any] = {
         "text": text,
@@ -69,28 +164,20 @@ def _run_vl_processor(processor: Any, *, text: str, images_list: List[Any]) -> A
         "return_tensors": "pt",
         "truncation": False,
         "padding": False,
+        "text_kwargs": {"truncation": False, "padding": False},
+        **mm_kwargs,
     }
     trunc_env = os.environ.get("MMA_VL_TRUNCATION", "0").strip().lower()
     if trunc_env in ("1", "true", "yes"):
         proc_kwargs["truncation"] = True
+        proc_kwargs["text_kwargs"]["truncation"] = True
         max_len = os.environ.get("MMA_VL_MAX_LENGTH", "").strip()
         if max_len:
             proc_kwargs["max_length"] = int(max_len)
-    max_pixels = os.environ.get("OPENEQA_VL_MAX_PIXELS", "").strip()
-    if max_pixels:
-        proc_kwargs["max_pixels"] = int(max_pixels)
-    min_pixels = os.environ.get("OPENEQA_VL_MIN_PIXELS", "").strip()
-    if min_pixels:
-        proc_kwargs["min_pixels"] = int(min_pixels)
+            proc_kwargs["text_kwargs"]["max_length"] = int(max_len)
 
-    try:
+    with _patch_tokenizer_no_trunc(tokenizer):
         return processor(**proc_kwargs)
-    finally:
-        if tokenizer is not None:
-            if "model_max_length" in saved_tokenizer:
-                tokenizer.model_max_length = saved_tokenizer["model_max_length"]
-            if saved_init is not None and hasattr(tokenizer, "init_kwargs"):
-                tokenizer.init_kwargs = saved_init
 
 
 def _message_to_text(m: Message) -> str:
@@ -395,6 +482,9 @@ class SpeculativeMemoryClient(LLMClientBase):
                 processor,
                 text="".join(text_parts),
                 images_list=images_list,
+                chat=chat,
+                vl_content_parts=vl_content_parts,
+                tool_instructions=tool_instructions,
             )
             def _field(name: str):
                 v = out.get(name) if hasattr(out, "get") else None
