@@ -399,7 +399,7 @@ def _run_memorize(
 
     if n_direct:
         print(f"  [memorize] direct episodic inserts: {n_direct}", flush=True)
-    el    if direct_errors:
+    elif direct_errors:
         print(f"  [memorize] direct episodic failed: {direct_errors[0]}", flush=True)
     agent.prepare_before_asking_questions()
     _release_gpu_cache()
