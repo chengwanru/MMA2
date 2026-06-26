@@ -417,10 +417,14 @@ class TemporaryMessageAccumulator:
         t1 = time.time()
         if SKIP_META_MEMORY_MANAGER:
             # Send to memory agents in parallel
-            self._send_to_memory_agents_separately(message, set(list(self.uri_to_create_time.keys())), agent_states)
+            self._send_to_memory_agents_separately(
+                message, list(self.uri_to_create_time.keys()), agent_states
+            )
         else:
             # Send to meta memory agent
-            response, agent_type = self._send_to_meta_memory_agent(message, set(list(self.uri_to_create_time.keys())), agent_states)
+            response, agent_type = self._send_to_meta_memory_agent(
+                message, list(self.uri_to_create_time.keys()), agent_states
+            )
 
         t2 = time.time()
         self.logger.info(f"Time taken to send to memory agents: {t2 - t1} seconds")
@@ -571,12 +575,14 @@ class TemporaryMessageAccumulator:
         }
         
         responses = []
-        memory_agent_types = ['episodic_memory', 'procedural_memory', 'knowledge_vault', 
+        memory_agent_types = ['episodic_memory', 'procedural_memory', 'knowledge_vault',
                              'semantic_memory', 'core_memory', 'resource_memory']
-        
+        if os.environ.get("OPENEQA_EPISODIC_ONLY", "").strip().lower() in ("1", "true", "yes"):
+            memory_agent_types = ['episodic_memory']
+
         overall_start = time.time()
-        
-        with ThreadPoolExecutor(max_workers=6) as pool:
+
+        with ThreadPoolExecutor(max_workers=len(memory_agent_types)) as pool:
             futures = [
                 pool.submit(self.message_queue.send_message_in_queue, 
                            self.client, self.message_queue._get_agent_id_for_type(agent_states, agent_type), payloads, agent_type) 

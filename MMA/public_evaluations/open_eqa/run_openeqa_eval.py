@@ -150,6 +150,17 @@ def _subprocess_env(use_speculative_baseline: bool) -> Dict[str, str]:
     if env.get("OPENEQA_NO_OFFLOAD", "").strip().lower() not in ("1", "true", "yes"):
         env.setdefault("MMA_SPECULATIVE_OFFLOAD_TARGET", "1")
     env.setdefault("OPENEQA_ABSORB_BATCH_SIZE", "4")
+    env.setdefault("OPENEQA_SKIP_META", "1")
+    env.setdefault("OPENEQA_EPISODIC_TOOL_CALL", "1")
+    env.setdefault("OPENEQA_EPISODIC_ONLY", "1")
+    env.setdefault("OPENEQA_DIRECT_EPISODIC", "1")
+    env.setdefault("MMA_TARGET_ONLY", "1")
+    env.setdefault("MMA_BASELINE_TOOLS", "1")
+    env.setdefault("OPENEQA_SKIP_ABSORB", "0")
+    env.setdefault("OPENEQA_SKIP_EMBEDDINGS", "1")
+    env.setdefault("OPENEQA_QA_BASELINE", "1")
+    # Inject retrieved memory as text for QA (works without tool calls).
+    env.setdefault("MMA_SPECULATIVE_LOCAL_RAG", "1")
     return env
 
 
@@ -179,6 +190,11 @@ def _invoke_one_sample_phase(
         text=True,
     )
     stderr_tail = (proc.stderr or "")[-4000:]
+    if proc.stdout:
+        for line in proc.stdout.strip().splitlines():
+            line = line.strip()
+            if line and not line.startswith("{"):
+                print(line, flush=True)
     if proc.returncode != 0:
         err_tail = (proc.stderr or proc.stdout or "")[-800:]
         return {

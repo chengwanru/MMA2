@@ -840,7 +840,7 @@ class AgentWrapper():
                     'message': message,
                     'display_intermediate_message': display_intermediate_message,
                     'force_response': True,
-                    'existing_file_uris': set(list(self.uri_to_create_time.keys())),
+                    'existing_file_uris': list(self.uri_to_create_time.keys()),
                     'extra_messages': extra_messages,
                 }, 
                 agent_type='chat',

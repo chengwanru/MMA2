@@ -1,10 +1,8 @@
 """
 Speculative decoding with memory integration for MMA.
-
-- Draft model: small model + token-level memory bias for fast candidate generation.
-- Target model: large model + extended KV cache (memory K/V) for deep memory use.
-- Verify: one target forward to accept/reject multiple draft tokens.
 """
+
+from mma.speculative_memory import generation_helpers as _generation_helpers  # noqa: F401
 
 from mma.speculative_memory.config import SpeculativeMemoryConfig
 from mma.speculative_memory.draft_model import (

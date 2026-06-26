@@ -193,6 +193,117 @@ def _episode_tar_path(frames_root: str, episode: str) -> Optional[str]:
     return None
 
 
+def _episode_mp4_path(frames_root: str, episode: str) -> Optional[str]:
+    """ellisbrown/OpenEQA hm3d-v0.tar.gz ships one preview .mp4 per episode."""
+    direct = os.path.join(frames_root, episode + ".mp4")
+    if os.path.isfile(direct):
+        return direct
+    if "/" in episode:
+        split, name = episode.split("/", 1)
+        nested = os.path.join(frames_root, split, name + ".mp4")
+        if os.path.isfile(nested):
+            return nested
+    return None
+
+
+def _video_frame_count(mp4_path: str) -> int:
+    try:
+        import cv2  # type: ignore
+
+        cap = cv2.VideoCapture(mp4_path)
+        if not cap.isOpened():
+            return 0
+        count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
+        if count > 0:
+            return count
+    except Exception:
+        pass
+    try:
+        import imageio.v2 as imageio
+
+        with imageio.get_reader(mp4_path) as reader:
+            try:
+                return int(reader.count_frames())
+            except Exception:
+                return sum(1 for _ in reader)
+    except Exception:
+        return 0
+
+
+def _write_video_frame(mp4_path: str, frame_idx: int, out_path: str) -> bool:
+    try:
+        import cv2  # type: ignore
+
+        cap = cv2.VideoCapture(mp4_path)
+        if not cap.isOpened():
+            return False
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        ok, frame = cap.read()
+        cap.release()
+        if ok and frame is not None:
+            return bool(cv2.imwrite(out_path, frame))
+    except Exception:
+        pass
+    try:
+        import imageio.v2 as imageio
+
+        with imageio.get_reader(mp4_path) as reader:
+            frame = reader.get_data(frame_idx)
+        imageio.imwrite(out_path, frame)
+        return True
+    except Exception:
+        return False
+
+
+def _minimal_frames_from_mp4(
+    mp4_path: str,
+    cache_episode_dir: str,
+    max_frames: int,
+    sampling: str,
+) -> List[str]:
+    """Sample PNG frames from episode preview .mp4 (HF ellisbrown/OpenEQA layout)."""
+    os.makedirs(cache_episode_dir, exist_ok=True)
+    total = _video_frame_count(mp4_path)
+    if total <= 0:
+        return []
+
+    indices = _sample_indices(total, max_frames, sampling)
+    if _manifest_is_valid(
+        cache_episode_dir,
+        sampling=sampling,
+        max_frames=max_frames,
+        indices=indices,
+        tar_path=mp4_path,
+    ):
+        manifest = _read_manifest(cache_episode_dir)
+        return [os.path.join(cache_episode_dir, fn) for fn in manifest["files"]]
+
+    _clear_cached_pngs(cache_episode_dir)
+    out_paths: List[str] = []
+    out_names: List[str] = []
+    for i, frame_idx in enumerate(indices):
+        out_name = f"frame_{frame_idx:06d}.png"
+        out_path = os.path.join(cache_episode_dir, out_name)
+        if not _write_video_frame(mp4_path, frame_idx, out_path):
+            continue
+        out_paths.append(out_path)
+        out_names.append(out_name)
+
+    if not out_paths:
+        return []
+
+    _write_manifest(
+        cache_episode_dir,
+        sampling=sampling,
+        max_frames=max_frames,
+        indices=indices,
+        files=out_names,
+        tar_path=mp4_path,
+    )
+    return sorted(out_paths)
+
+
 def _minimal_frames_from_tar(
     tar_path: str,
     cache_episode_dir: str,
@@ -256,11 +367,15 @@ def _frame_paths_for_episode(
     max_frames: int,
     sampling: str,
 ) -> tuple[List[str], bool]:
-    """Return (paths, pulled_from_tar)."""
+    """Return (paths, pulled_from_archive). Supports .tar PNGs or .mp4 previews."""
     cache_dir = os.path.join(frame_cache, episode)
     tar_path = _episode_tar_path(frames_root, episode)
     if tar_path:
         return _minimal_frames_from_tar(tar_path, cache_dir, max_frames, sampling), True
+
+    mp4_path = _episode_mp4_path(frames_root, episode)
+    if mp4_path:
+        return _minimal_frames_from_mp4(mp4_path, cache_dir, max_frames, sampling), True
 
     # Legacy: fully extracted episode dir (avoid creating new ones)
     legacy_dir = os.path.join(frames_root, episode)

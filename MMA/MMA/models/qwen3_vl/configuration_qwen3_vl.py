@@ -180,6 +180,13 @@ class Qwen3VLTextConfig(PreTrainedConfig):
         self.use_cache = use_cache
         self.attention_bias = attention_bias
         self.attention_dropout = attention_dropout
+        if rope_parameters is None:
+            rope_theta = kwargs.get("rope_theta", self.default_theta)
+            rope_parameters = {
+                "rope_type": "default",
+                "rope_theta": float(rope_theta),
+                "mrope_section": [24, 20, 20],
+            }
         self.rope_parameters = rope_parameters
         self.pad_token_id = pad_token_id
 

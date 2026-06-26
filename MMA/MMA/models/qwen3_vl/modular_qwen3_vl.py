@@ -66,6 +66,17 @@ from transformers.models.qwen3.modeling_qwen3 import (
 logger = logging.get_logger(__name__)
 
 
+def _get_attention_interface(attn_implementation: str) -> Callable:
+    """Compatible with transformers 4.57.x (dict lookup) and newer (get_interface)."""
+    if hasattr(ALL_ATTENTION_FUNCTIONS, "get_interface"):
+        return ALL_ATTENTION_FUNCTIONS.get_interface(
+            attn_implementation, eager_attention_forward
+        )
+    if attn_implementation == "eager":
+        return eager_attention_forward
+    return ALL_ATTENTION_FUNCTIONS[attn_implementation]
+
+
 @dataclass
 @auto_docstring
 class BaseModelOutputWithDeepstackFeatures(BaseModelOutputWithPooling):
@@ -224,6 +235,13 @@ class Qwen3VLTextConfig(PreTrainedConfig):
         self.use_cache = use_cache
         self.attention_bias = attention_bias
         self.attention_dropout = attention_dropout
+        if rope_parameters is None:
+            rope_theta = kwargs.get("rope_theta", self.default_theta)
+            rope_parameters = {
+                "rope_type": "default",
+                "rope_theta": float(rope_theta),
+                "mrope_section": [24, 20, 20],
+            }
         self.rope_parameters = rope_parameters
         self.pad_token_id = pad_token_id
 
@@ -366,10 +384,26 @@ class Qwen3VLVisionBlock(Qwen2_5_VLVisionBlock):
         self.mlp = Qwen3VLVisionMLP(config=config)
 
 
+def _ensure_rope_parameters(config: Qwen3VLTextConfig) -> dict:
+    """Fill default RoPE params when config.rope_parameters is missing (from_pretrained / _from_config)."""
+    if getattr(config, "rope_parameters", None):
+        return config.rope_parameters
+    theta = getattr(config, "rope_theta", None)
+    if theta is None:
+        theta = getattr(Qwen3VLTextConfig, "default_theta", 500000.0)
+    config.rope_parameters = {
+        "rope_type": "default",
+        "rope_theta": float(theta),
+        "mrope_section": [24, 20, 20],
+    }
+    return config.rope_parameters
+
+
 class Qwen3VLTextRotaryEmbedding(LlamaRotaryEmbedding):
     inv_freq: torch.Tensor  # fix linting for `register_buffer`
 
     def __init__(self, config: Qwen3VLTextConfig, device=None):
+        _ensure_rope_parameters(config)
         super().__init__(config, device=device)
 
         self.mrope_section = config.rope_parameters.get("mrope_section", [24, 20, 20])
@@ -441,8 +475,8 @@ class Qwen3VLTextAttention(Qwen3Attention):
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
             key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
-        attention_interface: Callable = ALL_ATTENTION_FUNCTIONS.get_interface(
-            self.config._attn_implementation, eager_attention_forward
+        attention_interface: Callable = _get_attention_interface(
+            self.config._attn_implementation
         )
 
         attn_output, attn_weights = attention_interface(

@@ -463,7 +463,7 @@ def trigger_memory_update(self: "Agent", user_message: object, memory_types: Lis
         # Prepare payloads for message queue
         payloads = {
             'message': user_message['message'],
-            'existing_file_uris': user_message.get('existing_file_uris', set()),
+            'existing_file_uris': list(user_message.get('existing_file_uris') or ()),
             'chaining': user_message.get('chaining', False),
             'message_queue': message_queue,
             'retrieved_memories': user_message.get('retrieved_memories', None)

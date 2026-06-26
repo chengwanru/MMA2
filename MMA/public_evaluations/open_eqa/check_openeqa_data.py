@@ -70,9 +70,11 @@ def _count_pngs_in_tar(tar_path: str) -> Optional[int]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Check OpenEQA hm3d/scannet tar coverage.")
+    parser = argparse.ArgumentParser(
+        description="Check OpenEQA hm3d/scannet tar coverage.")
     parser.add_argument("--qa_json", type=str, default=_default_qa_path())
-    parser.add_argument("--frames_root", type=str, default=_default_frames_root())
+    parser.add_argument("--frames_root", type=str,
+                        default=_default_frames_root())
     parser.add_argument(
         "--sample_episodes",
         type=int,
@@ -86,7 +88,8 @@ def check(qa_json: str, frames_root: str, sample_episodes: int = 3) -> Tuple[boo
     with open(qa_json, encoding="utf-8") as f:
         data: List[Dict[str, Any]] = json.load(f)
 
-    episodes = sorted({item["episode_history"] for item in data if item.get("episode_history")})
+    episodes = sorted({item["episode_history"]
+                      for item in data if item.get("episode_history")})
     by_src = Counter(e.split("/")[0] for e in episodes)
     need_hm3d = sum(1 for e in episodes if e.startswith("hm3d-v0/"))
     need_scan = sum(1 for e in episodes if e.startswith("scannet-v0/"))
@@ -104,7 +107,8 @@ def check(qa_json: str, frames_root: str, sample_episodes: int = 3) -> Tuple[boo
             lfs_pointers.append(ep)
 
     missing_set = set(missing)
-    skip_questions = sum(1 for item in data if item.get("episode_history") in missing_set)
+    skip_questions = sum(1 for item in data if item.get(
+        "episode_history") in missing_set)
 
     samples: List[Dict[str, Any]] = []
     for ep in episodes[:sample_episodes]:
@@ -153,7 +157,8 @@ def main() -> None:
     print(f"QA json:      {report['qa_json']}")
     print(f"Frames root:  {report['frames_root']}")
     print(f"Questions:    {report['questions']}")
-    print(f"Episodes:     {report['unique_episodes']}  {report['episodes_by_source']}")
+    print(
+        f"Episodes:     {report['unique_episodes']}  {report['episodes_by_source']}")
     print(
         f"hm3d tars:    {report['hm3d_tars_on_disk']} on disk / {report['needed_hm3d_episodes']} needed"
     )
@@ -161,14 +166,17 @@ def main() -> None:
         f"scannet tars: {report['scannet_tars_on_disk']} on disk / {report['needed_scannet_episodes']} needed"
     )
     print(f"Missing:      {report['missing_episodes']} episode(s)")
-    print(f"LFS pointers: {report['lfs_pointer_episodes']} episode(s) (not real tars)")
-    print(f"Skip Qs:      {report['questions_skipped_if_missing']} if tars missing")
+    print(
+        f"LFS pointers: {report['lfs_pointer_episodes']} episode(s) (not real tars)")
+    print(
+        f"Skip Qs:      {report['questions_skipped_if_missing']} if tars missing")
 
     if report["sample_episodes"]:
         print("\nSample episode frame counts:")
         for s in report["sample_episodes"]:
             png = s["png_count"] if s["png_count"] is not None else "?"
-            print(f"  {s['episode']}: {png} pngs, {s['tar_mb']} MB, lfs={s['lfs_pointer']}")
+            print(
+                f"  {s['episode']}: {png} pngs, {s['tar_mb']} MB, lfs={s['lfs_pointer']}")
 
     if ok:
         print("\nOK: hm3d + scannet coverage looks complete.")
@@ -177,7 +185,8 @@ def main() -> None:
         if report["missing_episodes"]:
             raise SystemExit(1)
         if report["lfs_pointer_episodes"]:
-            print("Hint: git-lfs pointers need real HF download (see upload_from_mac.sh --with-data).")
+            print(
+                "Hint: git-lfs pointers need real HF download (see upload_from_mac.sh --with-data).")
             raise SystemExit(1)
 
 

@@ -12,6 +12,7 @@ from typing import Any, List, Optional, Union
 import torch
 
 from mma.speculative_memory.config import SpeculativeMemoryConfig
+from mma.speculative_memory.generation_helpers import safe_generate
 from mma.speculative_memory.memory_bias import (
     MemoryItem,
     build_memory_bias_vector,
@@ -167,7 +168,7 @@ def generate_draft_tokens(
         model_inputs["video_grid_thw"] = video_grid_thw.to(device)
 
     with torch.no_grad():
-        output_ids = model.generate(**model_inputs, **gen_kwargs)
+        output_ids = safe_generate(model, **model_inputs, **gen_kwargs)
 
     # Draft tokens = the new part only
     draft_token_ids = output_ids[0, context_len:].tolist()

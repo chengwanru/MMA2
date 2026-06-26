@@ -24,7 +24,14 @@ from transformers.feature_extraction_utils import BatchFeature
 from transformers.image_utils import ImageInput
 from transformers.processing_utils import MultiModalData, ProcessingKwargs, ProcessorMixin, Unpack
 from transformers.tokenization_utils_base import PreTokenizedInput, TextInput
-from transformers.utils import auto_docstring, logging
+from transformers.utils import logging
+
+
+def auto_docstring(obj=None, /, **_kwargs):
+    if obj is None:
+        return lambda f: f
+    return obj
+
 from transformers.video_utils import VideoInput
 
 

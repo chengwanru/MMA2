@@ -51,9 +51,44 @@ except ImportError:
         return _decorator
 
 try:
-    from transformers.masking_utils import create_causal_mask
+    import inspect
+
+    from transformers.masking_utils import create_causal_mask as _hf_create_causal_mask
+
+    _CAUSAL_MASK_PARAMS = set(inspect.signature(_hf_create_causal_mask).parameters)
+
+    def create_causal_mask(
+        *,
+        config,
+        inputs_embeds=None,
+        input_embeds=None,
+        attention_mask=None,
+        cache_position=None,
+        past_key_values=None,
+        position_ids=None,
+        **kwargs,
+    ):
+        embeds = inputs_embeds if inputs_embeds is not None else input_embeds
+        if embeds is None:
+            raise ValueError("create_causal_mask requires inputs_embeds or input_embeds")
+        call_kw = {
+            "config": config,
+            "attention_mask": attention_mask,
+            "cache_position": cache_position,
+            "past_key_values": past_key_values,
+            "position_ids": position_ids,
+            **kwargs,
+        }
+        if "inputs_embeds" in _CAUSAL_MASK_PARAMS:
+            call_kw["inputs_embeds"] = embeds
+        else:
+            call_kw["input_embeds"] = embeds
+        filtered = {k: v for k, v in call_kw.items() if k in _CAUSAL_MASK_PARAMS}
+        return _hf_create_causal_mask(**filtered)
+
 except ImportError:
     import torch
+
     def create_causal_mask(query_dim, key_dim, device, dtype, **kwargs):
         return torch.triu(
             torch.full((query_dim, key_dim), torch.finfo(dtype).min, device=device, dtype=dtype),
@@ -70,12 +105,38 @@ from transformers.modeling_outputs import (
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS, dynamic_rope_update
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, PreTrainedModel
 from transformers.processing_utils import Unpack
-from transformers.utils import (
-    TransformersKwargs,
-    auto_docstring,
-    can_return_tuple,
-    torch_compilable_check,
-)
+try:
+    from transformers.utils import TransformersKwargs
+except ImportError:
+    TransformersKwargs = dict
+
+
+def auto_docstring(obj=None, /, **_kwargs):
+    """No-op: transformers 4.57.x auto_docstring breaks on Py3.11 `X | Y` annotations."""
+    if obj is None:
+        return lambda f: f
+    return obj
+
+
+def can_return_tuple(obj=None, /, **_kwargs):
+    if obj is None:
+        return lambda f: f
+    return obj
+
+
+try:
+    from transformers.utils import torch_compilable_check
+except ImportError:
+    try:
+        from transformers.utils.import_utils import torch_compilable_check
+    except ImportError:
+
+        def torch_compilable_check(cond, msg, error_type=ValueError):
+            if callable(cond):
+                cond = cond()
+            if not cond:
+                m = msg() if callable(msg) else msg
+                raise error_type(m)
 
 try:
     from transformers.utils.generic import (
@@ -268,6 +329,17 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
+def _get_attention_interface(attn_implementation: str) -> Callable:
+    """Compatible with transformers 4.57.x (dict lookup) and newer (get_interface)."""
+    if hasattr(ALL_ATTENTION_FUNCTIONS, "get_interface"):
+        return ALL_ATTENTION_FUNCTIONS.get_interface(
+            attn_implementation, eager_attention_forward
+        )
+    if attn_implementation == "eager":
+        return eager_attention_forward
+    return ALL_ATTENTION_FUNCTIONS[attn_implementation]
+
+
 class Qwen3VLVisionAttention(nn.Module):
     def __init__(self, config: Qwen3VLVisionConfig) -> None:
         super().__init__()
@@ -306,8 +378,8 @@ class Qwen3VLVisionAttention(nn.Module):
         key_states = key_states.transpose(0, 1).unsqueeze(0)
         value_states = value_states.transpose(0, 1).unsqueeze(0)
 
-        attention_interface: Callable = ALL_ATTENTION_FUNCTIONS.get_interface(
-            self.config._attn_implementation, eager_attention_forward
+        attention_interface: Callable = _get_attention_interface(
+            self.config._attn_implementation
         )
 
         if is_flash_attention_requested(self.config):
@@ -384,6 +456,21 @@ class Qwen3VLVisionBlock(GradientCheckpointingLayer):
         return hidden_states
 
 
+def _ensure_rope_parameters(config: Qwen3VLTextConfig) -> dict:
+    """Fill default RoPE params when config.rope_parameters is missing (from_pretrained / _from_config)."""
+    if getattr(config, "rope_parameters", None):
+        return config.rope_parameters
+    theta = getattr(config, "rope_theta", None)
+    if theta is None:
+        theta = getattr(Qwen3VLTextConfig, "default_theta", 500000.0)
+    config.rope_parameters = {
+        "rope_type": "default",
+        "rope_theta": float(theta),
+        "mrope_section": [24, 20, 20],
+    }
+    return config.rope_parameters
+
+
 class Qwen3VLTextRotaryEmbedding(nn.Module):
     inv_freq: torch.Tensor  # fix linting for `register_buffer`
 
@@ -393,8 +480,9 @@ class Qwen3VLTextRotaryEmbedding(nn.Module):
         self.original_max_seq_len = config.max_position_embeddings
 
         self.config = config
+        rope_parameters = _ensure_rope_parameters(config)
 
-        self.rope_type = self.config.rope_parameters["rope_type"]
+        self.rope_type = rope_parameters["rope_type"]
         rope_init_fn: Callable = self.compute_default_rope_parameters
         if self.rope_type != "default":
             rope_init_fn = ROPE_INIT_FUNCTIONS[self.rope_type]
@@ -403,7 +491,7 @@ class Qwen3VLTextRotaryEmbedding(nn.Module):
         self.register_buffer("inv_freq", inv_freq, persistent=False)
         self.register_buffer("original_inv_freq", inv_freq.clone(), persistent=False)
 
-        self.mrope_section = config.rope_parameters.get("mrope_section", [24, 20, 20])
+        self.mrope_section = rope_parameters.get("mrope_section", [24, 20, 20])
 
     @staticmethod
     def compute_default_rope_parameters(
@@ -424,7 +512,8 @@ class Qwen3VLTextRotaryEmbedding(nn.Module):
             Tuple of (`torch.Tensor`, `float`), containing the inverse frequencies for the RoPE embeddings and the
             post-processing scaling factor applied to the computed cos/sin (unused in this type of RoPE).
         """
-        base = config.rope_parameters["rope_theta"]
+        rope_parameters = _ensure_rope_parameters(config)
+        base = rope_parameters["rope_theta"]
         dim = (
             getattr(config, "head_dim", None)
             or config.hidden_size // config.num_attention_heads
@@ -627,8 +716,8 @@ class Qwen3VLTextAttention(nn.Module):
             key_states = torch.cat([key_states, memory_key_states], dim=2)
             value_states = torch.cat([value_states, memory_value_states], dim=2)
 
-        attention_interface: Callable = ALL_ATTENTION_FUNCTIONS.get_interface(
-            self.config._attn_implementation, eager_attention_forward
+        attention_interface: Callable = _get_attention_interface(
+            self.config._attn_implementation
         )
 
         attn_output, attn_weights = attention_interface(

@@ -9,11 +9,24 @@ calls generate_with_speculative_memory with memory_items from retrieved_memories
 from __future__ import annotations
 
 import datetime
+import json
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
+# Patch json.dumps(set) before any transformers / generate path runs.
+from mma.speculative_memory import generation_helpers as _generation_helpers  # noqa: F401
+
+from mma.constants import INNER_THOUGHTS_KWARG
 from mma.errors import LLMError
+from mma.llm_api.helpers import unpack_all_inner_thoughts_from_kwargs
 from mma.llm_api.llm_client_base import LLMClientBase
+from mma.llm_api.qwen_tool_utils import (
+    baseline_tools_enabled,
+    build_tool_instructions,
+    inject_tool_instructions,
+    parse_tool_calls_from_text,
+    prepare_tools_for_prompt,
+)
 from mma.schemas.llm_config import LLMConfig
 from mma.schemas.message import Message
 from mma.schemas.openai.chat_completion_response import (
@@ -148,14 +161,32 @@ class SpeculativeMemoryClient(LLMClientBase):
         if os.environ.get("MMA_SPECULATIVE_BASELINE", "").strip() == "1":
             self._config.max_draft_steps = 0
         device = "cuda"
-        self._draft_model, self._draft_processor = load_draft_model(
-            self._config, device_map=device
+        target_only = os.environ.get("MMA_TARGET_ONLY", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
         )
-        self._tokenizer = self._draft_processor.tokenizer
         _local = (
             os.environ.get("TRANSFORMERS_OFFLINE", "") == "1"
             or os.environ.get("MMA_OFFLINE", "") == "1"
         )
+        if target_only:
+            from transformers import AutoProcessor
+
+            proc_kw = dict(trust_remote_code=True)
+            if _local:
+                proc_kw["local_files_only"] = True
+            self._draft_processor = AutoProcessor.from_pretrained(
+                target_path,
+                **proc_kw,
+            )
+            self._tokenizer = self._draft_processor.tokenizer
+            self._draft_model = None
+        else:
+            self._draft_model, self._draft_processor = load_draft_model(
+                self._config, device_map=device
+            )
+            self._tokenizer = self._draft_processor.tokenizer
         target_kw = dict(
             torch_dtype=self._config.torch_dtype or "float16",
             trust_remote_code=True,
@@ -180,6 +211,15 @@ class SpeculativeMemoryClient(LLMClientBase):
             **target_kw,
         )
         self._target_model.eval()
+        from mma.speculative_memory.generation_helpers import (
+            patch_model_generation_config,
+            patch_tokenizer_json_safe,
+        )
+
+        patch_tokenizer_json_safe(self._tokenizer)
+        if self._draft_model is not None:
+            patch_model_generation_config(self._draft_model)
+        patch_model_generation_config(self._target_model)
 
     def build_request_data(
         self,
@@ -221,14 +261,41 @@ class SpeculativeMemoryClient(LLMClientBase):
         vl_content_parts, image_paths = _messages_to_vl_content_parts(
             messages, self.file_manager
         )
+
+        use_baseline_tools = baseline_tools_enabled(tools)
+        prepared_tools: Optional[List[dict]] = None
+        tool_instructions: Optional[str] = None
+        if use_baseline_tools and tools:
+            prepared_tools = prepare_tools_for_prompt(
+                tools,
+                llm_config,
+                put_inner_thoughts_first=self.put_inner_thoughts_first,
+            )
+            tool_instructions = build_tool_instructions(
+                prepared_tools,
+                force_tool_call=force_tool_call,
+            )
+            chat = inject_tool_instructions(chat, tool_instructions)
+
+        max_new_tokens = llm_config.max_tokens or 256
+        if use_baseline_tools:
+            max_new_tokens = max(
+                max_new_tokens,
+                int(os.environ.get("MMA_BASELINE_TOOLS_MAX_TOKENS", "1024")),
+            )
+
         return {
             "messages": messages,
             "chat": chat,
             "memory_items": memory_items,
             "local_rag": local_rag,
-            "max_new_tokens": llm_config.max_tokens or 256,
+            "max_new_tokens": max_new_tokens,
             "vl_content_parts": vl_content_parts,
             "image_paths": image_paths,
+            "use_baseline_tools": use_baseline_tools,
+            "prepared_tools": prepared_tools,
+            "tool_instructions": tool_instructions,
+            "force_tool_call": force_tool_call,
         }
 
     def _tokenize_chat(
@@ -237,6 +304,7 @@ class SpeculativeMemoryClient(LLMClientBase):
         vl_content_parts: List[Tuple[str, str]],
         image_paths: List[str],
         device: Any,
+        tool_instructions: Optional[str] = None,
     ) -> Tuple[Any, Optional[Any], Optional[Any]]:
         """Tokenize chat (text-only or multimodal) and return (prompt_ids, pixel_values, image_grid_thw)."""
         import torch
@@ -265,6 +333,8 @@ class SpeculativeMemoryClient(LLMClientBase):
                     images_list.append(img)
             if not text_parts:
                 return None, None, None
+            if tool_instructions:
+                text_parts.append("\n" + tool_instructions.strip() + "\n")
             text_parts.append("\nassistant:")
             out = processor(text="".join(text_parts), images=images_list, return_tensors="pt")
             def _field(name: str):
@@ -276,19 +346,20 @@ class SpeculativeMemoryClient(LLMClientBase):
             image_grid_thw = _field("image_grid_thw")
             if hasattr(prompt_ids, "input_ids"):
                 prompt_ids = prompt_ids.input_ids
-            pixel_values = out.get("pixel_values")
-            image_grid_thw = out.get("image_grid_thw")
         else:
-            if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
-                out = tokenizer.apply_chat_template(
-                    chat, tokenize=True, add_generation_prompt=True, return_tensors="pt"
+            # Manual format: transformers 4.57.x apply_chat_template can raise
+            # "Object of type set is not JSON serializable" on Qwen3-VL tokenizers.
+            text = (
+                "\n".join(f"{c['role']}: {c['content']}" for c in chat if c.get("content"))
+                + "\nassistant: "
+            )
+            if tool_instructions:
+                text = text.replace(
+                    "\nassistant: ",
+                    "\n" + tool_instructions.strip() + "\nassistant: ",
+                    1,
                 )
-            else:
-                text = (
-                    "\n".join(f"{c['role']}: {c['content']}" for c in chat)
-                    + "\nassistant: "
-                )
-                out = tokenizer(text, return_tensors="pt", add_special_tokens=True)
+            out = tokenizer(text, return_tensors="pt", add_special_tokens=True)
             prompt_ids = (
                 out.get("input_ids", out)
                 if hasattr(out, "get")
@@ -305,6 +376,7 @@ class SpeculativeMemoryClient(LLMClientBase):
     def request(self, request_data: dict) -> dict:
         import torch
         from mma.speculative_memory import generate_with_speculative_memory
+        from mma.speculative_memory.generation_helpers import json_dumps_set_patch, safe_generate
 
         self._ensure_models()
         chat = request_data["chat"]
@@ -314,6 +386,9 @@ class SpeculativeMemoryClient(LLMClientBase):
         max_new_tokens = request_data.get("max_new_tokens") or 256
         vl_content_parts = request_data.get("vl_content_parts") or []
         image_paths = request_data.get("image_paths") or []
+        use_baseline_tools = request_data.get("use_baseline_tools", False)
+        prepared_tools = request_data.get("prepared_tools") or []
+        tool_instructions = request_data.get("tool_instructions")
 
         if not chat and not vl_content_parts:
             return {"generated_text": ""}
@@ -321,49 +396,68 @@ class SpeculativeMemoryClient(LLMClientBase):
         tokenizer = self._tokenizer
         device = next(self._target_model.parameters()).device
 
-        prompt_ids, pixel_values, image_grid_thw = self._tokenize_chat(
-            chat, vl_content_parts, image_paths, device
-        )
+        try:
+            prompt_ids, pixel_values, image_grid_thw = self._tokenize_chat(
+                chat,
+                vl_content_parts,
+                image_paths,
+                device,
+                tool_instructions=tool_instructions,
+            )
+        except Exception as e:
+            raise RuntimeError(f"tokenize failed: {e}") from e
         if prompt_ids is None:
             return {"generated_text": ""}
 
-        if local_rag or baseline_mode:
-            # baseline4/local_rag OR baseline1(target-only): standard AR generation with target model.
-            # No draft verification loop, no memory KV injection, no speculative logits path.
-            with torch.no_grad():
-                gen_kwargs: dict = {
-                    "input_ids": prompt_ids,
-                    "attention_mask": torch.ones_like(
-                        prompt_ids, dtype=torch.long, device=device
-                    ),
-                    "max_new_tokens": max_new_tokens,
-                    "do_sample": False,
-                    "pad_token_id": tokenizer.pad_token_id or tokenizer.eos_token_id,
-                    "eos_token_id": tokenizer.eos_token_id,
-                }
-                if pixel_values is not None:
-                    gen_kwargs["pixel_values"] = pixel_values.to(device)
-                if image_grid_thw is not None:
-                    gen_kwargs["image_grid_thw"] = image_grid_thw.to(device)
-                output_ids = self._target_model.generate(**gen_kwargs)
-        else:
-            # MMA2 / Baseline1 / Baseline2: speculative decoding path.
-            output_ids = generate_with_speculative_memory(
-                prompt_ids,
-                memory_items=memory_items,
-                draft_model=self._draft_model,
-                target_model=self._target_model,
-                tokenizer=tokenizer,
-                config=self._config,
-                max_new_tokens=max_new_tokens,
-                pixel_values=pixel_values,
-                image_grid_thw=image_grid_thw,
-            )
+        with json_dumps_set_patch():
+            if local_rag or baseline_mode:
+                # baseline4/local_rag OR baseline1(target-only): standard AR generation with target model.
+                # No draft verification loop, no memory KV injection, no speculative logits path.
+                with torch.no_grad():
+                    gen_kwargs: dict = {
+                        "input_ids": prompt_ids,
+                        "attention_mask": torch.ones_like(
+                            prompt_ids, dtype=torch.long, device=device
+                        ),
+                        "max_new_tokens": max_new_tokens,
+                        "do_sample": False,
+                        "pad_token_id": tokenizer.pad_token_id or tokenizer.eos_token_id,
+                        "eos_token_id": tokenizer.eos_token_id,
+                    }
+                    if pixel_values is not None:
+                        gen_kwargs["pixel_values"] = pixel_values.to(device)
+                    if image_grid_thw is not None:
+                        gen_kwargs["image_grid_thw"] = image_grid_thw.to(device)
+                    output_ids = safe_generate(self._target_model, **gen_kwargs)
+            else:
+                if self._draft_model is None:
+                    raise RuntimeError(
+                        "Draft model is not loaded; set MMA_SPECULATIVE_BASELINE=1 or unset MMA_TARGET_ONLY."
+                    )
+                # MMA2 / Baseline1 / Baseline2: speculative decoding path.
+                output_ids = generate_with_speculative_memory(
+                    prompt_ids,
+                    memory_items=memory_items,
+                    draft_model=self._draft_model,
+                    target_model=self._target_model,
+                    tokenizer=tokenizer,
+                    config=self._config,
+                    max_new_tokens=max_new_tokens,
+                    pixel_values=pixel_values,
+                    image_grid_thw=image_grid_thw,
+                )
 
         prompt_len = prompt_ids.size(1)
         new_ids = output_ids[0, prompt_len:]
         generated_text = tokenizer.decode(new_ids, skip_special_tokens=True)
-        return {"generated_text": generated_text}
+
+        response: Dict[str, Any] = {"generated_text": generated_text}
+        if use_baseline_tools and prepared_tools:
+            allowed = [t.get("name") for t in prepared_tools if t.get("name")]
+            tool_calls = parse_tool_calls_from_text(generated_text, allowed)
+            if tool_calls:
+                response["tool_calls"] = tool_calls
+        return response
 
     def convert_response_to_chat_completion(
         self,
@@ -371,15 +465,29 @@ class SpeculativeMemoryClient(LLMClientBase):
         input_messages: List[Message],
     ) -> ChatCompletionResponse:
         text = response_data.get("generated_text", "")
-        msg = ChatMessage(role="assistant", content=text)
-        choice = Choice(index=0, message=msg, finish_reason="stop")
-        return ChatCompletionResponse(
+        tool_calls = response_data.get("tool_calls")
+        if tool_calls:
+            msg = ChatMessage(role="assistant", content=None, tool_calls=tool_calls)
+            finish_reason = "tool_calls"
+        else:
+            msg = ChatMessage(role="assistant", content=text)
+            finish_reason = "stop"
+        response = ChatCompletionResponse(
             id="spec-mem",
-            choices=[choice],
+            choices=[Choice(index=0, message=msg, finish_reason=finish_reason)],
             created=datetime.datetime.now(datetime.timezone.utc),
             model=self.llm_config.model or "speculative_memory",
             usage=UsageStatistics(),
         )
+        if tool_calls:
+            response = unpack_all_inner_thoughts_from_kwargs(
+                response,
+                inner_thoughts_key=INNER_THOUGHTS_KWARG,
+            )
+        return response
 
     def handle_llm_error(self, e: Exception) -> Exception:
-        return LLMError(f"Speculative memory client error: {str(e)}")
+        import traceback
+
+        tb = traceback.format_exc()
+        return LLMError(f"Speculative memory client error: {str(e)}\n{tb}")

@@ -1083,6 +1083,8 @@ def create_uuid_from_string(val: str):
 
 def json_dumps(data, indent=2):
     def safe_serializer(obj):
+        if isinstance(obj, set):
+            return list(obj)
         if isinstance(obj, datetime):
             return obj.isoformat()
         raise TypeError(f"Type {type(obj)} not serializable")
