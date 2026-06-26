@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 # Patch json.dumps(set) before any transformers / generate path runs.
@@ -424,6 +425,18 @@ class SpeculativeMemoryClient(LLMClientBase):
         if prompt_ids is None:
             return {"generated_text": ""}
 
+        collect_stats = bool(request_data.get("collect_stats"))
+        stats_out: Optional[Dict[str, Any]] = request_data.get("stats_out")
+        if collect_stats and stats_out is None:
+            stats_out = {}
+
+        def _sync_cuda() -> None:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+
+        _sync_cuda()
+        t0 = time.perf_counter()
+
         with json_dumps_set_patch():
             if local_rag or baseline_mode:
                 # baseline4/local_rag OR baseline1(target-only): standard AR generation with target model.
@@ -460,13 +473,23 @@ class SpeculativeMemoryClient(LLMClientBase):
                     max_new_tokens=max_new_tokens,
                     pixel_values=pixel_values,
                     image_grid_thw=image_grid_thw,
+                    stats_out=stats_out if collect_stats else None,
                 )
+
+        _sync_cuda()
+        elapsed_sec = time.perf_counter() - t0
 
         prompt_len = prompt_ids.size(1)
         new_ids = output_ids[0, prompt_len:]
         generated_text = tokenizer.decode(new_ids, skip_special_tokens=True)
 
-        response: Dict[str, Any] = {"generated_text": generated_text}
+        response: Dict[str, Any] = {
+            "generated_text": generated_text,
+            "elapsed_sec": elapsed_sec,
+            "new_tokens": int(new_ids.numel()),
+        }
+        if stats_out:
+            response["speculative_stats"] = dict(stats_out)
         if use_baseline_tools and prepared_tools:
             allowed = [t.get("name") for t in prepared_tools if t.get("name")]
             tool_calls = parse_tool_calls_from_text(generated_text, allowed)

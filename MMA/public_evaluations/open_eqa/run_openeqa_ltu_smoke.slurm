@@ -137,12 +137,28 @@ import torch
 print("cuda:", torch.cuda.is_available(), "gpus:", torch.cuda.device_count())
 PY
 
-python run_openeqa_eval.py \
-  --input_file "${INPUT}" \
-  --output_file "${OUTPUT}" \
-  --baseline_config "${CFG}" \
-  --ours_config "${CFG}" \
-  --limit "${LIMIT}" \
-  --variants "${VARIANTS}"
+if [[ "${OPENEQA_DIRECT_SD:-0}" == "1" ]]; then
+  echo "=== direct SD compare (8B baseline vs SD, no MMA) max_frames=${OPENEQA_DIRECT_SD_MAX_FRAMES:-3} ==="
+  DIRECT_SD_ARGS=(
+    --input_file "${INPUT}"
+    --output_file "${OUTPUT}"
+    --limit "${LIMIT}"
+    --max_frames "${OPENEQA_DIRECT_SD_MAX_FRAMES:-3}"
+  )
+  if [[ "${OPENEQA_DIRECT_SD_COMPARE:-1}" == "1" ]]; then
+    DIRECT_SD_ARGS+=(--compare)
+  else
+    DIRECT_SD_ARGS+=(--no-compare --mode "${OPENEQA_DIRECT_SD_MODE:-speculative}")
+  fi
+  python run_openeqa_direct_sd.py "${DIRECT_SD_ARGS[@]}"
+else
+  python run_openeqa_eval.py \
+    --input_file "${INPUT}" \
+    --output_file "${OUTPUT}" \
+    --baseline_config "${CFG}" \
+    --ours_config "${CFG}" \
+    --limit "${LIMIT}" \
+    --variants "${VARIANTS}"
+fi
 
 echo "Wrote ${OUTPUT}"
