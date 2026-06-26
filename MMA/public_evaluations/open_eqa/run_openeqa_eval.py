@@ -270,7 +270,7 @@ def _run_sample_subprocess(
     home_dir = _sample_home_dir(sample_idx, sample.get("id", sample_idx))
     home_dir.mkdir(parents=True, exist_ok=True)
     has_frames = bool(sample.get("image_paths") or sample.get("images"))
-    split_phases = env.get("OPENEQA_SPLIT_PHASES", "1").strip().lower() not in (
+    split_phases = os.environ.get("OPENEQA_SPLIT_PHASES", "1").strip().lower() not in (
         "0",
         "false",
         "no",
