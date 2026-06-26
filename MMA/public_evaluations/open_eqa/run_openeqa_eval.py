@@ -139,7 +139,7 @@ def _sample_home_dir(sample_idx: int, sample_id: Any) -> Path:
     return root / "openeqa_home" / f"{sample_idx}_{safe_id}"
 
 
-def _subprocess_env(use_speculative_baseline: bool) -> Dict[str, str]:
+def _subprocess_env(use_speculative_baseline: bool, phase: str = "all") -> Dict[str, str]:
     env = os.environ.copy()
     if use_speculative_baseline:
         env["MMA_SPECULATIVE_BASELINE"] = "1"
@@ -151,16 +151,35 @@ def _subprocess_env(use_speculative_baseline: bool) -> Dict[str, str]:
         env.setdefault("MMA_SPECULATIVE_OFFLOAD_TARGET", "1")
     env.setdefault("OPENEQA_ABSORB_BATCH_SIZE", "4")
     env.setdefault("OPENEQA_SKIP_META", "1")
-    env.setdefault("OPENEQA_EPISODIC_TOOL_CALL", "1")
-    env.setdefault("OPENEQA_EPISODIC_ONLY", "1")
-    env.setdefault("OPENEQA_DIRECT_EPISODIC", "1")
-    env.setdefault("MMA_TARGET_ONLY", "1")
-    env.setdefault("MMA_BASELINE_TOOLS", "1")
-    env.setdefault("OPENEQA_SKIP_ABSORB", "0")
     env.setdefault("OPENEQA_SKIP_EMBEDDINGS", "1")
-    env.setdefault("OPENEQA_QA_BASELINE", "1")
-    # Inject retrieved memory as text for QA (works without tool calls).
-    env.setdefault("MMA_SPECULATIVE_LOCAL_RAG", "1")
+    env.setdefault("OPENEQA_REQUIRE_EPISODIC", "1")
+    env.setdefault("OPENEQA_DIRECT_EPISODIC", "1")
+
+    if phase == "memorize":
+        env.setdefault("OPENEQA_EPISODIC_TOOL_CALL", "1")
+        env.setdefault("OPENEQA_EPISODIC_ONLY", "1")
+        env.setdefault("MMA_TARGET_ONLY", "1")
+        env["MMA_SPECULATIVE_BASELINE"] = "1"
+        env["MMA_BASELINE_TOOLS"] = "1"
+        env.setdefault("MMA_BASELINE_TOOLS_MAX_TOKENS", "1024")
+        env.setdefault("OPENEQA_SKIP_ABSORB", "0")
+        for key in ("MMA_SPECULATIVE_LOCAL_RAG", "OPENEQA_QA_BASELINE"):
+            env.pop(key, None)
+    elif phase == "qa":
+        env.pop("MMA_BASELINE_TOOLS", None)
+        env.pop("OPENEQA_EPISODIC_ONLY", None)
+        env.pop("OPENEQA_EPISODIC_TOOL_CALL", None)
+        env.setdefault("OPENEQA_QA_BASELINE", "0")
+        env.pop("MMA_TARGET_ONLY", None)
+        if use_speculative_baseline:
+            env["MMA_SPECULATIVE_BASELINE"] = "1"
+            env.setdefault("MMA_TARGET_ONLY", "1")
+        else:
+            env.pop("MMA_SPECULATIVE_LOCAL_RAG", None)
+    else:
+        env.setdefault("OPENEQA_EPISODIC_TOOL_CALL", "1")
+        env.setdefault("OPENEQA_EPISODIC_ONLY", "1")
+        env.setdefault("OPENEQA_DIRECT_EPISODIC", "1")
     return env
 
 
@@ -250,8 +269,6 @@ def _run_sample_subprocess(
     """Fresh Python process + HOME => clean ~/.mma per sample."""
     home_dir = _sample_home_dir(sample_idx, sample.get("id", sample_idx))
     home_dir.mkdir(parents=True, exist_ok=True)
-    env = _subprocess_env(use_speculative_baseline)
-
     has_frames = bool(sample.get("image_paths") or sample.get("images"))
     split_phases = env.get("OPENEQA_SPLIT_PHASES", "1").strip().lower() not in (
         "0",
@@ -276,7 +293,7 @@ def _run_sample_subprocess(
                 sample_path=sample_path,
                 config_path=config_path,
                 home_dir=home_dir,
-                env=env,
+                env=_subprocess_env(use_speculative_baseline, phase="memorize"),
             )
             if str(mem["prediction"]).startswith("ERROR"):
                 _write_subprocess_stderr(home_dir, mem.get("stderr_tail", ""))
@@ -288,7 +305,7 @@ def _run_sample_subprocess(
                 sample_path=sample_path,
                 config_path=config_path,
                 home_dir=home_dir,
-                env=env,
+                env=_subprocess_env(use_speculative_baseline, phase="qa"),
             )
             if str(qa["prediction"]).startswith("ERROR"):
                 _write_subprocess_stderr(home_dir, qa.get("stderr_tail", ""))
@@ -304,7 +321,7 @@ def _run_sample_subprocess(
             sample_path=sample_path,
             config_path=config_path,
             home_dir=home_dir,
-            env=env,
+            env=_subprocess_env(use_speculative_baseline, phase="all"),
         )
         if str(payload["prediction"]).startswith("ERROR"):
             _write_subprocess_stderr(home_dir, payload.get("stderr_tail", ""))

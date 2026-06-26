@@ -66,7 +66,19 @@ python make_openeqa_multimodal.py --all_frames --max_samples 5
 
 ## 2. 跑评测
 
-MMA 按 **Episodic Memory** 流程：每条样本在**独立子进程**（`HOME=$SLURM_TMPDIR/...`）里**逐帧** `memorizing=True` + `force_absorb_content=True` 写入 episodic memory，QA 前将 chat agent `topic` 设为问题（利于 BM25 检索），再 `memorizing=False` 只问问题。避免多条样本共用 `~/.mma/sqlite.db` 导致 schema 损坏。
+**Memorize（写入 episodic）**：`OPENEQA_SPLIT_PHASES=1` 时 memorize 子进程使用 **Qwen3-VL-8B baseline + tool call**（`MMA_BASELINE_TOOLS=1`，仅 episodic agent，`MMA_TARGET_ONLY=1` 省显存）。若 tool call 未写入 DB，自动 **fallback** 到 direct episodic insert（VL caption + `insert_event`）。memorize 结束要求 `episodic_memory` 行数 > 0。
+
+**QA**：独立子进程，**ours** 路径用 draft+target speculative memory + BM25 检索（不设 `MMA_BASELINE_TOOLS`）。
+
+相关 env（smoke 脚本已默认）：
+
+| 变量 | memorize | QA |
+|------|----------|-----|
+| `OPENEQA_EPISODIC_TOOL_CALL=1` | 8B baseline tool absorb | — |
+| `OPENEQA_EPISODIC_ONLY=1` | 只跑 episodic agent | — |
+| `MMA_TARGET_ONLY=1` | 只加载 8B | off |
+| `OPENEQA_DIRECT_EPISODIC=1` | tool 失败时 fallback | — |
+| `OPENEQA_QA_BASELINE=0` | — | ours speculative memory |
 
 先试 2 条：
 
@@ -83,7 +95,30 @@ python run_openeqa_eval.py \
 
 ## Slurm smoke（LTU）
 
-**一条全帧（推荐先跑）：**
+**推荐：8 帧 tool-call smoke（先验证 episodic 写入）：**
+
+```bash
+cd /data/group/zhaolab/project/MMA2
+git pull
+cd MMA/public_evaluations/open_eqa
+mkdir -p logs
+sbatch run_openeqa_ltu_toolcall_smoke.slurm
+tail -f logs/openeqa_toolcall_smoke_<jobid>.log
+```
+
+跑完后检查 log 里应有 `episodic_total>0`，或：
+
+```bash
+python3 - <<'PY'
+import json
+r = json.load(open("results/toolcall_smoke_<jobid>.json"))["ours"][0]
+print("gold:", r["gold_answer"])
+print("pred:", r["prediction"])
+print("debug memorize episodic_total:", r.get("debug",{}).get("memorize",{}).get("episodic_total"))
+PY
+```
+
+**一条全帧：**
 
 ```bash
 cd /data/group/zhaolab/project/MMA2/MMA/public_evaluations/open_eqa

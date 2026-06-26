@@ -48,9 +48,14 @@ def _search_method() -> str:
     return "bm25" if offline else "embedding"
 
 
+def _episodic_agent_state(mma_agent):
+    return mma_agent.agent_states.episodic_memory_agent_state
+
+
 def collect_episodic_debug(mma_agent, question: str = "") -> Dict[str, Any]:
-    """Snapshot episodic DB + BM25 hits as chat_agent would see at QA time."""
+    """Snapshot episodic DB + BM25 hits (same store QA retrieval uses)."""
     chat_state = mma_agent.agent_states.agent_state
+    episodic_state = _episodic_agent_state(mma_agent)
     mgr = mma_agent.client.server.episodic_memory_manager
     tz = mma_agent.client.server.user_manager.get_user_by_id(
         mma_agent.client.user.id
@@ -59,14 +64,14 @@ def collect_episodic_debug(mma_agent, question: str = "") -> Dict[str, Any]:
     query = (question or chat_state.topic or "").strip()
 
     all_recent = mgr.list_episodic_memory(
-        agent_state=chat_state,
+        agent_state=episodic_state,
         limit=50,
         timezone_str=tz,
     )
     bm25_hits: List[Any] = []
     if query:
         bm25_hits = mgr.list_episodic_memory(
-            agent_state=chat_state,
+            agent_state=episodic_state,
             query=query,
             search_field="details",
             search_method=search_method,
@@ -217,6 +222,14 @@ def write_debug_file(home_dir: Path, phase: str, payload: Dict[str, Any]) -> Opt
 
 def log_debug_summary(payload: Dict[str, Any], phase: str) -> None:
     if not payload:
+        return
+    if phase == "memorize":
+        print(
+            f"  [debug/{phase}] episodic_total={payload.get('episodic_total')} "
+            f"direct_inserted={payload.get('direct_episodic_inserted', 0)} "
+            f"tool_call={payload.get('episodic_tool_call_mode')}",
+            flush=True,
+        )
         return
     print(
         f"  [debug/{phase}] episodic_total={payload.get('episodic_total')} "

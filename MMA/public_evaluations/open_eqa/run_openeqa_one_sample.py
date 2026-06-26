@@ -130,7 +130,7 @@ def _memorize_frames(mma_agent, image_paths: List[str]) -> None:
 
 
 def _apply_openeqa_env() -> None:
-    """Must run before importing mma (subprocess inherits slurm env but force offline defaults)."""
+    """Shared offline defaults (safe for memorize and QA subprocesses)."""
     if os.environ.get("MMA_OFFLINE", "").strip().lower() in ("1", "true", "yes"):
         os.environ["MMA_MEMORY_SEARCH_METHOD"] = "bm25"
     if os.environ.get("OPENEQA_NO_OFFLOAD", "").strip().lower() not in ("1", "true", "yes"):
@@ -138,7 +138,30 @@ def _apply_openeqa_env() -> None:
     os.environ.setdefault("OPENEQA_ABSORB_BATCH_SIZE", "4")
     if os.environ.get("OPENEQA_SKIP_META", "1").strip().lower() not in ("0", "false", "no"):
         os.environ["OPENEQA_SKIP_META"] = "1"
-    _apply_memorize_baseline_tools_env()
+    os.environ.setdefault("OPENEQA_SKIP_EMBEDDINGS", "1")
+
+
+def _clear_memorize_only_env() -> None:
+    for key in (
+        "MMA_SPECULATIVE_BASELINE",
+        "MMA_BASELINE_TOOLS",
+        "MMA_TARGET_ONLY",
+        "OPENEQA_EPISODIC_ONLY",
+    ):
+        os.environ.pop(key, None)
+
+
+def _apply_qa_env() -> None:
+    """QA: retrieve episodic + speculative memory (not memorize baseline tools)."""
+    _clear_memorize_only_env()
+    if os.environ.get("OPENEQA_QA_BASELINE", "0").strip().lower() in ("1", "true", "yes"):
+        os.environ["MMA_SPECULATIVE_BASELINE"] = "1"
+        os.environ.setdefault("MMA_TARGET_ONLY", "1")
+        os.environ.pop("MMA_SPECULATIVE_LOCAL_RAG", None)
+    else:
+        os.environ.pop("MMA_SPECULATIVE_BASELINE", None)
+        os.environ.pop("MMA_TARGET_ONLY", None)
+        os.environ.pop("MMA_BASELINE_TOOLS", None)
 
 
 def _apply_skip_meta_memory() -> None:
@@ -341,6 +364,7 @@ def _run_memorize(
     if missing:
         return f"ERROR:memorize:missing frames: {missing[:2]}", "", None
 
+    _apply_memorize_baseline_tools_env()
     agent = _init_agent(config_path)
     n_direct = 0
     direct_errors: List[str] = []
@@ -375,7 +399,7 @@ def _run_memorize(
 
     if n_direct:
         print(f"  [memorize] direct episodic inserts: {n_direct}", flush=True)
-    elif direct_errors:
+    el    if direct_errors:
         print(f"  [memorize] direct episodic failed: {direct_errors[0]}", flush=True)
     agent.prepare_before_asking_questions()
     _release_gpu_cache()
@@ -390,6 +414,21 @@ def _run_memorize(
         write_debug_file(home_dir, "memorize", debug_payload)
         log_debug_summary(debug_payload, "memorize")
 
+    episodic_total = int((debug_payload or {}).get("episodic_total") or 0)
+    if episodic_total == 0:
+        if os.environ.get("OPENEQA_REQUIRE_EPISODIC", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+        ):
+            return (
+                "ERROR:memorize:episodic_memory empty after absorb "
+                "(tool-call and direct insert both wrote 0 rows)",
+                "",
+                debug_payload,
+            )
+        print("  [memorize] WARN: episodic_memory still empty", flush=True)
+
     return "OK", "", debug_payload
 
 
@@ -402,8 +441,7 @@ def _run_qa(
     if not question:
         return "ERROR:qa:empty question", "", None
 
-    if os.environ.get("OPENEQA_QA_BASELINE", "1").strip().lower() not in ("0", "false", "no"):
-        os.environ["MMA_SPECULATIVE_BASELINE"] = "1"
+    _apply_qa_env()
 
     agent = _init_agent(config_path)
     _set_chat_topic(agent.agent, question)
