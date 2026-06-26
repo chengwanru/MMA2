@@ -39,6 +39,60 @@ from mma.schemas.openai.chat_completion_response import (
 from mma.schemas.mma_message_content import TextContent, ImageContent
 
 
+def _vl_max_length() -> int:
+    return int(os.environ.get("MMA_VL_MAX_LENGTH", "32768"))
+
+
+def _run_vl_processor(processor: Any, *, text: str, images_list: List[Any]) -> Any:
+    """
+    Call Qwen3-VL processor without truncating image placeholder tokens.
+
+    Pretrained tokenizer init_kwargs often set truncation=True and a small max_length,
+    which strips <|image_pad|> ids and triggers a text/ids mismatch even for one frame.
+    """
+    tokenizer = getattr(processor, "tokenizer", None)
+    saved_tokenizer: Dict[str, Any] = {}
+    saved_init: Optional[Dict[str, Any]] = None
+    if tokenizer is not None:
+        if hasattr(tokenizer, "model_max_length"):
+            saved_tokenizer["model_max_length"] = tokenizer.model_max_length
+            tokenizer.model_max_length = _vl_max_length()
+        init = getattr(tokenizer, "init_kwargs", None)
+        if isinstance(init, dict):
+            saved_init = dict(init)
+            init["truncation"] = False
+            init.pop("max_length", None)
+
+    proc_kwargs: Dict[str, Any] = {
+        "text": text,
+        "images": images_list,
+        "return_tensors": "pt",
+        "truncation": False,
+        "padding": False,
+    }
+    trunc_env = os.environ.get("MMA_VL_TRUNCATION", "0").strip().lower()
+    if trunc_env in ("1", "true", "yes"):
+        proc_kwargs["truncation"] = True
+        max_len = os.environ.get("MMA_VL_MAX_LENGTH", "").strip()
+        if max_len:
+            proc_kwargs["max_length"] = int(max_len)
+    max_pixels = os.environ.get("OPENEQA_VL_MAX_PIXELS", "").strip()
+    if max_pixels:
+        proc_kwargs["max_pixels"] = int(max_pixels)
+    min_pixels = os.environ.get("OPENEQA_VL_MIN_PIXELS", "").strip()
+    if min_pixels:
+        proc_kwargs["min_pixels"] = int(min_pixels)
+
+    try:
+        return processor(**proc_kwargs)
+    finally:
+        if tokenizer is not None:
+            if "model_max_length" in saved_tokenizer:
+                tokenizer.model_max_length = saved_tokenizer["model_max_length"]
+            if saved_init is not None and hasattr(tokenizer, "init_kwargs"):
+                tokenizer.init_kwargs = saved_init
+
+
 def _message_to_text(m: Message) -> str:
     if not m.content:
         return ""
@@ -337,22 +391,11 @@ class SpeculativeMemoryClient(LLMClientBase):
             if tool_instructions:
                 text_parts.append("\n" + tool_instructions.strip() + "\n")
             text_parts.append("\nassistant:")
-            # Qwen3-VL defaults to truncation='max_length', which strips image placeholder
-            # tokens and raises a text/ids mismatch when multiple images exceed max_length.
-            proc_kwargs: Dict[str, Any] = {
-                "text": "".join(text_parts),
-                "images": images_list,
-                "return_tensors": "pt",
-            }
-            trunc_env = os.environ.get("MMA_VL_TRUNCATION", "0").strip().lower()
-            if trunc_env in ("1", "true", "yes"):
-                proc_kwargs["truncation"] = True
-                max_len = os.environ.get("MMA_VL_MAX_LENGTH", "").strip()
-                if max_len:
-                    proc_kwargs["max_length"] = int(max_len)
-            else:
-                proc_kwargs["truncation"] = False
-            out = processor(**proc_kwargs)
+            out = _run_vl_processor(
+                processor,
+                text="".join(text_parts),
+                images_list=images_list,
+            )
             def _field(name: str):
                 v = out.get(name) if hasattr(out, "get") else None
                 return v if v is not None else getattr(out, name, None)

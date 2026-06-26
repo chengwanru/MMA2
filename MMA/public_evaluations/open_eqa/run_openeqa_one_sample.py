@@ -148,6 +148,7 @@ def _apply_openeqa_env() -> None:
     if os.environ.get("OPENEQA_SKIP_META", "1").strip().lower() not in ("0", "false", "no"):
         os.environ["OPENEQA_SKIP_META"] = "1"
     os.environ.setdefault("OPENEQA_SKIP_EMBEDDINGS", "1")
+    os.environ.setdefault("MMA_VL_MAX_LENGTH", "32768")
 
 
 def _clear_memorize_only_env() -> None:
