@@ -148,8 +148,6 @@ def _run_vl_processor(
                     add_generation_prompt=True,
                     return_dict=True,
                     return_tensors="pt",
-                    truncation=False,
-                    padding=False,
                     **mm_kwargs,
                 )
         except Exception as exc:
@@ -164,17 +162,14 @@ def _run_vl_processor(
         "return_tensors": "pt",
         "truncation": False,
         "padding": False,
-        "text_kwargs": {"truncation": False, "padding": False},
         **mm_kwargs,
     }
     trunc_env = os.environ.get("MMA_VL_TRUNCATION", "0").strip().lower()
     if trunc_env in ("1", "true", "yes"):
         proc_kwargs["truncation"] = True
-        proc_kwargs["text_kwargs"]["truncation"] = True
         max_len = os.environ.get("MMA_VL_MAX_LENGTH", "").strip()
         if max_len:
             proc_kwargs["max_length"] = int(max_len)
-            proc_kwargs["text_kwargs"]["max_length"] = int(max_len)
 
     with _patch_tokenizer_no_trunc(tokenizer):
         return processor(**proc_kwargs)
