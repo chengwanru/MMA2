@@ -180,7 +180,41 @@ def _run_vl_processor(
         return processor(**proc_kwargs)
 
 
-def _message_to_text(m: Message) -> str:
+def _model_max_positions(model: Any) -> Optional[int]:
+    cfg = getattr(model, "config", None)
+    if cfg is None:
+        return None
+    for source in (cfg, getattr(cfg, "text_config", None)):
+        if source is None:
+            continue
+        value = getattr(source, "max_position_embeddings", None)
+        if value is not None:
+            return int(value)
+    return None
+
+
+def _clamp_max_new_tokens(model: Any, prompt_len: int, requested: int) -> int:
+    requested = max(1, int(requested or 256))
+    max_pos = _model_max_positions(model)
+    if max_pos is None:
+        return requested
+    room = int(max_pos) - int(prompt_len)
+    if room <= 0:
+        raise RuntimeError(
+            f"prompt too long ({prompt_len} tokens, model limit {max_pos}); "
+            "reduce frames (OPENEQA_DIRECT_SD_MAX_FRAMES) or set OPENEQA_VL_MAX_PIXELS"
+        )
+    if requested > room:
+        if os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes"):
+            print(
+                f"[vl_gen] clamp max_new_tokens {requested} -> {room} "
+                f"(prompt_len={prompt_len}, limit={max_pos})",
+                flush=True,
+            )
+        return room
+    return requested
+
+
     if not m.content:
         return ""
     if len(m.content) == 1 and isinstance(m.content[0], TextContent):
@@ -300,8 +334,6 @@ class SpeculativeMemoryClient(LLMClientBase):
             max_new_tokens=self.llm_config.max_tokens or 256,
             do_sample=False,
         )
-        if os.environ.get("MMA_SPECULATIVE_BASELINE", "").strip() == "1":
-            self._config.max_draft_steps = 0
         device = "cuda"
         target_only = os.environ.get("MMA_TARGET_ONLY", "").strip().lower() in (
             "1",
@@ -532,7 +564,7 @@ class SpeculativeMemoryClient(LLMClientBase):
         memory_items = request_data.get("memory_items") or []
         local_rag = request_data.get("local_rag", False)
         baseline_mode = os.environ.get("MMA_SPECULATIVE_BASELINE", "").strip() == "1"
-        max_new_tokens = request_data.get("max_new_tokens") or 256
+        max_new_tokens = max(1, int(request_data.get("max_new_tokens") or 256))
         vl_content_parts = request_data.get("vl_content_parts") or []
         image_paths = request_data.get("image_paths") or []
         use_baseline_tools = request_data.get("use_baseline_tools", False)
@@ -557,6 +589,14 @@ class SpeculativeMemoryClient(LLMClientBase):
             raise RuntimeError(f"tokenize failed: {e}") from e
         if prompt_ids is None:
             return {"generated_text": ""}
+
+        prompt_len = int(prompt_ids.size(1))
+        max_new_tokens = _clamp_max_new_tokens(self._target_model, prompt_len, max_new_tokens)
+        if os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes"):
+            print(
+                f"[vl_gen] prompt_len={prompt_len} max_new_tokens={max_new_tokens}",
+                flush=True,
+            )
 
         collect_stats = bool(request_data.get("collect_stats"))
         stats_out: Optional[Dict[str, Any]] = request_data.get("stats_out")

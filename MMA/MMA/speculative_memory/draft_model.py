@@ -142,7 +142,7 @@ def generate_draft_tokens(
     # Generation kwargs. min_new_tokens=1 avoids 0 draft tokens when draft emits EOS
     # immediately (e.g. long agent system prompt); we always get at least one token.
     gen_kwargs = {
-        "max_new_tokens": config.max_draft_steps,
+        "max_new_tokens": max(1, int(config.max_draft_steps)),
         "min_new_tokens": 1,
         "do_sample": config.do_sample,
         "pad_token_id": pad_token_id,

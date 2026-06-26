@@ -143,7 +143,7 @@ if [[ "${OPENEQA_DIRECT_SD:-0}" == "1" ]]; then
     --input_file "${INPUT}"
     --output_file "${OUTPUT}"
     --limit "${LIMIT}"
-    --max_frames "${OPENEQA_DIRECT_SD_MAX_FRAMES:-3}"
+    --max_frames "${OPENEQA_DIRECT_SD_MAX_FRAMES:-1}"
   )
   if [[ "${OPENEQA_DIRECT_SD_COMPARE:-1}" == "1" ]]; then
     DIRECT_SD_ARGS+=(--compare)

@@ -233,9 +233,16 @@ def _print_mode_result(label: str, result: Dict[str, Any], *, speedup: Optional[
         print(f"    speedup (8B/SD) = {speedup:.3f}x", flush=True)
 
 
+def _preload_client_models(client: Any) -> None:
+    ensure = getattr(client, "_ensure_models", None)
+    if callable(ensure):
+        ensure()
+
+
 def _compare_sample(image_paths: List[str], question: str, max_tokens: int) -> Dict[str, Any]:
     with _dual_model_load_env():
         client, request_data = _build_request_data(image_paths, question, max_tokens)
+        _preload_client_models(client)
 
     if os.environ.get("OPENEQA_DIRECT_SD_WARMUP", "").strip().lower() in ("1", "true", "yes"):
         print("  [warmup] untimed baseline pass ...", flush=True)
@@ -286,7 +293,7 @@ def main() -> int:
         )
     max_frames = args.max_frames
     if max_frames is None:
-        max_frames = int(os.environ.get("OPENEQA_DIRECT_SD_MAX_FRAMES", "3"))
+        max_frames = int(os.environ.get("OPENEQA_DIRECT_SD_MAX_FRAMES", "1"))
     max_tokens = int(os.environ.get("OPENEQA_DIRECT_SD_MAX_TOKENS", "128"))
 
     if not compare and args.mode is None:
