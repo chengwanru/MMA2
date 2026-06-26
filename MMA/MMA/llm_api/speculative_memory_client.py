@@ -336,7 +336,22 @@ class SpeculativeMemoryClient(LLMClientBase):
             if tool_instructions:
                 text_parts.append("\n" + tool_instructions.strip() + "\n")
             text_parts.append("\nassistant:")
-            out = processor(text="".join(text_parts), images=images_list, return_tensors="pt")
+            # Qwen3-VL defaults to truncation='max_length', which strips image placeholder
+            # tokens and raises a text/ids mismatch when multiple images exceed max_length.
+            proc_kwargs: Dict[str, Any] = {
+                "text": "".join(text_parts),
+                "images": images_list,
+                "return_tensors": "pt",
+            }
+            trunc_env = os.environ.get("MMA_VL_TRUNCATION", "0").strip().lower()
+            if trunc_env in ("1", "true", "yes"):
+                proc_kwargs["truncation"] = True
+                max_len = os.environ.get("MMA_VL_MAX_LENGTH", "").strip()
+                if max_len:
+                    proc_kwargs["max_length"] = int(max_len)
+            else:
+                proc_kwargs["truncation"] = False
+            out = processor(**proc_kwargs)
             def _field(name: str):
                 v = out.get(name) if hasattr(out, "get") else None
                 return v if v is not None else getattr(out, name, None)

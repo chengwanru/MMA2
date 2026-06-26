@@ -149,7 +149,8 @@ def _subprocess_env(use_speculative_baseline: bool, phase: str = "all") -> Dict[
         env["MMA_MEMORY_SEARCH_METHOD"] = "bm25"
     if env.get("OPENEQA_NO_OFFLOAD", "").strip().lower() not in ("1", "true", "yes"):
         env.setdefault("MMA_SPECULATIVE_OFFLOAD_TARGET", "1")
-    env.setdefault("OPENEQA_ABSORB_BATCH_SIZE", "4")
+    default_batch = "1" if phase == "memorize" else "4"
+    env.setdefault("OPENEQA_ABSORB_BATCH_SIZE", default_batch)
     env.setdefault("OPENEQA_SKIP_META", "1")
     env.setdefault("OPENEQA_SKIP_EMBEDDINGS", "1")
     env.setdefault("OPENEQA_REQUIRE_EPISODIC", "1")

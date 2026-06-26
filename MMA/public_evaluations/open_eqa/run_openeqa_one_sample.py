@@ -113,9 +113,17 @@ def _skip_memory_agent_absorb() -> bool:
     return os.environ.get("OPENEQA_SKIP_ABSORB", "1").strip().lower() not in ("0", "false", "no")
 
 
+def _absorb_batch_size() -> int:
+    """Frames per absorb/caption batch. Tool-call VL + schema needs ~2k tokens/image."""
+    batch = max(1, int(os.environ.get("OPENEQA_ABSORB_BATCH_SIZE", "4")))
+    if _episodic_tool_call_enabled():
+        batch = min(batch, 1)
+    return batch
+
+
 def _memorize_frames(mma_agent, image_paths: List[str]) -> None:
     """Ingest frames in small batches to balance accuracy vs GPU memory on 40GB A100."""
-    batch_size = max(1, int(os.environ.get("OPENEQA_ABSORB_BATCH_SIZE", "4")))
+    batch_size = _absorb_batch_size()
     for start in range(0, len(image_paths), batch_size):
         chunk = image_paths[start : start + batch_size]
         mma_agent.send_message(
@@ -135,7 +143,8 @@ def _apply_openeqa_env() -> None:
         os.environ["MMA_MEMORY_SEARCH_METHOD"] = "bm25"
     if os.environ.get("OPENEQA_NO_OFFLOAD", "").strip().lower() not in ("1", "true", "yes"):
         os.environ.setdefault("MMA_SPECULATIVE_OFFLOAD_TARGET", "1")
-    os.environ.setdefault("OPENEQA_ABSORB_BATCH_SIZE", "4")
+    default_batch = "1" if _episodic_tool_call_enabled() else "4"
+    os.environ.setdefault("OPENEQA_ABSORB_BATCH_SIZE", default_batch)
     if os.environ.get("OPENEQA_SKIP_META", "1").strip().lower() not in ("0", "false", "no"):
         os.environ["OPENEQA_SKIP_META"] = "1"
     os.environ.setdefault("OPENEQA_SKIP_EMBEDDINGS", "1")
@@ -276,7 +285,7 @@ def ensure_episodic_from_frames(
     state = mma_agent.agent_states.episodic_memory_agent_state
     org_id = mma_agent.client.user.organization_id
     tz = mma_agent.timezone
-    batch_size = max(1, int(os.environ.get("OPENEQA_ABSORB_BATCH_SIZE", "4")))
+    batch_size = _absorb_batch_size()
     inserted = 0
 
     for start in range(0, len(image_paths), batch_size):
