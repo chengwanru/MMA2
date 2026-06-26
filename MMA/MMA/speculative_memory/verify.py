@@ -2,10 +2,11 @@
 Verify draft tokens with one target model forward.
 
 Accept/reject each draft token using modular and combinable strategies:
+- greedy / token_match: accept when draft token equals target argmax (standard greedy SD)
 - threshold: Absolute probability thresholding
 - block_verify: Lossless joint-block distribution verification
 - semantic: Cosine similarity-based semantic rescue
-- prob_diff: Probability difference thresholding
+- prob_diff: Probability difference thresholding (needs draft logits; falls back to greedy)
 
 Supports arbitrary combinations like:
 - threshold (C alone)
@@ -52,6 +53,9 @@ def verify_draft_tokens(
     use_threshold = "threshold" in strategy_str
     use_semantic = ("semantic" in strategy_str) and (embedding_matrix is not None)
     use_prob_diff = "prob_diff" in strategy_str
+    use_greedy = strategy_str in ("greedy", "token_match") or (
+        "greedy" in strategy_str and "prob_diff" not in strategy_str
+    )
 
     num_draft = len(draft_token_ids)
     if target_logits.dim() == 3:
@@ -109,6 +113,9 @@ def verify_draft_tokens(
                 initially_accepted = False
                 sample_rejected_token = chosen_token 
                 
+        elif use_greedy:
+            initially_accepted = tid == target_top1_tid
+
         elif use_threshold:
             initially_accepted = (p >= accept_threshold)
             
@@ -116,6 +123,10 @@ def verify_draft_tokens(
             probs_draft = torch.softmax(draft_logits_per_position[:num_draft].float(), dim=-1)
             pd = probs_draft[i, tid].item()
             initially_accepted = (abs(pd - p) <= prob_diff_threshold)
+
+        elif use_prob_diff:
+            # Draft logits unavailable: standard greedy speculative accept rule.
+            initially_accepted = tid == target_top1_tid
             
         else:
             initially_accepted = False
@@ -126,7 +137,10 @@ def verify_draft_tokens(
             
             if use_threshold and (p >= accept_threshold):
                 final_accepted = True
-                
+
+            if not final_accepted and use_greedy:
+                final_accepted = tid == target_top1_tid
+            
             if not final_accepted and use_semantic:
                 compare_tid = sample_rejected_token if (use_block and sample_rejected_token is not None) else target_top1_tid
                 

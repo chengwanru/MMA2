@@ -106,8 +106,7 @@ def generate_draft_tokens(
         pad_token_id: For generation. Default from tokenizer or eos_token_id.
         ignore_eos: If True, do not trim draft tokens at EOS (fixed-length benchmarks).
         return_draft_logits: If True, also return per-position logits (for prob_diff verify).
-            Requires running with a hook or extra forward; for now we set to False and leave
-            draft_logits_per_position as None.
+            Logits are always collected via ``output_scores`` when the backend supports it.
 
     Returns:
         DraftResult with draft_token_ids (list of new token ids), num_draft, and optionally
@@ -147,6 +146,8 @@ def generate_draft_tokens(
         "do_sample": config.do_sample,
         "pad_token_id": pad_token_id,
         "logits_processor": logits_processor_list,
+        "return_dict_in_generate": True,
+        "output_scores": True,
     }
     if not ignore_eos and eos_token_id is not None:
         gen_kwargs["eos_token_id"] = eos_token_id
@@ -168,7 +169,16 @@ def generate_draft_tokens(
         model_inputs["video_grid_thw"] = video_grid_thw.to(device)
 
     with torch.no_grad():
-        output_ids = safe_generate(model, **model_inputs, **gen_kwargs)
+        gen_output = safe_generate(model, **model_inputs, **gen_kwargs)
+
+    draft_logits_per_position = None
+    if isinstance(gen_output, torch.Tensor):
+        output_ids = gen_output
+    else:
+        output_ids = gen_output.sequences
+        scores = getattr(gen_output, "scores", None)
+        if scores:
+            draft_logits_per_position = torch.stack([step[0] for step in scores], dim=0)
 
     # Draft tokens = the new part only
     draft_token_ids = output_ids[0, context_len:].tolist()
@@ -180,13 +190,19 @@ def generate_draft_tokens(
             idx = draft_token_ids.index(eos_token_id)
             if idx > 0:
                 draft_token_ids = draft_token_ids[:idx]
+                if draft_logits_per_position is not None:
+                    draft_logits_per_position = draft_logits_per_position[:idx]
             # else idx==0: keep [eos_token_id] so num_draft=1
         except ValueError:
             pass
+    elif draft_logits_per_position is not None:
+        n = len(draft_token_ids)
+        if draft_logits_per_position.size(0) > n:
+            draft_logits_per_position = draft_logits_per_position[:n]
 
     return DraftResult(
         draft_token_ids=draft_token_ids,
-        draft_logits_per_position=None,  # TODO: optional hook to collect for prob_diff
+        draft_logits_per_position=draft_logits_per_position,
         full_output_ids=output_ids,
         num_draft=len(draft_token_ids),
     )

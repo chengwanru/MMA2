@@ -31,7 +31,7 @@ class SpeculativeMemoryConfig:
     accept_threshold: float = (
         0.1  # min P_target(draft_token) to accept (when strategy == "threshold")
     )
-    reject_strategy: Literal["threshold", "prob_diff"] = "prob_diff"
+    reject_strategy: Literal["threshold", "prob_diff", "greedy"] = "greedy"
     prob_diff_threshold: float = (
         0.3  # reject if |P_draft - P_target| > this (when strategy == "prob_diff")
     )
