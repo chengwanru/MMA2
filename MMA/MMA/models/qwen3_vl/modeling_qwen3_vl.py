@@ -1517,8 +1517,10 @@ class Qwen3VLModel(Qwen3VLPreTrainedModel):
             The temporal, height and width of feature shape of each image in LLM.
         """
         pixel_values = pixel_values.type(self.visual.dtype)
+        visual_kwargs = dict(kwargs)
+        visual_kwargs.pop("return_dict", None)
         vision_output: BaseModelOutputWithDeepstackFeatures = self.visual(
-            pixel_values, grid_thw=image_grid_thw, return_dict=True, **kwargs
+            pixel_values, grid_thw=image_grid_thw, return_dict=True, **visual_kwargs
         )
         image_embeds = vision_output.pooler_output
         split_sizes = (
