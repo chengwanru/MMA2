@@ -167,6 +167,12 @@ def _subprocess_env(use_speculative_baseline: bool, phase: str = "all") -> Dict[
     env.setdefault("OPENEQA_SKIP_QA_PERSONA", "1")
     env.setdefault("OPENEQA_QA_MAX_TOKENS", "32")
     env.setdefault("OPENEQA_TUNE_QA_AGENT", "1")
+    # Tuned draft memory logit bias (summary-only, dedup, top-3); override via env.
+    env.setdefault("MMA_MEMORY_BIAS_DEDUP", "1")
+    env.setdefault("MMA_MEMORY_BIAS_USE_SUMMARY", "1")
+    env.setdefault("MMA_MEMORY_BIAS_FILTER_INVISIBLE", "1")
+    env.setdefault("MMA_MEMORY_BIAS_SCALE", "0.8")
+    env.setdefault("MMA_MEMORY_BIAS_TOP_K", "3")
 
     if phase == "memorize":
         # Per-frame VL captions (direct episodic); tool-call often collapses 8 frames into 1 summary.

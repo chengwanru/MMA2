@@ -21,10 +21,10 @@ class SpeculativeMemoryConfig:
     # Draft
     max_draft_steps: int = 3  # max candidate tokens per draft phase
     memory_bias_scale: float = (
-        2.0  # scale for logits bias from memory (log-space additive)
+        0.8  # scale for logits bias from memory (log-space additive)
     )
     memory_bias_top_k_memories: Optional[int] = (
-        10  # only use top-k by relevance/confidence for bias
+        3  # only use top-k by relevance/confidence for bias
     )
 
     # Verify

@@ -17,6 +17,8 @@ from mma.speculative_memory.memory_bias import (
     MemoryItem,
     build_memory_bias_vector,
     draft_memory_bias_enabled,
+    resolve_memory_bias_scale,
+    resolve_memory_bias_top_k,
 )
 
 
@@ -135,8 +137,8 @@ def generate_draft_tokens(
             memory_items,
             tokenizer,
             device,
-            top_k=config.memory_bias_top_k_memories,
-            scale=config.memory_bias_scale,
+            top_k=resolve_memory_bias_top_k(config.memory_bias_top_k_memories),
+            scale=resolve_memory_bias_scale(config.memory_bias_scale),
         )
         logits_processor_list = [logits_processor]
 

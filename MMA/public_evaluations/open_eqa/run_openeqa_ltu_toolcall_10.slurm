@@ -10,9 +10,7 @@
 #SBATCH -o logs/openeqa_toolcall_10_%j.log
 #SBATCH -e logs/openeqa_toolcall_10_%j.err
 
-# Tool-call memorize + ours QA: 10 samples, 8 frames each.
-# Uses per-frame direct episodic (OPENEQA_EPISODIC_TOOL_CALL=0).
-#
+# Per-frame VL captions (direct episodic); tuned draft memory bias defaults.
 #   cd MMA/public_evaluations/open_eqa
 #   git pull && mkdir -p logs
 #   sbatch run_openeqa_ltu_toolcall_10.slurm
@@ -30,8 +28,14 @@ export OPENEQA_EPISODIC_TOOL_CALL=0
 export OPENEQA_QA_MAX_TOKENS=32
 export OPENEQA_DIRECT_EPISODIC=1
 export OPENEQA_ABSORB_BATCH_SIZE=1
+export OPENEQA_COLLECT_SD_STATS=1
+export MMA_MEMORY_BIAS_DEDUP=1
+export MMA_MEMORY_BIAS_USE_SUMMARY=1
+export MMA_MEMORY_BIAS_FILTER_INVISIBLE=1
+export MMA_MEMORY_BIAS_SCALE=0.8
+export MMA_MEMORY_BIAS_TOP_K=3
 export OPENEQA_VL_MAX_PIXELS="${OPENEQA_VL_MAX_PIXELS:-401408}"
-export OUTPUT="${OUTPUT:-results/direct_episodic_10_${SLURM_JOB_ID:-local}.json}"
+export OUTPUT="${OUTPUT:-results/direct_episodic_bias_tuned_10_${SLURM_JOB_ID:-local}.json}"
 
 bash run_openeqa_ltu_smoke.slurm
 
@@ -57,4 +61,14 @@ for i, row in enumerate(rows):
     print(f"  [{mark}] {i}: pred={row.get('prediction')!r} gold={row.get('gold_answer')!r}")
 
 print(f"=== summary: {hits}/{len(rows)} substring match (gold↔pred) ===")
+
+sd_rates = []
+for row in rows:
+    sd = ((row.get("debug") or {}).get("qa") or {}).get("speculative_stats") or {}
+    rate = sd.get("acceptance_rate")
+    if rate is not None:
+        sd_rates.append(float(rate))
+if sd_rates:
+    avg = sum(sd_rates) / len(sd_rates)
+    print(f"=== SD acceptance_rate: avg={avg:.3f} over {len(sd_rates)} samples ===")
 PY

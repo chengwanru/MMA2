@@ -14,6 +14,23 @@ import torch
 # Type for a single memory item as returned by MMA retrieval (e.g. episodic, semantic)
 MemoryItem = Union[dict, object]  # at least .get("content"/"text") and .get("confidence", 1.0)
 
+_INVISIBLE_MARKERS = (
+    "not visible",
+    "cannot be determined",
+    "is not shown",
+    "no tv or",
+    "heavily distorted",
+    "severely corrupted",
+    "impossible to discern",
+)
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw not in ("0", "false", "no")
+
 
 def draft_memory_bias_enabled() -> bool:
     """When false, draft runs without memory logit bias (target KV injection unchanged)."""
@@ -29,12 +46,32 @@ def draft_memory_bias_enabled() -> bool:
     return True
 
 
+def memory_bias_use_summary() -> bool:
+    """Bias from episodic summary (short) instead of full content (summary + details)."""
+    return _env_flag("MMA_MEMORY_BIAS_USE_SUMMARY", True)
+
+
+def memory_bias_filter_invisible() -> bool:
+    """Drop memories that state the asked object is not visible / frame corrupted."""
+    return _env_flag("MMA_MEMORY_BIAS_FILTER_INVISIBLE", True)
+
+
 def _memory_bias_dedup_enabled() -> bool:
-    return os.environ.get("MMA_MEMORY_BIAS_DEDUP", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    )
+    return _env_flag("MMA_MEMORY_BIAS_DEDUP", True)
+
+
+def resolve_memory_bias_scale(default: float = 0.8) -> float:
+    raw = os.environ.get("MMA_MEMORY_BIAS_SCALE", "").strip()
+    if raw:
+        return float(raw)
+    return default
+
+
+def resolve_memory_bias_top_k(default: Optional[int] = 3) -> Optional[int]:
+    raw = os.environ.get("MMA_MEMORY_BIAS_TOP_K", "").strip()
+    if raw:
+        return max(1, int(raw))
+    return default
 
 
 def _get_content_and_confidence(item: MemoryItem) -> tuple:
@@ -51,47 +88,77 @@ def _get_content_and_confidence(item: MemoryItem) -> tuple:
     return (content or "").strip(), max(0.0, min(1.0, conf))
 
 
+def _bias_text_from_item(item: MemoryItem) -> str:
+    """Text used for token-level bias (prefer short summary when enabled)."""
+    if memory_bias_use_summary():
+        if hasattr(item, "summary"):
+            summary = getattr(item, "summary", None) or ""
+        elif isinstance(item, dict):
+            summary = item.get("summary") or ""
+        else:
+            summary = ""
+        summary = (summary or "").strip()
+        if summary:
+            return summary
+    content, _ = _get_content_and_confidence(item)
+    return content
+
+
+def filter_memory_items_for_bias(
+    memory_items: List[MemoryItem],
+    *,
+    top_k: Optional[int] = None,
+) -> List[MemoryItem]:
+    """Keep top-k relevant items and drop invisible/corrupted frame summaries for draft bias."""
+    if not memory_items:
+        return memory_items
+    if top_k is None:
+        top_k = resolve_memory_bias_top_k()
+    filtered: List[MemoryItem] = []
+    for item in memory_items:
+        text = _bias_text_from_item(item)
+        if not text:
+            continue
+        if memory_bias_filter_invisible():
+            t_l = text.lower()
+            if any(marker in t_l for marker in _INVISIBLE_MARKERS):
+                continue
+        filtered.append(item)
+    if top_k is not None and top_k > 0:
+        filtered = filtered[:top_k]
+    return filtered
+
+
 def build_memory_bias_vector(
     memory_items: List[MemoryItem],
     tokenizer,
     device: torch.device,
     *,
     top_k: Optional[int] = None,
-    scale: float = 2.0,
+    scale: Optional[float] = None,
     vocab_size: Optional[int] = None,
 ) -> torch.Tensor:
     """
     Build a per-token-id bias vector from memory items.
 
-    For each item we tokenize its content, then add (confidence * scale) to
-    those token ids in a zero vector of size vocab_size. Result is in log-space
-    (additive to logits).
-
-    Args:
-        memory_items: List of items with content/text and optional confidence.
-        tokenizer: HuggingFace tokenizer (must have encode / tokenizer interface).
-        device: Device for the bias tensor.
-        top_k: If set, only use the first top_k items (e.g. by pre-sorted relevance).
-        scale: Multiplier for confidence when summing into bias.
-        vocab_size: If None, use tokenizer.vocab_size.
-
-    Returns:
-        Tensor of shape (vocab_size,) in dtype float32, on device.
+    For each item we tokenize its bias text (summary by default), then add
+    (confidence * scale) to those token ids in a zero vector of size vocab_size.
+    Result is in log-space (additive to logits).
     """
     if vocab_size is None:
         vocab_size = getattr(tokenizer, "vocab_size", None) or len(tokenizer)
     bias = torch.zeros(vocab_size, dtype=torch.float32, device=device)
 
-    items = memory_items
-    if top_k is not None and top_k > 0:
-        items = items[:top_k]
-
+    if scale is None:
+        scale = resolve_memory_bias_scale()
+    items = filter_memory_items_for_bias(memory_items, top_k=top_k)
     dedup = _memory_bias_dedup_enabled()
 
     for item in items:
-        content, confidence = _get_content_and_confidence(item)
+        content = _bias_text_from_item(item)
         if not content:
             continue
+        _, confidence = _get_content_and_confidence(item)
         try:
             ids = tokenizer.encode(content, add_special_tokens=False)
         except Exception:

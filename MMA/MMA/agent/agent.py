@@ -1793,6 +1793,7 @@ class Agent(BaseAgent):
                     memory_items_list.append(
                         {
                             "content": content.strip()[:2000],
+                            "summary": (event.summary or "").strip()[:500],
                             "confidence": float(conf) if conf is not None else 0.8,
                         }
                     )
