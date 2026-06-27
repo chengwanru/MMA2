@@ -5,6 +5,7 @@ Build a bias vector from retrieved memory items (text + confidence),
 then apply it to draft model logits before argmax.
 """
 
+import os
 from typing import Dict, List, Optional, Union
 
 import torch
@@ -12,6 +13,28 @@ import torch
 
 # Type for a single memory item as returned by MMA retrieval (e.g. episodic, semantic)
 MemoryItem = Union[dict, object]  # at least .get("content"/"text") and .get("confidence", 1.0)
+
+
+def draft_memory_bias_enabled() -> bool:
+    """When false, draft runs without memory logit bias (target KV injection unchanged)."""
+    if os.environ.get("MMA_SPECULATIVE_NO_DRAFT_BIAS", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return False
+    scale = os.environ.get("MMA_MEMORY_BIAS_SCALE", "").strip()
+    if scale == "0":
+        return False
+    return True
+
+
+def _memory_bias_dedup_enabled() -> bool:
+    return os.environ.get("MMA_MEMORY_BIAS_DEDUP", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
 
 def _get_content_and_confidence(item: MemoryItem) -> tuple:
@@ -63,6 +86,8 @@ def build_memory_bias_vector(
     if top_k is not None and top_k > 0:
         items = items[:top_k]
 
+    dedup = _memory_bias_dedup_enabled()
+
     for item in items:
         content, confidence = _get_content_and_confidence(item)
         if not content:
@@ -71,9 +96,18 @@ def build_memory_bias_vector(
             ids = tokenizer.encode(content, add_special_tokens=False)
         except Exception:
             ids = []
-        for tid in ids:
-            if 0 <= tid < vocab_size:
-                bias[tid] += confidence * scale
+        if dedup:
+            seen: set[int] = set()
+            for tid in ids:
+                if tid in seen:
+                    continue
+                seen.add(tid)
+                if 0 <= tid < vocab_size:
+                    bias[tid] += confidence * scale
+        else:
+            for tid in ids:
+                if 0 <= tid < vocab_size:
+                    bias[tid] += confidence * scale
 
     return bias
 

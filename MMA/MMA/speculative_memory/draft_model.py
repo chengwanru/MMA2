@@ -16,6 +16,7 @@ from mma.speculative_memory.generation_helpers import safe_generate
 from mma.speculative_memory.memory_bias import (
     MemoryItem,
     build_memory_bias_vector,
+    draft_memory_bias_enabled,
 )
 
 
@@ -128,15 +129,16 @@ def generate_draft_tokens(
     if pad_token_id is None:
         pad_token_id = getattr(tokenizer, "pad_token_id", None) or eos_token_id
 
-    # Build memory bias and wrap as logits processor
-    logits_processor = build_draft_logits_processor(
-        memory_items,
-        tokenizer,
-        device,
-        top_k=config.memory_bias_top_k_memories,
-        scale=config.memory_bias_scale,
-    )
-    logits_processor_list = [logits_processor]
+    logits_processor_list = []
+    if draft_memory_bias_enabled() and memory_items:
+        logits_processor = build_draft_logits_processor(
+            memory_items,
+            tokenizer,
+            device,
+            top_k=config.memory_bias_top_k_memories,
+            scale=config.memory_bias_scale,
+        )
+        logits_processor_list = [logits_processor]
 
     # Generation kwargs. min_new_tokens=1 avoids 0 draft tokens when draft emits EOS
     # immediately (e.g. long agent system prompt); we always get at least one token.
