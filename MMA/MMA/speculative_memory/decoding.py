@@ -187,6 +187,12 @@ def generate_with_speculative_memory(
 
     if config is None:
         config = SpeculativeMemoryConfig()
+    accept_env = os.environ.get("MMA_SPEEDUP_ACCEPT_THRESHOLD", "").strip()
+    if accept_env:
+        config.accept_threshold = float(accept_env)
+    prob_env = os.environ.get("MMA_SPEEDUP_PROB_DIFF_THRESHOLD", "").strip()
+    if prob_env:
+        config.prob_diff_threshold = float(prob_env)
     if eos_token_id is None:
         eos_token_id = getattr(tokenizer, "eos_token_id", None)
     if ignore_eos:
@@ -200,11 +206,14 @@ def generate_with_speculative_memory(
     semantic_threshold = float(os.environ.get("MMA_SEMANTIC_THRESHOLD", "0.82"))
 
     target_embeddings = None
-    if reject_strategy == "semantic_similarity":
+    if "semantic" in reject_strategy:
         try:
             target_embeddings = target_model.get_input_embeddings().weight
         except AttributeError:
             pass
+
+    if stats_out is not None:
+        stats_out["reject_strategy"] = reject_strategy
 
     if isinstance(prompt_input_ids, torch.Tensor):
         current_ids = prompt_input_ids.to(device)
