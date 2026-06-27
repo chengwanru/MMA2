@@ -164,6 +164,8 @@ def _subprocess_env(use_speculative_baseline: bool, phase: str = "all") -> Dict[
     env.setdefault("OPENEQA_COLLECT_SD_STATS", "1")
     env.setdefault("OPENEQA_EXPAND_RETRIEVAL_QUERY", "1")
     env.setdefault("OPENEQA_RERANK_EPISODIC", "1")
+    env.setdefault("OPENEQA_SCENE_TREE_ONLY", "1")
+    env.setdefault("OPENEQA_SUPPRESS_DRAFT_ANALYZE", "1")
     env.setdefault("OPENEQA_SKIP_QA_PERSONA", "1")
     env.setdefault("OPENEQA_QA_MAX_TOKENS", "32")
     env.setdefault("OPENEQA_TUNE_QA_AGENT", "1")

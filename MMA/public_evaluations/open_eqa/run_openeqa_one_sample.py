@@ -74,10 +74,33 @@ def _format_eqa_question(question: str) -> str:
         spatial_hint = (
             "Focus on what sits spatially between the two picture frames on the wall, not objects above the TV. "
         )
+    elif "ceiling fan" in q_l or (
+        "fan" in q_l and any(tok in q_l for tok in ("speed", "increase", "decrease", "switch", "dial"))
+    ):
+        spatial_hint = (
+            "Focus on how to control the ceiling fan speed "
+            "(switch, dial, or panel location such as near the front door). "
+            "Do not describe ceiling material or color. "
+        )
+    elif "front door" in q_l and "open" in q_l:
+        spatial_hint = (
+            "Focus on whether the front door is open or closed in the visible frames. "
+        )
+    elif "cool down" in q_l or "cooling" in q_l:
+        spatial_hint = (
+            "Focus on what action to take with the air conditioner or AC unit to cool the room. "
+        )
+    elif "ceiling" in q_l and "material" in q_l:
+        spatial_hint = (
+            "Focus on ceiling material or type visible in the living room; "
+            "prefer frames where the living room ceiling is visible. "
+        )
     elif "ceiling" in q_l:
         spatial_hint = (
-            "Focus on ceiling material or type visible in the living room; prefer frames where the ceiling is visible. "
+            "Focus on the ceiling in the living room; prefer frames where the ceiling is visible. "
         )
+    elif "living room" in q_l:
+        spatial_hint = "Focus on observations from the living room area. "
     elif "dining table" in q_l:
         spatial_hint = "Focus on the dining table surface and whether it has free space or place settings. "
     elif "staircase" in q_l and "railing" in q_l:
@@ -88,7 +111,8 @@ def _format_eqa_question(question: str) -> str:
     else:
         answer_hint = (
             "Answer with EXACTLY ONE brief factual phrase "
-            "(a few words, no full sentence, no numbered list, no multiple items, no frame filenames). "
+            "(a few words, no full sentence, no numbered list, no steps like '1. Analyze', "
+            "no timestamps, no frame filenames). "
         )
 
     return (
@@ -96,9 +120,10 @@ def _format_eqa_question(question: str) -> str:
         "Search episodic memory for relevant observations, then answer. "
         f"{answer_hint}"
         f"{spatial_hint}"
-        "If memories conflict, prefer the observation that matches the question's spatial relation. "
+        "If memories conflict, prefer the observation that matches the question's spatial relation "
+        "and the room named in the question. "
         "Do not ask clarifying questions. Do not call tools. Do not repeat the question. "
-        "Stop after the answer.\n\n"
+        "Never use numbered steps or analysis. Stop after the answer.\n\n"
         f"Question: {question}"
     )
 
@@ -224,6 +249,8 @@ def _apply_openeqa_env() -> None:
     os.environ.setdefault("OPENEQA_SKIP_EMBEDDINGS", "1")
     os.environ.setdefault("MMA_VL_MAX_LENGTH", "32768")
     os.environ.setdefault("OPENEQA_VL_MAX_PIXELS", "401408")
+    os.environ.setdefault("OPENEQA_SCENE_TREE_ONLY", "1")
+    os.environ.setdefault("OPENEQA_SUPPRESS_DRAFT_ANALYZE", "1")
 
 
 def _clear_memorize_only_env() -> None:

@@ -58,6 +58,40 @@ class MemoryBiasLogitsProcessor:
         return scores + bias
 
 
+class SuppressDraftAnalyzeLogitsProcessor:
+    """Penalize first draft tokens that start numbered analysis (e.g. '1. Analyze')."""
+
+    def __init__(self, tokenizer: Any, context_len: int, *, penalty: float = -6.0):
+        self.context_len = int(context_len)
+        self.penalty = float(penalty)
+        bad_first_tokens: set[int] = set()
+        for prefix in ("1", "1.", "1)", "Analyze", "The", "Based"):
+            token_ids = tokenizer.encode(prefix, add_special_tokens=False)
+            if token_ids:
+                bad_first_tokens.add(int(token_ids[0]))
+        self.bad_first_tokens = bad_first_tokens
+
+    def __call__(
+        self,
+        input_ids: torch.LongTensor,
+        scores: torch.FloatTensor,
+    ) -> torch.FloatTensor:
+        if input_ids.size(1) != self.context_len:
+            return scores
+        for token_id in self.bad_first_tokens:
+            if 0 <= token_id < scores.size(-1):
+                scores[:, token_id] = scores[:, token_id] + self.penalty
+        return scores
+
+
+def draft_suppress_analyze_enabled() -> bool:
+    return os.environ.get("OPENEQA_SUPPRESS_DRAFT_ANALYZE", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+
+
 def build_draft_logits_processor(
     memory_items: List[MemoryItem],
     tokenizer: Any,
@@ -132,6 +166,10 @@ def generate_draft_tokens(
         pad_token_id = getattr(tokenizer, "pad_token_id", None) or eos_token_id
 
     logits_processor_list = []
+    if draft_suppress_analyze_enabled():
+        logits_processor_list.append(
+            SuppressDraftAnalyzeLogitsProcessor(tokenizer, context_len)
+        )
     if draft_memory_bias_enabled() and memory_items:
         logits_processor = build_draft_logits_processor(
             memory_items,
@@ -140,7 +178,7 @@ def generate_draft_tokens(
             top_k=resolve_memory_bias_top_k(config.memory_bias_top_k_memories),
             scale=resolve_memory_bias_scale(config.memory_bias_scale),
         )
-        logits_processor_list = [logits_processor]
+        logits_processor_list.append(logits_processor)
 
     # Generation kwargs. min_new_tokens=1 avoids 0 draft tokens when draft emits EOS
     # immediately (e.g. long agent system prompt); we always get at least one token.

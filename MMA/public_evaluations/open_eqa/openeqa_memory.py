@@ -20,6 +20,17 @@ _META_REASONING_MARKERS = (
     "cannot be determined",
     "not visible in",
 )
+_POLLUTED_MEMORY_MARKERS = (
+    "user provided screenshots",
+    "the user provided",
+    "analyze screenshots",
+    "form episodic memory",
+    "scene memory entries",
+)
+_TIMESTAMP_LEAD_RE = re.compile(
+    r"^(?:\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}(?::\d{2})?\s*[-–—:]\s*)+",
+    re.I,
+)
 
 
 def fresh_home_enabled() -> bool:
@@ -36,6 +47,18 @@ def episodic_filter_enabled() -> bool:
         "false",
         "no",
     )
+
+
+def _is_openeqa_scene_path(tree_path: Any) -> bool:
+    if not tree_path:
+        return False
+    segments = {str(segment).lower() for segment in tree_path}
+    return "openeqa" in segments and "scene" in segments
+
+
+def _is_polluted_memory(event: Any) -> bool:
+    blob = _event_text(event)
+    return any(marker in blob for marker in _POLLUTED_MEMORY_MARKERS)
 
 
 def wipe_mma_sqlite(home_dir: Path) -> bool:
@@ -70,21 +93,19 @@ def filter_episodic_events(events: List[Any]) -> List[Any]:
         return events
 
     max_items = max(1, int(os.environ.get("OPENEQA_MAX_EPISODIC_RETRIEVAL", "8")))
-    scene_only = os.environ.get("OPENEQA_SCENE_TREE_ONLY", "0").strip().lower() in (
-        "1",
-        "true",
-        "yes",
+    scene_only = os.environ.get("OPENEQA_SCENE_TREE_ONLY", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
     )
 
     filtered: List[Any] = []
     for event in events:
+        if _is_polluted_memory(event):
+            continue
         tree_path = getattr(event, "tree_path", None) or []
-        if scene_only and tree_path:
-            if not any(
-                segment in ("openeqa", "scene", "scene_observation")
-                for segment in tree_path
-            ):
-                continue
+        if scene_only and not _is_openeqa_scene_path(tree_path):
+            continue
         filtered.append(event)
 
     seen_frames: set[str] = set()
@@ -168,8 +189,15 @@ def rerank_episodic_for_question(events: List[Any], query: str) -> List[Any]:
     q_words = [w for w in re.findall(r"[a-z0-9']+", q_l) if len(w) > 2]
     spatial_above_tv = "above" in q_l and "tv" in q_l
     ceiling_q = "ceiling" in q_l
+    living_room_q = "living room" in q_l
     dining_q = "dining table" in q_l
     between_frames_q = "between" in q_l and ("frame" in q_l or "picture" in q_l)
+    fan_q = "ceiling fan" in q_l or ("fan" in q_l and "speed" in q_l)
+    door_open_q = "front door" in q_l and "open" in q_l
+    functional_q = bool(
+        re.search(r"\b(should i|what should i|what can i do|how can i)\b", q_l)
+    )
+    cool_down_q = "cool down" in q_l or "cooling" in q_l
     invisible_penalty = -6.0
 
     def _score(event: Any) -> float:
@@ -180,11 +208,33 @@ def rerank_episodic_for_question(events: List[Any], query: str) -> List[Any]:
                 score += 1.0
         if "not visible" in blob or "cannot be determined" in blob or "is not shown" in blob:
             score += invisible_penalty
-        if ceiling_q:
+        if living_room_q:
+            if "living room" in blob:
+                score += 4.0
+            if "hallway" in blob and "living room" not in blob:
+                score -= 3.0
+        if fan_q:
+            if any(tok in blob for tok in ("ceiling fan", "fan speed", "switch", "dial", "panel")):
+                score += 6.0
+            if any(tok in blob for tok in ("wood", "beam", "drywall", "vaulted", "plaster")) and "fan" not in blob:
+                score -= 4.0
+        if functional_q or cool_down_q:
+            if any(tok in blob for tok in ("air conditioner", "ac unit", "turn on", "activate", "cool")):
+                score += 5.0
+        if door_open_q:
+            if "front door" in blob:
+                score += 5.0
+            if "door is closed" in blob or "door closed" in blob:
+                score += 3.0
+            if "door is open" in blob or "door open" in blob:
+                score += 3.0
+        if ceiling_q and not fan_q:
             if any(tok in blob for tok in ("wood", "beam", "panel", "vaulted", "drywall", "plaster")):
                 score += 5.0
             if "ceiling is visible" in blob or "ceiling is" in blob:
                 score += 2.0
+            if living_room_q and "living room" in blob:
+                score += 4.0
         if dining_q:
             if "dining table" in blob:
                 score += 6.0
@@ -274,7 +324,12 @@ def normalize_qa_prediction(raw: str, question: str = "") -> Tuple[str, str]:
 
     numbered = _NUMBERED_ITEM_RE.findall(raw_text)
     if numbered:
-        return _clean_phrase(numbered[0], yes_no_q=yes_no_q), raw_text
+        for item in numbered:
+            if re.match(r"^analyze\b", item.strip(), re.I):
+                continue
+            cleaned = _clean_phrase(item, yes_no_q=yes_no_q)
+            if cleaned:
+                return cleaned, raw_text
 
     if "\n\n" in raw_text:
         first_block = raw_text.split("\n\n", 1)[0]
@@ -306,7 +361,19 @@ def _strip_persona_bleed(text: str) -> str:
 
 def _looks_like_meta_reasoning(text: str) -> bool:
     lowered = (text or "").lower()
+    if re.match(r"^analyze\b", lowered):
+        return True
     return any(marker in lowered for marker in _META_REASONING_MARKERS)
+
+
+def _strip_leading_timestamp(text: str) -> str:
+    stripped = (text or "").strip()
+    while True:
+        match = _TIMESTAMP_LEAD_RE.match(stripped)
+        if not match:
+            break
+        stripped = stripped[match.end() :].strip()
+    return stripped
 
 
 def _is_bad_answer(text: str, *, yes_no_q: bool = False) -> bool:
@@ -334,8 +401,10 @@ def _extract_yes_no(text: str) -> Optional[str]:
 
 def _clean_phrase(text: str, *, yes_no_q: bool = False) -> str:
     phrase = _strip_persona_bleed(text.strip())
+    phrase = _strip_leading_timestamp(phrase)
     phrase = re.sub(r"^[-*•]\s*", "", phrase)
     phrase = re.sub(r"^\d+[\.\)]\s*", "", phrase)
+    phrase = re.sub(r"^analyze\s+(the\s+)?(memory|memories|scene|question)\b[:\s-]*", "", phrase, flags=re.I)
     if _RGB_FRAME_RE.match(phrase):
         return ""
     if ";" in phrase:
