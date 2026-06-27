@@ -182,6 +182,52 @@ def generate_with_speculative_memory(
                 "draft_tokens_proposed": 0,
                 "draft_tokens_accepted": 0,
                 "acceptance_rate": 0.0,
+                "draft_trace": [],
+            }
+        )
+
+    draft_trace: List[Dict[str, Any]] = []
+    if stats_out is not None:
+        draft_trace = stats_out["draft_trace"]
+
+    def _decode_token_ids(token_ids: List[int]) -> str:
+        if not token_ids:
+            return ""
+        try:
+            return tokenizer.decode(token_ids, skip_special_tokens=True)
+        except Exception:
+            return ""
+
+    def _record_draft_round(
+        *,
+        round_no: int,
+        draft_token_ids: List[int],
+        num_accepted: int,
+        rejected_at: Optional[int],
+        target_correction_token_id: int,
+        no_draft_fallback: bool = False,
+    ) -> None:
+        if stats_out is None:
+            return
+        rejected_ids = (
+            draft_token_ids[num_accepted:]
+            if rejected_at is not None and num_accepted < len(draft_token_ids)
+            else []
+        )
+        draft_trace.append(
+            {
+                "round": round_no,
+                "no_draft_fallback": no_draft_fallback,
+                "draft_token_ids": list(draft_token_ids),
+                "draft_text": _decode_token_ids(draft_token_ids),
+                "num_accepted": int(num_accepted),
+                "rejected_at": rejected_at,
+                "accepted_token_ids": list(draft_token_ids[:num_accepted]),
+                "accepted_text": _decode_token_ids(draft_token_ids[:num_accepted]),
+                "rejected_token_ids": list(rejected_ids),
+                "rejected_text": _decode_token_ids(rejected_ids),
+                "target_correction_token_id": int(target_correction_token_id),
+                "target_correction_text": _decode_token_ids([int(target_correction_token_id)]),
             }
         )
 
@@ -224,6 +270,8 @@ def generate_with_speculative_memory(
 
     if current_ids.size(0) != 1:
         raise ValueError("generate_with_speculative_memory expects batch_size=1.")
+
+    initial_prompt_len = int(current_ids.size(1))
 
     # Stage 1: precompute memory K/V for target (once per call; reuse every round)
     # memory_kv_raw stores K tensors with RoPE *removed* so they can be re-encoded
@@ -342,6 +390,14 @@ def generate_with_speculative_memory(
             next_token = next_token.squeeze(-1).unsqueeze(0)
             current_ids = torch.cat([current_ids, next_token], dim=1)
             total_generated += 1
+            _record_draft_round(
+                round_no=time_stats["total_rounds"],
+                draft_token_ids=[],
+                num_accepted=0,
+                rejected_at=None,
+                target_correction_token_id=int(next_token.item()),
+                no_draft_fallback=True,
+            )
             if eos_token_id is not None and next_token.item() == eos_token_id:
                 break
             if total_generated >= max_new_tokens:
@@ -486,6 +542,13 @@ def generate_with_speculative_memory(
             next_token = next_token.squeeze(-1).unsqueeze(0)
         current_ids = torch.cat([current_ids, next_token], dim=1)
         total_generated += 1
+        _record_draft_round(
+            round_no=time_stats["total_rounds"],
+            draft_token_ids=list(draft_result.draft_token_ids),
+            num_accepted=num_accepted,
+            rejected_at=rejected_at,
+            target_correction_token_id=int(next_token.item()),
+        )
 
         if eos_token_id is not None and next_token.item() == eos_token_id:
             break
@@ -498,6 +561,15 @@ def generate_with_speculative_memory(
         stats_out["acceptance_rate"] = (acc / prop) if prop > 0 else 0.0
         stats_out["new_tokens_generated"] = int(total_generated)
         stats_out["time_stats"] = time_stats
+        new_token_ids = current_ids[0, initial_prompt_len:].tolist()
+        stats_out["target_final_token_ids"] = new_token_ids
+        stats_out["target_final_text"] = _decode_token_ids(new_token_ids)
+        stats_out["draft_all_rounds_text"] = " | ".join(
+            entry.get("draft_text", "") for entry in draft_trace if entry.get("draft_text")
+        )
+        stats_out["draft_rejected_text"] = " | ".join(
+            entry.get("rejected_text", "") for entry in draft_trace if entry.get("rejected_text")
+        )
 
     if os.environ.get("MMA_TIME_DEBUG", "1").strip().lower() in ("1", "true", "yes"):
         rounds = time_stats["total_rounds"]

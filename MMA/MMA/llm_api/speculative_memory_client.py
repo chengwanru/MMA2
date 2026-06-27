@@ -683,16 +683,35 @@ class SpeculativeMemoryClient(LLMClientBase):
             }
             if stats_out:
                 self.last_speculative_stats.update(dict(stats_out))
-            if os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes"):
-                acc = self.last_speculative_stats.get("acceptance_rate")
+            if trace_sd or os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in (
+                "1",
+                "true",
+                "yes",
+            ):
+                acc = (self.last_speculative_stats or {}).get("acceptance_rate")
+                draft_rounds = (self.last_speculative_stats or {}).get("draft_trace") or []
                 print(
-                    f"[sd_trace] sd_path={self.last_speculative_stats['sd_path']} "
+                    f"[sd_trace] sd_path={(self.last_speculative_stats or {}).get('sd_path')} "
                     f"acceptance_rate={acc} "
                     f"memory_items={len(memory_items)} "
                     f"new_tokens={new_ids.numel()} "
                     f"elapsed={elapsed_sec:.3f}s",
                     flush=True,
                 )
+                print(
+                    f"[sd_trace] target_final={(self.last_speculative_stats or {}).get('target_final_text')!r} "
+                    f"draft_all_rounds={(self.last_speculative_stats or {}).get('draft_all_rounds_text')!r}",
+                    flush=True,
+                )
+                for entry in draft_rounds[:8]:
+                    print(
+                        f"  [sd_trace] round={entry.get('round')} "
+                        f"draft={entry.get('draft_text')!r} "
+                        f"accepted={entry.get('accepted_text')!r} "
+                        f"rejected={entry.get('rejected_text')!r} "
+                        f"target_corr={entry.get('target_correction_text')!r}",
+                        flush=True,
+                    )
         if use_baseline_tools and prepared_tools:
             allowed = [t.get("name") for t in prepared_tools if t.get("name")]
             tool_calls = parse_tool_calls_from_text(generated_text, allowed)

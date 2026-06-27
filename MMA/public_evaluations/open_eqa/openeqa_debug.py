@@ -288,6 +288,20 @@ def log_debug_summary(payload: Dict[str, Any], phase: str) -> None:
                 f"elapsed={sd.get('elapsed_sec')}s",
                 flush=True,
             )
+            print(
+                f"  [debug/qa] target_final={sd.get('target_final_text')!r} "
+                f"draft_all_rounds={sd.get('draft_all_rounds_text')!r}",
+                flush=True,
+            )
+            for entry in (sd.get("draft_trace") or [])[:6]:
+                print(
+                    f"    draft_r{entry.get('round')}: "
+                    f"proposed={entry.get('draft_text')!r} "
+                    f"accepted={entry.get('accepted_text')!r} "
+                    f"rejected={entry.get('rejected_text')!r} "
+                    f"target_corr={entry.get('target_correction_text')!r}",
+                    flush=True,
+                )
         for hit in (payload.get("bm25_hits") or [])[:3]:
             print(
                 f"    bm25: {hit.get('summary', '')[:100]}",
