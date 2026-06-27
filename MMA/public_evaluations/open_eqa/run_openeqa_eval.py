@@ -161,6 +161,7 @@ def _subprocess_env(use_speculative_baseline: bool, phase: str = "all") -> Dict[
     env.setdefault("OPENEQA_FILTER_EPISODIC", "1")
     env.setdefault("OPENEQA_NORMALIZE_ANSWER", "1")
     env.setdefault("OPENEQA_MAX_EPISODIC_RETRIEVAL", "8")
+    env.setdefault("OPENEQA_COLLECT_SD_STATS", "1")
 
     if phase == "memorize":
         env.setdefault("OPENEQA_EPISODIC_TOOL_CALL", "1")

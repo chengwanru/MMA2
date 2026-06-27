@@ -305,6 +305,7 @@ class SpeculativeMemoryClient(LLMClientBase):
         self._target_model = None
         self._tokenizer = None
         self._config = None
+        self.last_speculative_stats: Optional[Dict[str, Any]] = None
 
     def _ensure_models(self) -> None:
         if self._target_model is not None:
@@ -599,6 +600,13 @@ class SpeculativeMemoryClient(LLMClientBase):
             )
 
         collect_stats = bool(request_data.get("collect_stats"))
+        trace_sd = os.environ.get("OPENEQA_COLLECT_SD_STATS", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        if trace_sd:
+            collect_stats = True
         stats_out: Optional[Dict[str, Any]] = request_data.get("stats_out")
         if collect_stats and stats_out is None:
             stats_out = {}
@@ -663,6 +671,28 @@ class SpeculativeMemoryClient(LLMClientBase):
         }
         if stats_out:
             response["speculative_stats"] = dict(stats_out)
+        if trace_sd or collect_stats:
+            self.last_speculative_stats = {
+                "sd_path": not (local_rag or baseline_mode),
+                "baseline_mode": baseline_mode,
+                "local_rag": local_rag,
+                "memory_items_count": len(memory_items),
+                "prompt_len": prompt_len,
+                "elapsed_sec": elapsed_sec,
+                "new_tokens": int(new_ids.numel()),
+            }
+            if stats_out:
+                self.last_speculative_stats.update(dict(stats_out))
+            if os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes"):
+                acc = self.last_speculative_stats.get("acceptance_rate")
+                print(
+                    f"[sd_trace] sd_path={self.last_speculative_stats['sd_path']} "
+                    f"acceptance_rate={acc} "
+                    f"memory_items={len(memory_items)} "
+                    f"new_tokens={new_ids.numel()} "
+                    f"elapsed={elapsed_sec:.3f}s",
+                    flush=True,
+                )
         if use_baseline_tools and prepared_tools:
             allowed = [t.get("name") for t in prepared_tools if t.get("name")]
             tool_calls = parse_tool_calls_from_text(generated_text, allowed)

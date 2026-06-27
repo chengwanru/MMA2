@@ -26,6 +26,7 @@ from openeqa_debug import (
     collect_episodic_debug,
     collect_memorize_debug,
     collect_qa_debug,
+    collect_speculative_sd_stats,
     debug_enabled,
     log_debug_summary,
     write_debug_file,
@@ -348,6 +349,11 @@ def _configure_offline_mma(agent) -> None:
     agent.agent.include_recent_screenshots = False
 
 
+def _mma_core(agent_wrapper):
+    """Inner MMA AgentWrapper (mma.agent) — has .client.server."""
+    return agent_wrapper.agent
+
+
 def _init_agent(config_path: str):
     from common.paths import ensure_pev_on_syspath
 
@@ -358,7 +364,7 @@ def _init_agent(config_path: str):
 
     agent = AgentWrapper(agent_name="mma", config_path=config_path, model_name=None)
     _configure_offline_mma(agent)
-    patch_episodic_memory_manager(agent.client.server)
+    patch_episodic_memory_manager(_mma_core(agent).client.server)
     agent.prepare_before_asking_questions()
     return agent
 
@@ -466,19 +472,21 @@ def _run_qa(
     _apply_qa_env()
 
     agent = _init_agent(config_path)
-    _set_chat_topic(agent.agent, question)
+    _set_chat_topic(_mma_core(agent), question)
     formatted = _format_eqa_question(question)
     raw_prediction = agent.send_message(message=formatted, memorizing=False)
     prediction, _ = normalize_qa_prediction(raw_prediction)
+    sd_stats = collect_speculative_sd_stats()
 
     debug_payload: Optional[Dict[str, Any]] = None
     if debug_enabled():
         debug_payload = collect_qa_debug(
             sample,
-            agent.agent,
+            _mma_core(agent),
             prediction,
             formatted,
             prediction_raw=raw_prediction,
+            speculative_stats=sd_stats,
         )
         write_debug_file(home_dir, "qa", debug_payload)
         log_debug_summary(debug_payload, "qa")

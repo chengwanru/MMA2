@@ -164,6 +164,27 @@ def collect_memorize_debug(
     }
 
 
+def collect_speculative_sd_stats() -> Optional[Dict[str, Any]]:
+    """Read last QA speculative-decoding stats from cached SpeculativeMemoryClient."""
+    if os.environ.get("OPENEQA_COLLECT_SD_STATS", "1").strip().lower() in (
+        "0",
+        "false",
+        "no",
+    ):
+        return None
+    try:
+        from mma.llm_api import llm_client as llm_client_mod
+
+        cached = getattr(llm_client_mod, "_speculative_memory_client_cache", None)
+        if not cached:
+            return None
+        _, client = cached
+        stats = getattr(client, "last_speculative_stats", None)
+        return dict(stats) if stats else None
+    except Exception:
+        return None
+
+
 def collect_qa_debug(
     sample: Dict[str, Any],
     mma_agent,
@@ -171,6 +192,7 @@ def collect_qa_debug(
     formatted_question: str,
     *,
     prediction_raw: Optional[str] = None,
+    speculative_stats: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     question = sample.get("question", "")
     episodic = collect_episodic_debug(mma_agent, question=question)
@@ -186,6 +208,7 @@ def collect_qa_debug(
         "prediction": prediction,
         "prediction_raw": prediction_raw if prediction_raw is not None else prediction,
         "formatted_question": formatted_question,
+        "speculative_stats": speculative_stats,
         "gold_phrase_in_bm25": _phrase_in_events(gold_l, episodic.get("bm25_hits", [])),
         "gold_phrase_in_recent": _phrase_in_events(gold_l, episodic.get("episodic_recent", [])),
         "gold_tokens_in_bm25": _tokens_in_events(gold_tokens, episodic.get("bm25_hits", [])),
@@ -253,6 +276,18 @@ def log_debug_summary(payload: Dict[str, Any], phase: str) -> None:
             f"gold_tokens_in_bm25={payload.get('gold_tokens_in_bm25')}",
             flush=True,
         )
+        sd = payload.get("speculative_stats") or {}
+        if sd:
+            print(
+                f"  [debug/qa] sd_path={sd.get('sd_path')} "
+                f"acceptance_rate={sd.get('acceptance_rate')} "
+                f"draft_accepted={sd.get('draft_tokens_accepted')}/"
+                f"{sd.get('draft_tokens_proposed')} "
+                f"verify_rounds={sd.get('verify_rounds')} "
+                f"memory_items={sd.get('memory_items_count')} "
+                f"elapsed={sd.get('elapsed_sec')}s",
+                flush=True,
+            )
         for hit in (payload.get("bm25_hits") or [])[:3]:
             print(
                 f"    bm25: {hit.get('summary', '')[:100]}",
