@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from openeqa_memory import filter_episodic_events
+
 
 def debug_enabled() -> bool:
     return os.environ.get("OPENEQA_DEBUG", "1").strip().lower() not in (
@@ -63,20 +65,24 @@ def collect_episodic_debug(mma_agent, question: str = "") -> Dict[str, Any]:
     search_method = _search_method()
     query = (question or chat_state.topic or "").strip()
 
-    all_recent = mgr.list_episodic_memory(
-        agent_state=episodic_state,
-        limit=50,
-        timezone_str=tz,
+    all_recent = filter_episodic_events(
+        mgr.list_episodic_memory(
+            agent_state=episodic_state,
+            limit=50,
+            timezone_str=tz,
+        )
     )
     bm25_hits: List[Any] = []
     if query:
-        bm25_hits = mgr.list_episodic_memory(
-            agent_state=episodic_state,
-            query=query,
-            search_field="details",
-            search_method=search_method,
-            limit=10,
-            timezone_str=tz,
+        bm25_hits = filter_episodic_events(
+            mgr.list_episodic_memory(
+                agent_state=episodic_state,
+                query=query,
+                search_field="details",
+                search_method=search_method,
+                limit=10,
+                timezone_str=tz,
+            )
         )
 
     memory_items: List[Dict[str, Any]] = []
@@ -163,6 +169,8 @@ def collect_qa_debug(
     mma_agent,
     prediction: str,
     formatted_question: str,
+    *,
+    prediction_raw: Optional[str] = None,
 ) -> Dict[str, Any]:
     question = sample.get("question", "")
     episodic = collect_episodic_debug(mma_agent, question=question)
@@ -176,6 +184,7 @@ def collect_qa_debug(
         "question": question,
         "gold_answer": gold,
         "prediction": prediction,
+        "prediction_raw": prediction_raw if prediction_raw is not None else prediction,
         "formatted_question": formatted_question,
         "gold_phrase_in_bm25": _phrase_in_events(gold_l, episodic.get("bm25_hits", [])),
         "gold_phrase_in_recent": _phrase_in_events(gold_l, episodic.get("episodic_recent", [])),

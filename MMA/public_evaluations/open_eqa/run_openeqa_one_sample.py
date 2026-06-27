@@ -30,6 +30,12 @@ from openeqa_debug import (
     log_debug_summary,
     write_debug_file,
 )
+from openeqa_memory import (
+    fresh_home_enabled,
+    normalize_qa_prediction,
+    patch_episodic_memory_manager,
+    wipe_mma_sqlite,
+)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -50,8 +56,9 @@ def _parse_args() -> argparse.Namespace:
 def _format_eqa_question(question: str) -> str:
     return (
         "You memorized video frames of an indoor scene. "
-        "Search episodic memory for relevant observations, then answer with ONLY a brief factual phrase "
-        "(a few words, no full sentence). "
+        "Search episodic memory for relevant observations, then answer with EXACTLY ONE brief factual phrase "
+        "(a few words, no full sentence, no numbered list, no multiple items). "
+        "If memories conflict across frames, pick the single best-supported observation for this question. "
         "Do not ask clarifying questions. Do not call tools. Do not repeat the question.\n\n"
         f"Question: {question}"
     )
@@ -351,6 +358,7 @@ def _init_agent(config_path: str):
 
     agent = AgentWrapper(agent_name="mma", config_path=config_path, model_name=None)
     _configure_offline_mma(agent)
+    patch_episodic_memory_manager(agent.client.server)
     agent.prepare_before_asking_questions()
     return agent
 
@@ -374,6 +382,9 @@ def _run_memorize(
     missing = [p for p in image_paths if not os.path.isfile(p)]
     if missing:
         return f"ERROR:memorize:missing frames: {missing[:2]}", "", None
+
+    if fresh_home_enabled() and wipe_mma_sqlite(home_dir):
+        print("  [memorize] wiped stale ~/.mma/sqlite.db", flush=True)
 
     _apply_memorize_baseline_tools_env()
     agent = _init_agent(config_path)
@@ -457,11 +468,18 @@ def _run_qa(
     agent = _init_agent(config_path)
     _set_chat_topic(agent.agent, question)
     formatted = _format_eqa_question(question)
-    prediction = agent.send_message(message=formatted, memorizing=False)
+    raw_prediction = agent.send_message(message=formatted, memorizing=False)
+    prediction, _ = normalize_qa_prediction(raw_prediction)
 
     debug_payload: Optional[Dict[str, Any]] = None
     if debug_enabled():
-        debug_payload = collect_qa_debug(sample, agent.agent, prediction, formatted)
+        debug_payload = collect_qa_debug(
+            sample,
+            agent.agent,
+            prediction,
+            formatted,
+            prediction_raw=raw_prediction,
+        )
         write_debug_file(home_dir, "qa", debug_payload)
         log_debug_summary(debug_payload, "qa")
 
