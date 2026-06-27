@@ -20,7 +20,10 @@
 
 set -euo pipefail
 
-OEQA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Slurm runs a copy under /var/spool/slurmd/job<ID>/ — only this file exists there.
+# Nested scripts must be resolved from the directory where sbatch was invoked.
+OEQA_DIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+cd "${OEQA_DIR}"
 export OEQA_DIR
 JOB_TAG="${SLURM_JOB_ID:-local}"
 COMMON_ENV=(

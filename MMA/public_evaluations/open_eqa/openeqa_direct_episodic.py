@@ -107,15 +107,16 @@ def ensure_episodic_from_frames(
         return 0
 
     question = (sample or {}).get("question", "")
+    batch_size = max(1, int(os.environ.get("OPENEQA_ABSORB_BATCH_SIZE", "4")))
+    expected = max(0, (len(image_paths) + batch_size - 1) // batch_size)
     existing = collect_episodic_debug(mma_agent, question=question)
-    if int(existing.get("episodic_total") or 0) > 0:
+    if int(existing.get("episodic_total") or 0) >= expected:
         return 0
 
     mgr = mma_agent.client.server.episodic_memory_manager
     state = mma_agent.agent_states.episodic_memory_agent_state
     org_id = mma_agent.client.user.organization_id
     tz = mma_agent.timezone
-    batch_size = max(1, int(os.environ.get("OPENEQA_ABSORB_BATCH_SIZE", "4")))
     inserted = 0
 
     for start in range(0, len(image_paths), batch_size):

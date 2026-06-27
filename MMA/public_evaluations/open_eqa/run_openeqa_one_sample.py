@@ -160,6 +160,21 @@ def _skip_memory_agent_absorb() -> bool:
     return os.environ.get("OPENEQA_SKIP_ABSORB", "1").strip().lower() not in ("0", "false", "no")
 
 
+def _memorize_uses_direct_episodic() -> bool:
+    """Per-frame VL caption + episodic insert (no memory-agent absorb / prepare)."""
+    if _episodic_tool_call_enabled():
+        return False
+    return os.environ.get("OPENEQA_DIRECT_EPISODIC", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+
+
+def _expected_episodic_batches(frame_count: int, batch_size: int) -> int:
+    return max(0, (frame_count + batch_size - 1) // batch_size)
+
+
 def _absorb_batch_size() -> int:
     """Frames per absorb/caption batch. Tool-call VL + schema needs ~2k tokens/image."""
     batch = max(1, int(os.environ.get("OPENEQA_ABSORB_BATCH_SIZE", "4")))
@@ -341,15 +356,16 @@ def ensure_episodic_from_frames(
         return 0, errors
 
     question = (sample or {}).get("question", "")
+    batch_size = _absorb_batch_size()
+    expected = _expected_episodic_batches(len(image_paths), batch_size)
     existing = collect_episodic_debug(mma_agent, question=question)
-    if int(existing.get("episodic_total") or 0) > 0:
+    if int(existing.get("episodic_total") or 0) >= expected:
         return 0, errors
 
     mgr = mma_agent.client.server.episodic_memory_manager
     state = mma_agent.agent_states.episodic_memory_agent_state
     org_id = mma_agent.client.user.organization_id
     tz = mma_agent.timezone
-    batch_size = _absorb_batch_size()
     inserted = 0
 
     for start in range(0, len(image_paths), batch_size):
@@ -452,7 +468,9 @@ def _init_agent(config_path: str, *, for_qa: bool = False):
         else:
             agent.prepare_before_asking_questions()
         _tune_qa_agent(agent)
-    else:
+    elif not _memorize_uses_direct_episodic():
+        # Direct episodic mode writes per-frame rows in _run_memorize; pre-absorb here
+        # creates a single generic episodic row and blocks ensure_episodic_from_frames.
         agent.prepare_before_asking_questions()
     return agent
 
@@ -518,7 +536,8 @@ def _run_memorize(
         print(f"  [memorize] direct episodic inserts: {n_direct}", flush=True)
     elif direct_errors:
         print(f"  [memorize] direct episodic failed: {direct_errors[0]}", flush=True)
-    agent.prepare_before_asking_questions()
+    if not _memorize_uses_direct_episodic():
+        agent.prepare_before_asking_questions()
     _release_gpu_cache()
 
     debug_payload: Optional[Dict[str, Any]] = None
