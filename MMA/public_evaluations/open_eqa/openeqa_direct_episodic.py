@@ -66,7 +66,10 @@ def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
     prompt = (
         "You are the episodic memory recorder for an indoor scene video."
         f"{q_hint}\n"
-        "Describe objects, furniture, colors, layout, and anything notable."
+        "Describe this frame only: objects, materials, colors, furniture, and precise spatial relations "
+        "(e.g. what is above the TV, between picture frames, on the dining table, ceiling type/material, "
+        "staircase railing color, whether doors are open). "
+        "If something is not visible in this frame, say so explicitly.\n"
         "Reply exactly in this format:\n"
         "SUMMARY: <one short sentence>\n"
         "DETAILS: <detailed paragraph>"

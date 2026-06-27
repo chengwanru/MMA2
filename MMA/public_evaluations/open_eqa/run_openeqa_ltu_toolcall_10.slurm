@@ -10,7 +10,8 @@
 #SBATCH -o logs/openeqa_toolcall_10_%j.log
 #SBATCH -e logs/openeqa_toolcall_10_%j.err
 
-# Tool-call memorize + ours QA: 10 samples, 8 frames each (10× toolcall smoke).
+# Tool-call memorize + ours QA: 10 samples, 8 frames each.
+# Uses per-frame direct episodic (OPENEQA_EPISODIC_TOOL_CALL=0).
 #
 #   cd MMA/public_evaluations/open_eqa
 #   git pull && mkdir -p logs
@@ -25,11 +26,12 @@ export ALL_FRAMES=0
 export FRAMES_PER_EPISODE=8
 export VARIANTS=ours
 export OPENEQA_DEBUG=1
-export OPENEQA_EPISODIC_TOOL_CALL=1
+export OPENEQA_EPISODIC_TOOL_CALL=0
+export OPENEQA_QA_MAX_TOKENS=32
 export OPENEQA_DIRECT_EPISODIC=1
 export OPENEQA_ABSORB_BATCH_SIZE=1
 export OPENEQA_VL_MAX_PIXELS="${OPENEQA_VL_MAX_PIXELS:-401408}"
-export OUTPUT="${OUTPUT:-results/toolcall_10_${SLURM_JOB_ID:-local}.json}"
+export OUTPUT="${OUTPUT:-results/direct_episodic_10_${SLURM_JOB_ID:-local}.json}"
 
 bash run_openeqa_ltu_smoke.slurm
 

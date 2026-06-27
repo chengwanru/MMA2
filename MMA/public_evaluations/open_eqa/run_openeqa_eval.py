@@ -165,11 +165,12 @@ def _subprocess_env(use_speculative_baseline: bool, phase: str = "all") -> Dict[
     env.setdefault("OPENEQA_EXPAND_RETRIEVAL_QUERY", "1")
     env.setdefault("OPENEQA_RERANK_EPISODIC", "1")
     env.setdefault("OPENEQA_SKIP_QA_PERSONA", "1")
-    env.setdefault("OPENEQA_QA_MAX_TOKENS", "12")
+    env.setdefault("OPENEQA_QA_MAX_TOKENS", "32")
     env.setdefault("OPENEQA_TUNE_QA_AGENT", "1")
 
     if phase == "memorize":
-        env.setdefault("OPENEQA_EPISODIC_TOOL_CALL", "1")
+        # Per-frame VL captions (direct episodic); tool-call often collapses 8 frames into 1 summary.
+        env.setdefault("OPENEQA_EPISODIC_TOOL_CALL", "0")
         env.setdefault("OPENEQA_EPISODIC_ONLY", "1")
         env.setdefault("MMA_TARGET_ONLY", "1")
         env["MMA_SPECULATIVE_BASELINE"] = "1"

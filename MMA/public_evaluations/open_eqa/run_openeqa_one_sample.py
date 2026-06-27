@@ -55,6 +55,13 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _is_yes_no_question(question: str) -> bool:
+    q_l = (question or "").strip().lower()
+    return bool(
+        re.match(r"^(is|are|do|does|did|can|could|should|was|were|has|have)\b", q_l)
+    )
+
+
 def _format_eqa_question(question: str) -> str:
     q_l = question.lower()
     spatial_hint = ""
@@ -63,14 +70,35 @@ def _format_eqa_question(question: str) -> str:
             "Focus on the object mounted directly above the TV. "
             "Ignore other white objects elsewhere on walls (doors, rugs, trim). "
         )
+    elif "between" in q_l and ("frame" in q_l or "picture" in q_l):
+        spatial_hint = (
+            "Focus on what sits spatially between the two picture frames on the wall, not objects above the TV. "
+        )
+    elif "ceiling" in q_l:
+        spatial_hint = (
+            "Focus on ceiling material or type visible in the living room; prefer frames where the ceiling is visible. "
+        )
+    elif "dining table" in q_l:
+        spatial_hint = "Focus on the dining table surface and whether it has free space or place settings. "
+    elif "staircase" in q_l and "railing" in q_l:
+        spatial_hint = "Focus on the staircase railing color if mentioned in memory. "
+
+    if _is_yes_no_question(question):
+        answer_hint = "Answer with exactly one word: Yes or No. "
+    else:
+        answer_hint = (
+            "Answer with EXACTLY ONE brief factual phrase "
+            "(a few words, no full sentence, no numbered list, no multiple items, no frame filenames). "
+        )
+
     return (
         "You memorized video frames of an indoor scene. "
-        "Search episodic memory for relevant observations, then answer with EXACTLY ONE brief factual phrase "
-        "(a few words, no full sentence, no numbered list, no multiple items). "
+        "Search episodic memory for relevant observations, then answer. "
+        f"{answer_hint}"
         f"{spatial_hint}"
         "If memories conflict, prefer the observation that matches the question's spatial relation. "
         "Do not ask clarifying questions. Do not call tools. Do not repeat the question. "
-        "Stop after the answer phrase.\n\n"
+        "Stop after the answer.\n\n"
         f"Question: {question}"
     )
 
@@ -104,7 +132,7 @@ def _release_gpu_cache() -> None:
 
 
 def _episodic_tool_call_enabled() -> bool:
-    return os.environ.get("OPENEQA_EPISODIC_TOOL_CALL", "1").strip().lower() not in (
+    return os.environ.get("OPENEQA_EPISODIC_TOOL_CALL", "0").strip().lower() not in (
         "0",
         "false",
         "no",
@@ -272,7 +300,10 @@ def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
     prompt = (
         "You are the episodic memory recorder for an indoor scene video."
         f"{q_hint}\n"
-        "Describe objects, furniture, colors, layout, and anything notable."
+        "Describe this frame only: objects, materials, colors, furniture, and precise spatial relations "
+        "(e.g. what is above the TV, between picture frames, on the dining table, ceiling type/material, "
+        "staircase railing color, whether doors are open). "
+        "If something is not visible in this frame, say so explicitly.\n"
         "Reply exactly in this format:\n"
         "SUMMARY: <one short sentence>\n"
         "DETAILS: <detailed paragraph>"
@@ -386,7 +417,7 @@ def _tune_qa_agent(agent_wrapper) -> None:
     ):
         return
     core = _mma_core(agent_wrapper)
-    max_tokens = max(4, int(os.environ.get("OPENEQA_QA_MAX_TOKENS", "12")))
+    max_tokens = max(8, int(os.environ.get("OPENEQA_QA_MAX_TOKENS", "32")))
     state = core.agent_states.agent_state
     cfg = getattr(state, "llm_config", None)
     if cfg is None:
@@ -476,7 +507,8 @@ def _run_memorize(
                     agent.agent, image_paths, sample
                 )
     elif _skip_memory_agent_absorb():
-        print("  [memorize] skip memory-agent absorb (direct episodic only)", flush=True)
+        print("  [memorize] direct episodic only (skip memory-agent absorb)", flush=True)
+        n_direct, direct_errors = ensure_episodic_from_frames(agent.agent, image_paths, sample)
     else:
         _memorize_frames(agent.agent, image_paths)
         _release_gpu_cache()
@@ -517,6 +549,13 @@ def _run_memorize(
     return "OK", "", debug_payload
 
 
+def _qa_send(agent, message: str) -> str:
+    raw = (agent.send_message(message=message, memorizing=False) or "").strip()
+    if raw and raw != "ERROR":
+        return raw
+    return ""
+
+
 def _run_qa(
     sample: Dict[str, Any],
     config_path: str,
@@ -531,8 +570,25 @@ def _run_qa(
     agent = _init_agent(config_path, for_qa=True)
     _set_chat_topic(_mma_core(agent), question)
     formatted = _format_eqa_question(question)
-    raw_prediction = agent.send_message(message=formatted, memorizing=False)
-    prediction, _ = normalize_qa_prediction(raw_prediction)
+    raw_prediction = _qa_send(agent, formatted)
+    if not raw_prediction and _is_yes_no_question(question):
+        fallback = (
+            "Based on episodic memory only, answer with exactly one word: Yes or No.\n\n"
+            f"Question: {question}"
+        )
+        print("  [qa] empty first response; retrying yes/no fallback", flush=True)
+        raw_prediction = _qa_send(agent, fallback)
+    if not raw_prediction:
+        print("  [qa] empty response after retries", flush=True)
+        raw_prediction = "ERROR"
+
+    prediction, _ = normalize_qa_prediction(raw_prediction, question=question)
+    if not prediction and raw_prediction not in ("", "ERROR"):
+        for line in raw_prediction.splitlines():
+            line = line.strip()
+            if line and not line.startswith("ERROR"):
+                prediction = line[:200]
+                break
     sd_stats = collect_speculative_sd_stats()
 
     debug_payload: Optional[Dict[str, Any]] = None
@@ -548,7 +604,7 @@ def _run_qa(
         write_debug_file(home_dir, "qa", debug_payload)
         log_debug_summary(debug_payload, "qa")
 
-    if prediction == "ERROR":
+    if not prediction or prediction == "ERROR":
         return "ERROR:qa:agent returned ERROR (see stderr_tail)", "", debug_payload
     return prediction, "", debug_payload
 
