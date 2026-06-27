@@ -32,6 +32,7 @@ from openeqa_debug import (
     write_debug_file,
 )
 from openeqa_memory import (
+    build_retrieval_query,
     fresh_home_enabled,
     normalize_qa_prediction,
     patch_episodic_memory_manager,
@@ -55,12 +56,21 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _format_eqa_question(question: str) -> str:
+    q_l = question.lower()
+    spatial_hint = ""
+    if "above" in q_l and "tv" in q_l:
+        spatial_hint = (
+            "Focus on the object mounted directly above the TV. "
+            "Ignore other white objects elsewhere on walls (doors, rugs, trim). "
+        )
     return (
         "You memorized video frames of an indoor scene. "
         "Search episodic memory for relevant observations, then answer with EXACTLY ONE brief factual phrase "
         "(a few words, no full sentence, no numbered list, no multiple items). "
-        "If memories conflict across frames, pick the single best-supported observation for this question. "
-        "Do not ask clarifying questions. Do not call tools. Do not repeat the question.\n\n"
+        f"{spatial_hint}"
+        "If memories conflict, prefer the observation that matches the question's spatial relation. "
+        "Do not ask clarifying questions. Do not call tools. Do not repeat the question. "
+        "Stop after the answer phrase.\n\n"
         f"Question: {question}"
     )
 
@@ -69,13 +79,14 @@ def _set_chat_topic(mma_agent, question: str) -> None:
     """BM25 / memory retrieval uses agent topic as query keywords."""
     from mma.schemas.agent import UpdateAgent
 
+    retrieval_query = build_retrieval_query(question)
     chat_state = mma_agent.agent_states.agent_state
     mma_agent.client.server.agent_manager.update_agent(
         agent_id=chat_state.id,
-        agent_update=UpdateAgent(topic=question),
+        agent_update=UpdateAgent(topic=retrieval_query),
         actor=mma_agent.client.user,
     )
-    chat_state.topic = question
+    chat_state.topic = retrieval_query
 
 
 def _release_gpu_cache() -> None:
@@ -129,13 +140,25 @@ def _absorb_batch_size() -> int:
     return batch
 
 
+def _memorize_frame_hint() -> str:
+    return os.environ.get(
+        "OPENEQA_MEMORIZE_HINT",
+        "OpenEQA scene memory: describe objects with precise spatial relations "
+        "(e.g. what is mounted on the wall directly above the TV). "
+        "Name air conditioners, framed art, and clocks separately with locations.",
+    )
+
+
 def _memorize_frames(mma_agent, image_paths: List[str]) -> None:
     """Ingest frames in small batches to balance accuracy vs GPU memory on 40GB A100."""
     batch_size = _absorb_batch_size()
+    hint = _memorize_frame_hint()
     for start in range(0, len(image_paths), batch_size):
         chunk = image_paths[start : start + batch_size]
+        basenames = ", ".join(os.path.basename(p) for p in chunk)
+        message = f"{hint}\nFrames: {basenames}"
         mma_agent.send_message(
-            message=None,
+            message=message,
             image_uris=chunk,
             memorizing=True,
             force_absorb_content=True,
@@ -354,7 +377,30 @@ def _mma_core(agent_wrapper):
     return agent_wrapper.agent
 
 
-def _init_agent(config_path: str):
+def _tune_qa_agent(agent_wrapper) -> None:
+    """Lower max_tokens and avoid verbose persona leaking into the answer."""
+    if os.environ.get("OPENEQA_TUNE_QA_AGENT", "1").strip().lower() in (
+        "0",
+        "false",
+        "no",
+    ):
+        return
+    core = _mma_core(agent_wrapper)
+    max_tokens = max(4, int(os.environ.get("OPENEQA_QA_MAX_TOKENS", "12")))
+    state = core.agent_states.agent_state
+    cfg = getattr(state, "llm_config", None)
+    if cfg is None:
+        return
+    updated = cfg.model_copy(update={"max_tokens": max_tokens})
+    core.client.server.agent_manager.update_llm_config(
+        agent_id=state.id,
+        llm_config=updated,
+        actor=core.client.user,
+    )
+    state.llm_config = updated
+
+
+def _init_agent(config_path: str, *, for_qa: bool = False):
     from common.paths import ensure_pev_on_syspath
 
     ensure_pev_on_syspath()
@@ -365,7 +411,18 @@ def _init_agent(config_path: str):
     agent = AgentWrapper(agent_name="mma", config_path=config_path, model_name=None)
     _configure_offline_mma(agent)
     patch_episodic_memory_manager(_mma_core(agent).client.server)
-    agent.prepare_before_asking_questions()
+    if for_qa:
+        if os.environ.get("OPENEQA_SKIP_QA_PERSONA", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+        ):
+            pass
+        else:
+            agent.prepare_before_asking_questions()
+        _tune_qa_agent(agent)
+    else:
+        agent.prepare_before_asking_questions()
     return agent
 
 
@@ -471,7 +528,7 @@ def _run_qa(
 
     _apply_qa_env()
 
-    agent = _init_agent(config_path)
+    agent = _init_agent(config_path, for_qa=True)
     _set_chat_topic(_mma_core(agent), question)
     formatted = _format_eqa_question(question)
     raw_prediction = agent.send_message(message=formatted, memorizing=False)

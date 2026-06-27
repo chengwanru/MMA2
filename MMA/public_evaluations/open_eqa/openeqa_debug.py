@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from openeqa_memory import filter_episodic_events
+from openeqa_memory import build_retrieval_query, filter_episodic_events, rerank_episodic_for_question
 
 
 def debug_enabled() -> bool:
@@ -63,7 +63,7 @@ def collect_episodic_debug(mma_agent, question: str = "") -> Dict[str, Any]:
         mma_agent.client.user.id
     ).timezone
     search_method = _search_method()
-    query = (question or chat_state.topic or "").strip()
+    query = build_retrieval_query((question or chat_state.topic or "").strip())
 
     all_recent = filter_episodic_events(
         mgr.list_episodic_memory(
@@ -84,6 +84,7 @@ def collect_episodic_debug(mma_agent, question: str = "") -> Dict[str, Any]:
                 timezone_str=tz,
             )
         )
+        bm25_hits = rerank_episodic_for_question(bm25_hits, query)
 
     memory_items: List[Dict[str, Any]] = []
     seen: set = set()
