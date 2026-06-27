@@ -212,6 +212,7 @@ def _clamp_max_new_tokens(model: Any, prompt_len: int, requested: int) -> int:
     return requested
 
 
+def _message_to_text(m: Message) -> str:
     if not m.content:
         return ""
     if len(m.content) == 1 and isinstance(m.content[0], TextContent):
