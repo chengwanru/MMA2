@@ -16,6 +16,7 @@ from openeqa_memory import (  # noqa: E402
     compute_draft_policy,
     episodic_relevance_score,
     normalize_qa_prediction,
+    select_events_for_qa,
 )
 
 
@@ -72,7 +73,6 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
             [_Event("Turn on the air conditioner")],
         )
         self.assertEqual(policy["max_draft_steps"], 0)
-        self.assertEqual(policy["memory_bias_scale"], 0.0)
 
     def test_between_frames_rerank_prefers_tv(self):
         ac = _Event("Between frames, wall-mounted air conditioning unit")
@@ -91,6 +91,37 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
             episodic_relevance_score(wood, q),
             episodic_relevance_score(drywall, q),
         )
+
+    def test_select_between_frames_prefers_tv(self):
+        ac = _Event("Between picture frames there is a wall-mounted air conditioning unit")
+        tv = _Event("Between the two picture frames there is a TV on the blue wall")
+        q = "What is between the two picture frames on the wall?"
+        picked = select_events_for_qa([ac, tv], q)
+        self.assertEqual(len(picked), 1)
+        self.assertIn("tv", picked[0].summary.lower())
+
+    def test_select_door_prefers_closed(self):
+        open_e = _Event("The front door is open")
+        closed = _Event("The front door is closed")
+        picked = select_events_for_qa([open_e, closed], "Is the front door open?")
+        self.assertIn("closed", picked[0].summary.lower())
+
+    def test_normalize_falls_back_to_memory_hint(self):
+        pred, _ = normalize_qa_prediction(
+            "2026-06-28 14:33:31 - The ceiling in the",
+            question="What material is the ceiling in the living room?",
+            memory_hint="Living room ceiling has vaulted wood beams",
+        )
+        self.assertIn("wood", pred.lower())
+
+    def test_conflict_with_aligned_top_allows_bias(self):
+        tv = _Event("Between the two picture frames there is a TV")
+        ac = _Event("Between picture frames there is a wall-mounted air conditioning unit")
+        policy = compute_draft_policy(
+            "What is between the two picture frames on the wall?",
+            select_events_for_qa([tv, ac], "What is between the two picture frames on the wall?"),
+        )
+        self.assertGreater(policy["memory_bias_scale"], 0.0)
 
 
 class MemoryTextSanitizeTests(unittest.TestCase):

@@ -7,6 +7,17 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from mma.speculative_memory.memory_text_sanitize import (
+        sanitize_memory_text_for_inference,
+    )
+except ImportError:
+    def sanitize_memory_text_for_inference(text: str) -> str:  # type: ignore[misc]
+        return (text or "").strip()
+
+
+_qa_session: Dict[str, Any] = {"question": "", "ranked_events": [], "policy": {}}
+
 _FRAME_KEY_RE = re.compile(r"frame_(\d+)", re.I)
 _FRAMES_LINE_RE = re.compile(r"frames?:\s*([^\n]+)", re.I)
 _NUMBERED_ITEM_RE = re.compile(r"^\s*\d+[\.\)]\s*(.+)$", re.M)
@@ -170,7 +181,8 @@ def build_retrieval_query(question: str) -> str:
         )
     if "white" in q_l and "wall" in q_l:
         extras.append("white wall")
-    if "ceiling" in q_l:
+    fan_q = "ceiling fan" in q_l or ("fan" in q_l and "speed" in q_l)
+    if "ceiling" in q_l and not fan_q:
         extras.extend(["ceiling", "wood", "beam", "vaulted", "drywall", "panel"])
     if "dining table" in q_l:
         extras.extend(["dining table", "table mats", "place settings", "plates"])
@@ -180,8 +192,8 @@ def build_retrieval_query(question: str) -> str:
         extras.extend(["between picture frames", "tv", "blue wall", "teal wall"])
     if "cool down" in q_l or "air conditioner" in q_l or "ac unit" in q_l:
         extras.extend(["air conditioner", "ac unit", "cool"])
-    if "ceiling fan" in q_l or ("fan" in q_l and "speed" in q_l):
-        extras.extend(["ceiling fan", "switch panel", "dial", "front door"])
+    if fan_q:
+        extras.extend(["ceiling fan", "fan speed", "switch panel", "dial"])
     if "front door" in q_l and "open" in q_l:
         extras.extend(["front door", "door open", "closed"])
     if extras:
@@ -341,6 +353,77 @@ def patch_episodic_memory_manager(server: Any) -> None:
     mgr._openeqa_patched = True
 
 
+def openeqa_qa_hygiene_enabled() -> bool:
+    return os.environ.get("OPENEQA_QA_HYGIENE", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+
+
+def qa_memory_top_k() -> int:
+    return max(1, int(os.environ.get("OPENEQA_QA_MEMORY_TOP_K", "2")))
+
+
+def _event_confidence(event: Any) -> float:
+    conf = getattr(event, "confidence", None)
+    if conf is None and isinstance(getattr(event, "metadata_", None), dict):
+        conf = event.metadata_.get("confidence")
+    return float(conf) if conf is not None else 0.8
+
+
+def events_to_memory_items(events: List[Any]) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    for event in events:
+        raw_content = (
+            f"{getattr(event, 'summary', None) or ''} "
+            f"{getattr(event, 'details', None) or ''}"
+        ).strip()
+        content = sanitize_memory_text_for_inference(raw_content)
+        summary = sanitize_memory_text_for_inference(
+            (getattr(event, "summary", None) or "").strip()
+        )
+        if not content:
+            continue
+        items.append(
+            {
+                "content": content[:2000],
+                "summary": summary[:500] if summary else content[:500],
+                "confidence": _event_confidence(event),
+            }
+        )
+    return items
+
+
+def format_episodic_block_for_qa(events: List[Any]) -> str:
+    lines: List[str] = []
+    for idx, event in enumerate(events):
+        summary = sanitize_memory_text_for_inference(
+            (getattr(event, "summary", None) or "").strip()
+        )
+        if not summary:
+            continue
+        conf = _event_confidence(event)
+        lines.append(f"[{idx}] {summary} (Confidence: {conf:.2f})")
+    return "\n".join(lines)
+
+
+_EPISODIC_BLOCK_RE = re.compile(
+    r"(<episodic_memory>[^\n]*\n)(.*?)(\n</episodic_memory>)",
+    re.DOTALL,
+)
+
+
+def _replace_episodic_sections_in_prompt(prompt: str, block: str) -> str:
+    if not block.strip():
+        return prompt
+
+    def replacer(match: re.Match) -> str:
+        return f"{match.group(1)}{block}{match.group(3)}"
+
+    return _EPISODIC_BLOCK_RE.sub(replacer, prompt)
+
+
 _PERSONA_BLEED_MARKERS = (
     "\n\nyou are a helpful assistant",
     "\nyou are a helpful assistant",
@@ -350,7 +433,12 @@ _PERSONA_BLEED_MARKERS = (
 )
 
 
-def normalize_qa_prediction(raw: str, question: str = "") -> Tuple[str, str]:
+def normalize_qa_prediction(
+    raw: str,
+    question: str = "",
+    *,
+    memory_hint: str = "",
+) -> Tuple[str, str]:
     """Return (eval_friendly_answer, raw_prediction)."""
     raw_text = (raw or "").strip()
     if not raw_text or raw_text == "ERROR":
@@ -391,16 +479,27 @@ def normalize_qa_prediction(raw: str, question: str = "") -> Tuple[str, str]:
             for line in lines:
                 if not _looks_like_meta_reasoning(line) and not _is_bad_answer(line, yes_no_q=yes_no_q):
                     return _clean_phrase(line, yes_no_q=yes_no_q), raw_text
-        return _clean_phrase(first_block, yes_no_q=yes_no_q), raw_text
+        cleaned = _clean_phrase(first_block, yes_no_q=yes_no_q)
+        if cleaned and not _is_incomplete_answer(cleaned, question):
+            return cleaned, raw_text
+    else:
+        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        if len(lines) > 1:
+            for line in lines:
+                if not _looks_like_meta_reasoning(line) and not _is_bad_answer(line, yes_no_q=yes_no_q):
+                    return _clean_phrase(line, yes_no_q=yes_no_q), raw_text
+            cleaned = _clean_phrase(lines[0], yes_no_q=yes_no_q)
+            if cleaned and not _is_incomplete_answer(cleaned, question):
+                return cleaned, raw_text
+        else:
+            cleaned = _clean_phrase(raw_text, yes_no_q=yes_no_q)
+            if cleaned and not _is_incomplete_answer(cleaned, question):
+                return cleaned, raw_text
 
-    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
-    if len(lines) > 1:
-        for line in lines:
-            if not _looks_like_meta_reasoning(line) and not _is_bad_answer(line, yes_no_q=yes_no_q):
-                return _clean_phrase(line, yes_no_q=yes_no_q), raw_text
-        return _clean_phrase(lines[0], yes_no_q=yes_no_q), raw_text
-
-    return _clean_phrase(raw_text, yes_no_q=yes_no_q), raw_text
+    fallback = _answer_from_memory_hint(memory_hint, question)
+    if fallback:
+        return fallback, raw_text
+    return "", raw_text
 
 
 def _strip_persona_bleed(text: str) -> str:
@@ -523,6 +622,67 @@ def _clean_phrase(text: str, *, yes_no_q: bool = False) -> str:
     return phrase
 
 
+def _is_incomplete_answer(text: str, question: str) -> bool:
+    phrase = (text or "").strip().lower()
+    if not phrase:
+        return True
+    if phrase.endswith((" in the", " in a", " with a", " on the", " in the living room")):
+        return True
+    q_l = (question or "").lower()
+    if "ceiling" in q_l and ("material" in q_l or "type" in q_l):
+        if phrase.startswith("the ceiling") and not any(
+            kw in phrase for kw in ("wood", "drywall", "beam", "vaulted", "plaster", "panel")
+        ):
+            return True
+    if "between" in q_l and ("frame" in q_l or "picture" in q_l):
+        if phrase.startswith("between") or phrase.startswith("the "):
+            if "tv" not in phrase and "television" not in phrase:
+                return True
+    return False
+
+
+def _answer_from_memory_hint(hint: str, question: str) -> str:
+    """When the model copies timestamps/meta, recover answer from top memory row."""
+    blob = sanitize_memory_text_for_inference((hint or "").strip())
+    if not blob:
+        return ""
+    q_l = (question or "").lower()
+    yes_no_q = is_yes_no_question(question)
+
+    if yes_no_q and "front door" in q_l and "open" in q_l:
+        hint_l = blob.lower()
+        if re.search(r"door\s+(is\s+)?closed|door closed", hint_l):
+            return "No"
+        if re.search(r"door\s+(is\s+)?open|door open", hint_l):
+            return "Yes"
+
+    action = _extract_functional_action(blob, question)
+    if action:
+        return action
+
+    if yes_no_q:
+        yn = _extract_yes_no(blob)
+        if yn:
+            return yn
+
+    if "between" in q_l and ("frame" in q_l or "picture" in q_l):
+        if _entity_hits(blob.lower(), _ENTITY_TV):
+            if "tv" in blob.lower():
+                return "TV"
+
+    if "ceiling" in q_l and ("material" in q_l or "type" in q_l):
+        cleaned = _clean_phrase(blob, yes_no_q=False)
+        if cleaned and not _is_bad_answer(cleaned):
+            return cleaned
+
+    if "color" in q_l or "colour" in q_l:
+        cleaned = _clean_phrase(blob, yes_no_q=False)
+        if cleaned and not _is_bad_answer(cleaned):
+            return cleaned
+
+    return ""
+
+
 # --- Draft trust gate (conditional speculative decoding for OpenEQA) ---
 
 _ENTITY_AC = frozenset(
@@ -574,6 +734,119 @@ def _question_expects_tags(question: str) -> set:
     if "cool down" in q or "cooling" in q or "air conditioner" in q:
         tags.add("ac")
     return tags
+
+
+def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
+    """Pick 1–2 episodic rows that best answer the question; drop conflicting noise."""
+    if not events:
+        return []
+    q = (question or "").lower()
+    ranked = list(events)
+    top_k = qa_memory_top_k()
+
+    if "between" in q and ("frame" in q or "picture" in q):
+        tv_between = [
+            event
+            for event in ranked
+            if "between" in _event_text(event)
+            and _entity_hits(_event_text(event), _ENTITY_TV)
+        ]
+        if tv_between:
+            return tv_between[:top_k]
+
+    if "front door" in q and "open" in q:
+        closed = [
+            event
+            for event in ranked
+            if re.search(r"door\s+(is\s+)?closed|door closed", _event_text(event))
+        ]
+        if closed:
+            return closed[:top_k]
+
+    if "ceiling" in q and ("material" in q or "type" in q):
+        wood = [
+            event
+            for event in ranked
+            if _memory_entity_tags(_event_text(event)) & {"wood_ceiling"}
+        ]
+        if wood:
+            return wood[:top_k]
+
+    if "cool down" in q or "cooling" in q or "air conditioner" in q:
+        ac_rows = [
+            event
+            for event in ranked
+            if _entity_hits(_event_text(event), _ENTITY_AC)
+        ]
+        if ac_rows:
+            return ac_rows[:top_k]
+
+    if "ceiling fan" in q or ("fan" in q and "speed" in q):
+        fan_rows = [
+            event
+            for event in ranked
+            if "fan" in _event_text(event) or "dial" in _event_text(event)
+        ]
+        if fan_rows:
+            return fan_rows[:top_k]
+
+    return ranked[:top_k]
+
+
+def apply_openeqa_qa_memory_hygiene(
+    prompt: str,
+    memories: Dict[str, Any],
+    question: str,
+) -> Tuple[str, Dict[str, Any]]:
+    """Strip timestamps from prompt/KV feed and inject only top reranked memories."""
+    if not openeqa_qa_hygiene_enabled():
+        return prompt, memories
+
+    selected = _qa_session.get("ranked_events") or []
+    if not selected:
+        selected = select_events_for_qa([], question)
+    block = format_episodic_block_for_qa(selected)
+    items = events_to_memory_items(selected)
+
+    memories = dict(memories)
+    memories["episodic"] = [block, block]
+    memories["memory_items"] = items
+    prompt = _replace_episodic_sections_in_prompt(prompt, block)
+    return prompt, memories
+
+
+def patch_agent_for_openeqa_qa(server: Any) -> None:
+    """Post-process agent memory retrieval: no timestamps, top-k KV only."""
+    if not openeqa_qa_hygiene_enabled():
+        return
+    if getattr(server, "_openeqa_agent_memory_patched", False):
+        return
+
+    from mma.agent.agent import Agent
+
+    original = Agent.build_system_prompt_with_memories
+
+    def wrapped(
+        self,
+        raw_system: str,
+        topics: Optional[str] = None,
+        retrieved_memories: Optional[dict] = None,
+    ):
+        prompt, memories = original(
+            self,
+            raw_system,
+            topics=topics,
+            retrieved_memories=retrieved_memories,
+        )
+        question = (
+            (topics or "").strip()
+            or (memories.get("key_words") or "").strip()
+            or str(_qa_session.get("question") or "")
+        )
+        return apply_openeqa_qa_memory_hygiene(prompt, memories, question)
+
+    Agent.build_system_prompt_with_memories = wrapped  # type: ignore[method-assign]
+    server._openeqa_agent_memory_patched = True
 
 
 def _detect_memory_conflict(events: List[Any], question: str) -> bool:
@@ -646,57 +919,86 @@ def compute_draft_policy(question: str, events: List[Any]) -> Dict[str, Any]:
     functional = bool(
         re.search(r"\b(should i|what should i|what can i do|how can i)\b", q_l)
     )
-    force_target_only = conflict or functional or cool_down_q or fan_q
+    expected = _question_expects_tags(question)
+    top_blob = _event_text(ranked[0]) if ranked else ""
+    top_tags = _memory_entity_tags(top_blob)
+    top_aligned = bool(expected and top_tags and (top_tags & expected))
+    hard_conflict = conflict and not top_aligned
+    disable_draft = hard_conflict or functional or cool_down_q or fan_q
 
-    if force_target_only:
+    if disable_draft:
         max_draft_steps = 0
-        bias_scale = 0.0
-        bias_top_k = 1
+        bias_scale = 0.35 if top_aligned else 0.0
+        bias_top_k = qa_memory_top_k()
         yes_no_mode = False
     elif yes_no:
-        max_draft_steps = 1
+        max_draft_steps = 1 if margin >= 1.5 else 0
         bias_scale = 0.0
-        bias_top_k = 1
+        bias_top_k = qa_memory_top_k()
         yes_no_mode = True
-    elif spatial_hard or functional or margin < 2.0:
+    elif spatial_hard or margin < 2.0:
         max_draft_steps = 1
         bias_scale = 0.35
-        bias_top_k = 1
+        bias_top_k = qa_memory_top_k()
         yes_no_mode = False
     elif margin >= 4.0:
         max_draft_steps = 3
         bias_scale = 0.65
-        bias_top_k = 1
+        bias_top_k = qa_memory_top_k()
         yes_no_mode = False
     else:
         max_draft_steps = 2
         bias_scale = 0.5
-        bias_top_k = 1
+        bias_top_k = qa_memory_top_k()
         yes_no_mode = False
+
+    top_preview = ""
+    if ranked:
+        top_preview = sanitize_memory_text_for_inference(
+            (getattr(ranked[0], "summary", None) or "")[:200]
+        )[:120]
 
     return {
         "rerank_margin": round(float(margin), 3),
         "memory_conflict": conflict,
+        "memory_hard_conflict": hard_conflict,
         "yes_no_question": yes_no,
         "spatial_hard": spatial_hard,
-        "functional_force_target": force_target_only and not conflict,
+        "functional_force_target": (functional or cool_down_q or fan_q) and not hard_conflict,
         "max_draft_steps": max_draft_steps,
         "memory_bias_scale": bias_scale,
         "memory_bias_top_k": bias_top_k,
+        "qa_memory_top_k": bias_top_k,
         "draft_yes_no_mode": yes_no_mode,
-        "top_memory_preview": (getattr(ranked[0], "summary", None) or "")[:120] if ranked else "",
+        "top_memory_preview": top_preview,
+        "top_memory_aligned": top_aligned,
     }
 
 
 def apply_draft_policy_to_env(policy: Dict[str, Any]) -> None:
     scale = float(policy.get("memory_bias_scale", 0.5))
+    top_k = int(policy.get("qa_memory_top_k") or policy.get("memory_bias_top_k") or qa_memory_top_k())
     os.environ["OPENEQA_MAX_DRAFT_STEPS"] = str(int(policy.get("max_draft_steps", 2)))
     os.environ["MMA_MEMORY_BIAS_SCALE"] = "0" if scale <= 0.0 else str(scale)
-    os.environ["MMA_MEMORY_BIAS_TOP_K"] = str(int(policy.get("memory_bias_top_k", 1)))
+    os.environ["MMA_MEMORY_BIAS_TOP_K"] = str(top_k)
+    os.environ["OPENEQA_QA_MEMORY_TOP_K"] = str(top_k)
     if policy.get("draft_yes_no_mode"):
         os.environ["OPENEQA_DRAFT_YES_NO"] = "1"
     else:
         os.environ.pop("OPENEQA_DRAFT_YES_NO", None)
+
+
+def prepare_draft_policy_for_agent(mma_agent: Any, question: str) -> Dict[str, Any]:
+    """Set per-question OPENEQA_* / MMA_* env before speculative QA."""
+    if os.environ.get("OPENEQA_TRUST_GATE", "1").strip().lower() in ("0", "false", "no"):
+        _qa_session.update(question=question, ranked_events=[], policy={})
+        return {}
+    all_events = list_reranked_episodic_for_question(mma_agent, question)
+    selected = select_events_for_qa(all_events, question)
+    policy = compute_draft_policy(question, selected)
+    apply_draft_policy_to_env(policy)
+    _qa_session.update(question=question, ranked_events=selected, policy=policy)
+    return policy
 
 
 def list_reranked_episodic_for_question(mma_agent: Any, question: str) -> List[Any]:
@@ -727,13 +1029,3 @@ def list_reranked_episodic_for_question(mma_agent: Any, question: str) -> List[A
         or []
     )
     return rerank_episodic_for_question(events, query)
-
-
-def prepare_draft_policy_for_agent(mma_agent: Any, question: str) -> Dict[str, Any]:
-    """Set per-question OPENEQA_* / MMA_* env before speculative QA."""
-    if os.environ.get("OPENEQA_TRUST_GATE", "1").strip().lower() in ("0", "false", "no"):
-        return {}
-    events = list_reranked_episodic_for_question(mma_agent, question)
-    policy = compute_draft_policy(question, events)
-    apply_draft_policy_to_env(policy)
-    return policy

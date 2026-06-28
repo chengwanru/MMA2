@@ -36,6 +36,7 @@ from openeqa_memory import (
     fresh_home_enabled,
     is_yes_no_question,
     normalize_qa_prediction,
+    patch_agent_for_openeqa_qa,
     patch_episodic_memory_manager,
     prepare_draft_policy_for_agent,
     wipe_mma_sqlite,
@@ -485,6 +486,7 @@ def _init_agent(config_path: str, *, for_qa: bool = False):
     _configure_offline_mma(agent)
     patch_episodic_memory_manager(_mma_core(agent).client.server)
     if for_qa:
+        patch_agent_for_openeqa_qa(_mma_core(agent).client.server)
         if os.environ.get("OPENEQA_SKIP_QA_PERSONA", "1").strip().lower() not in (
             "0",
             "false",
@@ -637,7 +639,12 @@ def _run_qa(
         print("  [qa] empty response after retries", flush=True)
         raw_prediction = "ERROR"
 
-    prediction, _ = normalize_qa_prediction(raw_prediction, question=question)
+    memory_hint = (draft_policy or {}).get("top_memory_preview") or ""
+    prediction, _ = normalize_qa_prediction(
+        raw_prediction,
+        question=question,
+        memory_hint=memory_hint,
+    )
     if not prediction and raw_prediction not in ("", "ERROR"):
         for line in raw_prediction.splitlines():
             line = line.strip()
