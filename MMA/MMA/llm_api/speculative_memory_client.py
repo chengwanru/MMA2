@@ -329,11 +329,14 @@ class SpeculativeMemoryClient(LLMClientBase):
         self._config = SpeculativeMemoryConfig(
             draft_model_name_or_path=draft_path,
             target_model_name_or_path=target_path,
-            max_draft_steps=5,
+            max_draft_steps=int(
+                os.environ.get("OPENEQA_MAX_DRAFT_STEPS")
+                or os.environ.get("MMA_SPEEDUP_MAX_DRAFT_STEPS", "3")
+            ),
             max_new_tokens=self.llm_config.max_tokens or 256,
             do_sample=False,
-            memory_bias_scale=float(os.environ.get("MMA_MEMORY_BIAS_SCALE", "0.8")),
-            memory_bias_top_k_memories=int(os.environ.get("MMA_MEMORY_BIAS_TOP_K", "3")),
+            memory_bias_scale=float(os.environ.get("MMA_MEMORY_BIAS_SCALE", "0.6")),
+            memory_bias_top_k_memories=int(os.environ.get("MMA_MEMORY_BIAS_TOP_K", "1")),
         )
         device = "cuda"
         target_only = os.environ.get("MMA_TARGET_ONLY", "").strip().lower() in (

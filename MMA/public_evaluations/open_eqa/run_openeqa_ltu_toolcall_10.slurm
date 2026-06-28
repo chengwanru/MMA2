@@ -10,7 +10,7 @@
 #SBATCH -o logs/openeqa_toolcall_10_%j.log
 #SBATCH -e logs/openeqa_toolcall_10_%j.err
 
-# Per-frame VL captions (direct episodic); tuned draft memory bias defaults.
+# Trust-gated conditional SD: accuracy-first, draft only when retrieval is clear.
 #   cd MMA/public_evaluations/open_eqa
 #   git pull && mkdir -p logs
 #   sbatch run_openeqa_ltu_toolcall_10.slurm
@@ -25,17 +25,19 @@ export FRAMES_PER_EPISODE=8
 export VARIANTS=ours
 export OPENEQA_DEBUG=1
 export OPENEQA_EPISODIC_TOOL_CALL=0
-export OPENEQA_QA_MAX_TOKENS=32
+export OPENEQA_QA_MAX_TOKENS=24
 export OPENEQA_DIRECT_EPISODIC=1
 export OPENEQA_ABSORB_BATCH_SIZE=1
 export OPENEQA_COLLECT_SD_STATS=1
+export OPENEQA_TRUST_GATE=1
+export OPENEQA_VERIFY_REJECT_BAD_DRAFT=1
 export MMA_MEMORY_BIAS_DEDUP=1
 export MMA_MEMORY_BIAS_USE_SUMMARY=1
 export MMA_MEMORY_BIAS_FILTER_INVISIBLE=1
-export MMA_MEMORY_BIAS_SCALE=0.8
-export MMA_MEMORY_BIAS_TOP_K=3
+export MMA_MEMORY_BIAS_SCALE=0.6
+export MMA_MEMORY_BIAS_TOP_K=1
 export OPENEQA_VL_MAX_PIXELS="${OPENEQA_VL_MAX_PIXELS:-401408}"
-export OUTPUT="${OUTPUT:-results/direct_episodic_bias_tuned_10_${SLURM_JOB_ID:-local}.json}"
+export OUTPUT="${OUTPUT:-results/trust_gate_10_${SLURM_JOB_ID:-local}.json}"
 
 bash run_openeqa_ltu_smoke.slurm
 

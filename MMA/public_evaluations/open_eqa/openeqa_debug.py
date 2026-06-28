@@ -194,6 +194,7 @@ def collect_qa_debug(
     *,
     prediction_raw: Optional[str] = None,
     speculative_stats: Optional[Dict[str, Any]] = None,
+    draft_policy: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     question = sample.get("question", "")
     episodic = collect_episodic_debug(mma_agent, question=question)
@@ -210,6 +211,7 @@ def collect_qa_debug(
         "prediction_raw": prediction_raw if prediction_raw is not None else prediction,
         "formatted_question": formatted_question,
         "speculative_stats": speculative_stats,
+        "draft_policy": draft_policy,
         "gold_phrase_in_bm25": _phrase_in_events(gold_l, episodic.get("bm25_hits", [])),
         "gold_phrase_in_recent": _phrase_in_events(gold_l, episodic.get("episodic_recent", [])),
         "gold_tokens_in_bm25": _tokens_in_events(gold_tokens, episodic.get("bm25_hits", [])),
@@ -271,6 +273,14 @@ def log_debug_summary(payload: Dict[str, Any], phase: str) -> None:
         flush=True,
     )
     if phase == "qa":
+        dp = payload.get("draft_policy") or {}
+        if dp:
+            print(
+                f"  [debug/qa] draft_policy steps={dp.get('max_draft_steps')} "
+                f"bias={dp.get('memory_bias_scale')} margin={dp.get('rerank_margin')} "
+                f"conflict={dp.get('memory_conflict')}",
+                flush=True,
+            )
         print(
             f"  [debug/qa] pred={payload.get('prediction')!r} gold={payload.get('gold_answer')!r} "
             f"gold_phrase_in_bm25={payload.get('gold_phrase_in_bm25')} "

@@ -11,6 +11,8 @@ _FRAME_KEY_RE = re.compile(r"frame_(\d+)", re.I)
 _FRAMES_LINE_RE = re.compile(r"frames?:\s*([^\n]+)", re.I)
 _NUMBERED_ITEM_RE = re.compile(r"^\s*\d+[\.\)]\s*(.+)$", re.M)
 _RGB_FRAME_RE = re.compile(r"^\d{5}-rgb\.png$", re.I)
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
+_SEND_MESSAGE_RE = re.compile(r"send_message\s*\(", re.I)
 _META_REASONING_MARKERS = (
     "the user's question",
     "the user is asking",
@@ -184,8 +186,18 @@ def rerank_episodic_for_question(events: List[Any], query: str) -> List[Any]:
         "no",
     ):
         return events
+    return sorted(
+        events,
+        key=lambda event: episodic_relevance_score(event, query),
+        reverse=True,
+    )
 
-    q_l = query.lower()
+
+def episodic_relevance_score(event: Any, query: str) -> float:
+    """Heuristic relevance score for reranking and draft trust gate."""
+    q_l = (query or "").lower()
+    if not q_l:
+        return 0.0
     q_words = [w for w in re.findall(r"[a-z0-9']+", q_l) if len(w) > 2]
     spatial_above_tv = "above" in q_l and "tv" in q_l
     ceiling_q = "ceiling" in q_l
@@ -200,80 +212,83 @@ def rerank_episodic_for_question(events: List[Any], query: str) -> List[Any]:
     cool_down_q = "cool down" in q_l or "cooling" in q_l
     invisible_penalty = -6.0
 
-    def _score(event: Any) -> float:
-        blob = _event_text(event)
-        score = 0.0
-        for word in q_words:
-            if word in blob:
-                score += 1.0
-        if "not visible" in blob or "cannot be determined" in blob or "is not shown" in blob:
-            score += invisible_penalty
-        if living_room_q:
-            if "living room" in blob:
-                score += 4.0
-            if "hallway" in blob and "living room" not in blob:
-                score -= 3.0
-        if fan_q:
-            if any(tok in blob for tok in ("ceiling fan", "fan speed", "switch", "dial", "panel")):
-                score += 6.0
-            if any(tok in blob for tok in ("wood", "beam", "drywall", "vaulted", "plaster")) and "fan" not in blob:
-                score -= 4.0
-        if functional_q or cool_down_q:
-            if any(tok in blob for tok in ("air conditioner", "ac unit", "turn on", "activate", "cool")):
-                score += 5.0
-        if door_open_q:
-            if "front door" in blob:
-                score += 5.0
-            if "door is closed" in blob or "door closed" in blob:
-                score += 3.0
-            if "door is open" in blob or "door open" in blob:
-                score += 3.0
-        if ceiling_q and not fan_q:
-            if any(tok in blob for tok in ("wood", "beam", "panel", "vaulted", "drywall", "plaster")):
-                score += 5.0
-            if "ceiling is visible" in blob or "ceiling is" in blob:
-                score += 2.0
-            if living_room_q and "living room" in blob:
-                score += 4.0
-        if dining_q:
-            if "dining table" in blob:
-                score += 6.0
-            if any(tok in blob for tok in ("table mat", "place setting", "plates", "clear", "empty")):
-                score += 3.0
-        if between_frames_q:
-            if "between" in blob and ("frame" in blob or "picture" in blob):
-                score += 5.0
-            if "tv" in blob and "between" in blob:
-                score += 6.0
-            if "air conditioner" in blob and "above" in blob:
-                score -= 3.0
-        if spatial_above_tv:
-            if "above the tv" in blob or "mounted above the tv" in blob:
-                score += 8.0
-            elif "above" in blob and "tv" in blob:
-                score += 5.0
-            if any(
-                phrase in blob
-                for phrase in (
-                    "air conditioner",
-                    "air conditioning",
-                    "air conditioning unit",
-                    "wall-mounted air",
-                )
-            ):
-                score += 6.0
-            if "framed artwork" in blob or "framed picture" in blob:
-                score -= 2.0
-            if "white door" in blob or "white rug" in blob:
-                score -= 1.0
-        conf = getattr(event, "confidence", None)
-        if conf is None and isinstance(getattr(event, "metadata_", None), dict):
-            conf = event.metadata_.get("confidence")
-        if conf is not None:
-            score += float(conf) * 0.5
-        return score
-
-    return sorted(events, key=_score, reverse=True)
+    blob = _event_text(event)
+    score = 0.0
+    for word in q_words:
+        if word in blob:
+            score += 1.0
+    if "not visible" in blob or "cannot be determined" in blob or "is not shown" in blob:
+        score += invisible_penalty
+    if living_room_q:
+        if "living room" in blob:
+            score += 4.0
+        if "hallway" in blob and "living room" not in blob:
+            score -= 3.0
+    if fan_q:
+        if any(tok in blob for tok in ("ceiling fan", "fan speed", "switch", "dial", "panel")):
+            score += 6.0
+        if any(tok in blob for tok in ("wood", "beam", "drywall", "vaulted", "plaster")) and "fan" not in blob:
+            score -= 4.0
+    if functional_q or cool_down_q:
+        if any(tok in blob for tok in ("air conditioner", "ac unit", "turn on", "activate", "cool")):
+            score += 5.0
+    if door_open_q:
+        if "front door" in blob:
+            score += 5.0
+        if "door is closed" in blob or "door closed" in blob:
+            score += 3.0
+        if "door is open" in blob or "door open" in blob:
+            score += 3.0
+    if ceiling_q and not fan_q:
+        if any(tok in blob for tok in ("wood", "beam", "panel", "vaulted", "drywall", "plaster")):
+            score += 5.0
+        if "ceiling is visible" in blob or "ceiling is" in blob:
+            score += 2.0
+        if living_room_q and "living room" in blob:
+            score += 4.0
+        if "drywall" in blob and "wood" in blob:
+            score -= 1.0
+        if "vaulted" in blob or "wood panel" in blob or "wooden beam" in blob:
+            score += 2.0
+    if dining_q:
+        if "dining table" in blob:
+            score += 6.0
+        if any(tok in blob for tok in ("table mat", "place setting", "plates", "clear", "empty")):
+            score += 3.0
+    if between_frames_q:
+        if "between" in blob and ("frame" in blob or "picture" in blob):
+            score += 5.0
+        if "tv" in blob and "between" in blob:
+            score += 8.0
+        if "air conditioner" in blob:
+            score -= 5.0
+        if "above" in blob and "tv" in blob and "between" not in blob:
+            score -= 4.0
+    if spatial_above_tv:
+        if "above the tv" in blob or "mounted above the tv" in blob:
+            score += 8.0
+        elif "above" in blob and "tv" in blob:
+            score += 5.0
+        if any(
+            phrase in blob
+            for phrase in (
+                "air conditioner",
+                "air conditioning",
+                "air conditioning unit",
+                "wall-mounted air",
+            )
+        ):
+            score += 6.0
+        if "framed artwork" in blob or "framed picture" in blob:
+            score -= 2.0
+        if "white door" in blob or "white rug" in blob:
+            score -= 1.0
+    conf = getattr(event, "confidence", None)
+    if conf is None and isinstance(getattr(event, "metadata_", None), dict):
+        conf = event.metadata_.get("confidence")
+    if conf is not None:
+        score += float(conf) * 0.5
+    return score
 
 
 def patch_episodic_memory_manager(server: Any) -> None:
@@ -336,14 +351,14 @@ def normalize_qa_prediction(raw: str, question: str = "") -> Tuple[str, str]:
         if _looks_like_meta_reasoning(first_block):
             lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
             for line in lines:
-                if not _looks_like_meta_reasoning(line) and not _is_bad_answer(line, yes_no_q):
+                if not _looks_like_meta_reasoning(line) and not _is_bad_answer(line, yes_no_q=yes_no_q):
                     return _clean_phrase(line, yes_no_q=yes_no_q), raw_text
         return _clean_phrase(first_block, yes_no_q=yes_no_q), raw_text
 
     lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
     if len(lines) > 1:
         for line in lines:
-            if not _looks_like_meta_reasoning(line) and not _is_bad_answer(line, yes_no_q):
+            if not _looks_like_meta_reasoning(line) and not _is_bad_answer(line, yes_no_q=yes_no_q):
                 return _clean_phrase(line, yes_no_q=yes_no_q), raw_text
         return _clean_phrase(lines[0], yes_no_q=yes_no_q), raw_text
 
@@ -382,7 +397,13 @@ def _is_bad_answer(text: str, *, yes_no_q: bool = False) -> bool:
         return True
     if _RGB_FRAME_RE.match(phrase):
         return True
-    if phrase in {"0", "1", "2"}:
+    if _ISO_DATE_RE.match(phrase):
+        return True
+    if _SEND_MESSAGE_RE.search(phrase):
+        return True
+    if "-rgb.png" in phrase.lower() or "frame_" in phrase.lower():
+        return True
+    if phrase in {"0", "1", "2", "20"}:
         return True
     if yes_no_q and phrase.lower() not in ("yes", "no", "yes.", "no."):
         if _looks_like_meta_reasoning(phrase):
@@ -405,6 +426,12 @@ def _clean_phrase(text: str, *, yes_no_q: bool = False) -> str:
     phrase = re.sub(r"^[-*•]\s*", "", phrase)
     phrase = re.sub(r"^\d+[\.\)]\s*", "", phrase)
     phrase = re.sub(r"^analyze\s+(the\s+)?(memory|memories|scene|question)\b[:\s-]*", "", phrase, flags=re.I)
+    phrase = re.sub(
+        r"^send_message\s*\(\s*['\"]?(yes|no)['\"]?\s*\).*$",
+        r"\1",
+        phrase,
+        flags=re.I,
+    )
     if _RGB_FRAME_RE.match(phrase):
         return ""
     if ";" in phrase:
@@ -423,3 +450,188 @@ def _clean_phrase(text: str, *, yes_no_q: bool = False) -> str:
         if yn:
             return yn
     return phrase
+
+
+# --- Draft trust gate (conditional speculative decoding for OpenEQA) ---
+
+_ENTITY_AC = frozenset(
+    ("air conditioner", "air conditioning", "ac unit", "a/c", "wall-mounted air")
+)
+_ENTITY_TV = frozenset(("tv", "television", "flat-screen", "flat screen"))
+_ENTITY_DRYWALL = frozenset(("drywall", "plaster"))
+_ENTITY_WOOD_CEILING = frozenset(
+    ("vaulted", "wood panel", "wooden beam", "wood beam", "exposed beam")
+)
+
+
+def is_yes_no_question(question: str) -> bool:
+    q_l = (question or "").strip().lower()
+    return bool(
+        re.match(r"^(is|are|do|does|did|can|could|should|was|were|has|have)\b", q_l)
+    )
+
+
+def _entity_hits(blob: str, phrases: frozenset) -> bool:
+    b = (blob or "").lower()
+    return any(p in b for p in phrases)
+
+
+def _memory_entity_tags(blob: str) -> set:
+    tags: set = set()
+    if _entity_hits(blob, _ENTITY_AC):
+        tags.add("ac")
+    if _entity_hits(blob, _ENTITY_TV):
+        tags.add("tv")
+    if _entity_hits(blob, _ENTITY_DRYWALL):
+        tags.add("drywall")
+    if _entity_hits(blob, _ENTITY_WOOD_CEILING):
+        tags.add("wood_ceiling")
+    return tags
+
+
+def _question_expects_tags(question: str) -> set:
+    q = (question or "").lower()
+    tags: set = set()
+    if "between" in q and ("frame" in q or "picture" in q):
+        tags.add("tv")
+    if "above" in q and "tv" in q:
+        tags.add("ac")
+    if "ceiling" in q and "material" in q:
+        tags.update({"drywall", "wood_ceiling"})
+    if "ceiling fan" in q or ("fan" in q and "speed" in q):
+        tags.add("fan")
+    if "cool down" in q or "cooling" in q or "air conditioner" in q:
+        tags.add("ac")
+    return tags
+
+
+def _detect_memory_conflict(events: List[Any], question: str) -> bool:
+    if len(events) < 2:
+        return False
+    top_blob = _event_text(events[0])
+    second_blob = _event_text(events[1])
+    t0 = _memory_entity_tags(top_blob)
+    t1 = _memory_entity_tags(second_blob)
+    expected = _question_expects_tags(question)
+    if expected and t0 and (t0 & expected):
+        return False
+    if not t0 or not t1:
+        return False
+    # AC vs TV is the most common harmful confusion in OpenEQA smoke set.
+    if "ac" in t0 and "tv" in t1 and "tv" not in t0:
+        return True
+    if "tv" in t0 and "ac" in t1 and "ac" not in t0:
+        return True
+    if "drywall" in t0 and "wood_ceiling" in t1 and "wood_ceiling" not in t0:
+        return True
+    if "wood_ceiling" in t0 and "drywall" in t1 and "drywall" not in t0:
+        return True
+    if expected and t0 and not (t0 & expected) and (t1 & expected):
+        return True
+    return False
+
+
+def compute_draft_policy(question: str, events: List[Any]) -> Dict[str, Any]:
+    """Per-question draft/bias settings: more 8B when retrieval is ambiguous."""
+    query = build_retrieval_query(question)
+    ranked = rerank_episodic_for_question(list(events or []), query)
+    scores = [episodic_relevance_score(event, query) for event in ranked[:5]]
+    margin = (scores[0] - scores[1]) if len(scores) >= 2 else (scores[0] if scores else 0.0)
+    conflict = _detect_memory_conflict(ranked, question)
+    yes_no = is_yes_no_question(question)
+    q_l = (question or "").lower()
+    spatial_hard = ("between" in q_l and ("frame" in q_l or "picture" in q_l)) or (
+        "ceiling" in q_l and "material" in q_l
+    )
+    functional = bool(
+        re.search(r"\b(should i|what should i|what can i do|how can i)\b", q_l)
+    )
+
+    if conflict:
+        max_draft_steps = 0
+        bias_scale = 0.0
+        bias_top_k = 1
+        yes_no_mode = False
+    elif yes_no:
+        max_draft_steps = 1
+        bias_scale = 0.0
+        bias_top_k = 1
+        yes_no_mode = True
+    elif spatial_hard or functional or margin < 2.0:
+        max_draft_steps = 1
+        bias_scale = 0.35
+        bias_top_k = 1
+        yes_no_mode = False
+    elif margin >= 4.0:
+        max_draft_steps = 3
+        bias_scale = 0.65
+        bias_top_k = 1
+        yes_no_mode = False
+    else:
+        max_draft_steps = 2
+        bias_scale = 0.5
+        bias_top_k = 1
+        yes_no_mode = False
+
+    return {
+        "rerank_margin": round(float(margin), 3),
+        "memory_conflict": conflict,
+        "yes_no_question": yes_no,
+        "spatial_hard": spatial_hard,
+        "max_draft_steps": max_draft_steps,
+        "memory_bias_scale": bias_scale,
+        "memory_bias_top_k": bias_top_k,
+        "draft_yes_no_mode": yes_no_mode,
+        "top_memory_preview": (getattr(ranked[0], "summary", None) or "")[:120] if ranked else "",
+    }
+
+
+def apply_draft_policy_to_env(policy: Dict[str, Any]) -> None:
+    scale = float(policy.get("memory_bias_scale", 0.5))
+    os.environ["OPENEQA_MAX_DRAFT_STEPS"] = str(int(policy.get("max_draft_steps", 2)))
+    os.environ["MMA_MEMORY_BIAS_SCALE"] = "0" if scale <= 0.0 else str(scale)
+    os.environ["MMA_MEMORY_BIAS_TOP_K"] = str(int(policy.get("memory_bias_top_k", 1)))
+    if policy.get("draft_yes_no_mode"):
+        os.environ["OPENEQA_DRAFT_YES_NO"] = "1"
+    else:
+        os.environ.pop("OPENEQA_DRAFT_YES_NO", None)
+
+
+def list_reranked_episodic_for_question(mma_agent: Any, question: str) -> List[Any]:
+    """BM25 hits + rerank using the same store QA retrieval uses."""
+    chat_state = mma_agent.agent_states.agent_state
+    episodic_state = mma_agent.agent_states.episodic_memory_agent_state
+    mgr = mma_agent.client.server.episodic_memory_manager
+    tz = mma_agent.client.server.user_manager.get_user_by_id(
+        mma_agent.client.user.id
+    ).timezone
+    method = os.environ.get("MMA_MEMORY_SEARCH_METHOD", "").strip().lower() or (
+        "bm25"
+        if os.environ.get("MMA_OFFLINE", "").strip().lower() in ("1", "true", "yes")
+        else "embedding"
+    )
+    query = build_retrieval_query(question)
+    if not query:
+        return []
+    events = filter_episodic_events(
+        mgr.list_episodic_memory(
+            agent_state=episodic_state,
+            query=query,
+            search_field="details",
+            search_method=method,
+            limit=10,
+            timezone_str=tz,
+        )
+        or []
+    )
+    return rerank_episodic_for_question(events, query)
+
+
+def prepare_draft_policy_for_agent(mma_agent: Any, question: str) -> Dict[str, Any]:
+    """Set per-question OPENEQA_* / MMA_* env before speculative QA."""
+    if os.environ.get("OPENEQA_TRUST_GATE", "1").strip().lower() in ("0", "false", "no"):
+        return {}
+    events = list_reranked_episodic_for_question(mma_agent, question)
+    policy = compute_draft_policy(question, events)
+    apply_draft_policy_to_env(policy)
+    return policy

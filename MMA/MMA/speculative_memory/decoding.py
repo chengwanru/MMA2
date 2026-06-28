@@ -19,6 +19,10 @@ from mma.speculative_memory.kv_extension import (
     strip_rope_from_memory_keys,
 )
 from mma.speculative_memory.memory_bias import _get_content_and_confidence
+from mma.speculative_memory.draft_guards import (
+    force_reject_accepted_prefix,
+    resolve_max_draft_steps,
+)
 from mma.speculative_memory.verify import verify_draft_tokens, AcceptRejectResult
 
 class CudaTimer:
@@ -233,6 +237,7 @@ def generate_with_speculative_memory(
 
     if config is None:
         config = SpeculativeMemoryConfig()
+    config.max_draft_steps = resolve_max_draft_steps(config.max_draft_steps)
     accept_env = os.environ.get("MMA_SPEEDUP_ACCEPT_THRESHOLD", "").strip()
     if accept_env:
         config.accept_threshold = float(accept_env)
@@ -485,6 +490,13 @@ def generate_with_speculative_memory(
         time_stats["verify_time"] += t_verify.elapsed
         num_accepted = accept_result.num_accepted
         rejected_at = accept_result.rejected_at
+        trimmed = force_reject_accepted_prefix(
+            tokenizer, draft_result.draft_token_ids, num_accepted
+        )
+        if trimmed < num_accepted:
+            num_accepted = trimmed
+            if trimmed < len(draft_result.draft_token_ids):
+                rejected_at = trimmed
 
         if stats_out is not None:
             stats_out["verify_rounds"] = int(stats_out["verify_rounds"]) + 1

@@ -13,6 +13,10 @@ import torch
 
 from mma.speculative_memory.config import SpeculativeMemoryConfig
 from mma.speculative_memory.generation_helpers import safe_generate
+from mma.speculative_memory.draft_guards import (
+    build_openeqa_draft_processors,
+    resolve_max_draft_steps,
+)
 from mma.speculative_memory.memory_bias import (
     MemoryItem,
     build_memory_bias_vector,
@@ -56,32 +60,6 @@ class MemoryBiasLogitsProcessor:
             else:
                 bias = bias[:vocab_size]
         return scores + bias
-
-
-class SuppressDraftAnalyzeLogitsProcessor:
-    """Penalize first draft tokens that start numbered analysis (e.g. '1. Analyze')."""
-
-    def __init__(self, tokenizer: Any, context_len: int, *, penalty: float = -6.0):
-        self.context_len = int(context_len)
-        self.penalty = float(penalty)
-        bad_first_tokens: set[int] = set()
-        for prefix in ("1", "1.", "1)", "Analyze", "The", "Based"):
-            token_ids = tokenizer.encode(prefix, add_special_tokens=False)
-            if token_ids:
-                bad_first_tokens.add(int(token_ids[0]))
-        self.bad_first_tokens = bad_first_tokens
-
-    def __call__(
-        self,
-        input_ids: torch.LongTensor,
-        scores: torch.FloatTensor,
-    ) -> torch.FloatTensor:
-        if input_ids.size(1) != self.context_len:
-            return scores
-        for token_id in self.bad_first_tokens:
-            if 0 <= token_id < scores.size(-1):
-                scores[:, token_id] = scores[:, token_id] + self.penalty
-        return scores
 
 
 def draft_suppress_analyze_enabled() -> bool:
@@ -151,6 +129,9 @@ def generate_draft_tokens(
     """
     if config is None:
         config = SpeculativeMemoryConfig()
+    max_steps = resolve_max_draft_steps(config.max_draft_steps)
+    if max_steps <= 0:
+        return DraftResult(draft_token_ids=[], num_draft=0)
     device = next(model.parameters()).device
     if input_ids.dim() == 1:
         input_ids = input_ids.unsqueeze(0)
@@ -167,8 +148,8 @@ def generate_draft_tokens(
 
     logits_processor_list = []
     if draft_suppress_analyze_enabled():
-        logits_processor_list.append(
-            SuppressDraftAnalyzeLogitsProcessor(tokenizer, context_len)
+        logits_processor_list.extend(
+            build_openeqa_draft_processors(tokenizer, context_len)
         )
     if draft_memory_bias_enabled() and memory_items:
         logits_processor = build_draft_logits_processor(
@@ -183,7 +164,7 @@ def generate_draft_tokens(
     # Generation kwargs. min_new_tokens=1 avoids 0 draft tokens when draft emits EOS
     # immediately (e.g. long agent system prompt); we always get at least one token.
     gen_kwargs = {
-        "max_new_tokens": max(1, int(config.max_draft_steps)),
+        "max_new_tokens": max(1, int(max_steps)),
         "min_new_tokens": 1,
         "do_sample": config.do_sample,
         "pad_token_id": pad_token_id,

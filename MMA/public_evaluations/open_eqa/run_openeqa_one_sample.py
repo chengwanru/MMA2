@@ -34,8 +34,10 @@ from openeqa_debug import (
 from openeqa_memory import (
     build_retrieval_query,
     fresh_home_enabled,
+    is_yes_no_question,
     normalize_qa_prediction,
     patch_episodic_memory_manager,
+    prepare_draft_policy_for_agent,
     wipe_mma_sqlite,
 )
 
@@ -56,10 +58,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _is_yes_no_question(question: str) -> bool:
-    q_l = (question or "").strip().lower()
-    return bool(
-        re.match(r"^(is|are|do|does|did|can|could|should|was|were|has|have)\b", q_l)
-    )
+    return is_yes_no_question(question)
 
 
 def _format_eqa_question(question: str) -> str:
@@ -615,6 +614,16 @@ def _run_qa(
 
     agent = _init_agent(config_path, for_qa=True)
     _set_chat_topic(_mma_core(agent), question)
+    draft_policy = prepare_draft_policy_for_agent(_mma_core(agent), question)
+    if draft_policy:
+        print(
+            "  [qa] draft_policy: "
+            f"steps={draft_policy.get('max_draft_steps')} "
+            f"bias={draft_policy.get('memory_bias_scale')} "
+            f"margin={draft_policy.get('rerank_margin')} "
+            f"conflict={draft_policy.get('memory_conflict')}",
+            flush=True,
+        )
     formatted = _format_eqa_question(question)
     raw_prediction = _qa_send(agent, formatted)
     if not raw_prediction and _is_yes_no_question(question):
@@ -646,6 +655,7 @@ def _run_qa(
             formatted,
             prediction_raw=raw_prediction,
             speculative_stats=sd_stats,
+            draft_policy=draft_policy or None,
         )
         write_debug_file(home_dir, "qa", debug_payload)
         log_debug_summary(debug_payload, "qa")
