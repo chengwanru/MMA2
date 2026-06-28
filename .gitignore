@@ -15,4 +15,6 @@ MMA/public_evaluations/open_eqa/data/frames/
 MMA/public_evaluations/open_eqa/data/open-eqa-multimodal.json
 MMA/public_evaluations/open_eqa/data/frame_cache/
 MMA/public_evaluations/open_eqa/data/open_eqa_data/*.tgz
+MMA/public_evaluations/open_eqa/third_party/
+MMA/public_evaluations/open_eqa/openeqa_judge_smoke.env
 openvla/

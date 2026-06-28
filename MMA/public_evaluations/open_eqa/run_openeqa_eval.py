@@ -400,6 +400,7 @@ def _run_variant(
 
         result: Dict[str, Any] = {
             "id": sample.get("id", idx),
+            "question_id": sample.get("id") if isinstance(sample.get("id"), str) else None,
             "variant": variant_name,
             "question": question,
             "gold_answer": sample.get("answer"),

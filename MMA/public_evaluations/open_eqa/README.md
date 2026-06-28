@@ -153,6 +153,89 @@ tail -f logs/openeqa_smoke_<jobid>.log
 
 全量：`sbatch run_openeqa_ltu.slurm`
 
+## 官方 LLM-Match 打分
+
+### 用哪个 API？
+
+| 阶段 | 推荐 | 原因 |
+|------|------|------|
+| **Smoke / 迭代（现在）** | **[OpenRouter 免费模型](https://openrouter.ai)** | OpenAI 兼容、注册即有 key、有 `*:free` 模型；10 条 smoke 够用 |
+| **备选** | **[Groq](https://console.groq.com)** | 免费层、速度快；作 OpenRouter 限流时的 backup |
+| **正式实验 / 论文** | **OpenAI GPT-4** | 与 OpenEQA 论文一致（`gpt-4-1106-preview`） |
+
+Smoke 分数**不要**和论文表格直接比；只用于 ours vs baseline 的相对趋势。正式数只用 `--judge-profile official`。
+
+### 配置流程（Smoke，OpenRouter 推荐）
+
+**1. 注册并拿 key**
+
+- 打开 https://openrouter.ai/keys → 创建 API key（免费层约 **50 次/天**，10 条 smoke 足够）
+- 可选 backup：https://console.groq.com/keys
+
+**2. 写本地 env（不要 commit）**
+
+```bash
+cd MMA/public_evaluations/open_eqa
+cp openeqa_judge_smoke.env.example openeqa_judge_smoke.env
+# 编辑 OPENROUTER_API_KEY=sk-or-v1-...
+```
+
+**3. 安装 judge 依赖（一次）**
+
+```bash
+python3 -m pip install "openai>=1.3" "numpy>=1.26" "tenacity>=8.2"
+```
+
+**4. 跑完 MMA 推理后打分**
+
+```bash
+set -a && source openeqa_judge_smoke.env && set +a
+
+python run_openeqa_official_score.py \
+  --input_file results/direct_episodic_bias_tuned_10_<jobid>.json \
+  --variant ours \
+  --judge-profile openrouter-free \
+  --force \
+  --dry-run
+```
+
+- `--force`：允许 partial（不足 1636 题）
+- `--dry-run`：只评 5 题省 quota；去掉则评全部已导出题目
+- 分数写入 `results/metrics/<name>-openrouter-free-metrics.json`
+
+**5. 正式实验（论文数字）**
+
+```bash
+export OPENAI_API_KEY=sk-...
+bash setup_openeqa_official_scorer.sh   # 仅需一次
+
+python run_openeqa_official_score.py \
+  --input_file results/openeqa_full.json \
+  --variant ours \
+  --judge-profile official
+```
+
+### Judge profiles
+
+| `--judge-profile` | Key 环境变量 | 默认模型 |
+|-------------------|-------------|----------|
+| `openrouter-free` | `OPENROUTER_API_KEY` | `google/gemma-3-27b-it:free` |
+| `groq-free` | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
+| `official` | `OPENAI_API_KEY` | `gpt-4-1106-preview` |
+
+换模型：`OPENEQA_OPENROUTER_MODEL=meta-llama/llama-3.3-70b-instruct:free` 或 `--judge-model ...`
+
+限流时在 env 里设 `OPENEQA_JUDGE_SLEEP_SEC=1.0`（两次请求间隔秒数）。
+
+### 仅导出、不调用 API
+
+```bash
+python export_openeqa_official.py \
+  --input_file results/direct_episodic_bias_tuned_10_<jobid>.json \
+  --output_file results/official/predictions.json \
+  --variant ours
+```
+
 ## 常见报错
 
 | 报错 | 处理 |
