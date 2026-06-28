@@ -15,6 +15,7 @@ from openeqa_memory import (  # noqa: E402
     _detect_memory_conflict,
     compute_draft_policy,
     episodic_relevance_score,
+    filter_episodic_events,
     normalize_qa_prediction,
     select_events_for_qa,
 )
@@ -37,6 +38,24 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         pred, _ = normalize_qa_prediction(raw, question="What type of ceiling is in the living room?")
         self.assertNotIn("2026", pred)
         self.assertNotIn("helpful assistant", pred.lower())
+
+    def test_normalize_strips_user_turn_bleed(self):
+        raw = (
+            "brown\n\nuser: You memorized video frames of an indoor scene."
+        )
+        pred, _ = normalize_qa_prediction(
+            raw,
+            question="What color is the staircase railing?",
+        )
+        self.assertEqual(pred, "brown")
+
+    def test_table_mats_fallback_from_memory_hint(self):
+        pred, _ = normalize_qa_prediction(
+            "2026-06-28 14:33:31 - The dining table surface",
+            question="Is the dining table set with table mats?",
+            memory_hint="Two yellow placemats on the dining table",
+        )
+        self.assertEqual(pred, "Yes")
 
     def test_normalize_yes_no_from_polluted_line(self):
         pred, _ = normalize_qa_prediction(
@@ -91,6 +110,40 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
             episodic_relevance_score(wood, q),
             episodic_relevance_score(drywall, q),
         )
+
+    def test_ceiling_material_prefers_panel_over_beam(self):
+        panel = _Event("Living room ceiling has wood paneling")
+        beam = _Event("Living room ceiling has vaulted wood beams")
+        q = "What material is the ceiling in the living room?"
+        self.assertGreater(
+            episodic_relevance_score(panel, q),
+            episodic_relevance_score(beam, q),
+        )
+
+    def test_select_table_mats_prefers_placemat_memory(self):
+        empty = _Event("The dining table is clear with no place settings")
+        mats = _Event("Two yellow placemats on the dining table")
+        q = "Is the dining table set with table mats?"
+        picked = select_events_for_qa([empty, mats], q)
+        self.assertEqual(len(picked), 1)
+        self.assertIn("placemat", picked[0].summary.lower())
+
+    def test_select_railing_prefers_staircase_memory(self):
+        ceiling = _Event("Living room ceiling has vaulted wood beams")
+        railing = _Event("The staircase railing is brown")
+        q = "What color is the staircase railing?"
+        picked = select_events_for_qa([ceiling, railing], q)
+        self.assertIn("railing", picked[0].summary.lower())
+
+    def test_polluted_meta_memory_filtered(self):
+        meta = _Event("User updated OpenEQA scene memory with new observations")
+        scene = _Event(
+            "Two yellow placemats on the dining table",
+            details="Frames: 00005-rgb.png",
+        )
+        filtered = filter_episodic_events([meta, scene])
+        self.assertEqual(len(filtered), 1)
+        self.assertIn("placemat", filtered[0].summary.lower())
 
     def test_select_between_frames_prefers_tv(self):
         ac = _Event("Between picture frames there is a wall-mounted air conditioning unit")

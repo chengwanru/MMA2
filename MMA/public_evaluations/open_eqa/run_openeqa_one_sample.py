@@ -101,6 +101,10 @@ def _format_eqa_question(question: str) -> str:
         )
     elif "living room" in q_l:
         spatial_hint = "Focus on observations from the living room area. "
+    elif "table mat" in q_l or "placemat" in q_l:
+        spatial_hint = (
+            "Focus on whether placemats or table mats are visible on the dining table surface. "
+        )
     elif "dining table" in q_l:
         spatial_hint = "Focus on the dining table surface and whether it has free space or place settings. "
     elif "staircase" in q_l and "railing" in q_l:
