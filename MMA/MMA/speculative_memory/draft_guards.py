@@ -26,6 +26,8 @@ _BAD_FIRST_PREFIXES = (
     "It",
     "There",
     "This",
+    "You",
+    "21",
     "202",
     "000",
 )
@@ -37,6 +39,8 @@ _META_SUBSTRINGS = (
     "cannot be determined",
     "-rgb.png",
     "frame_",
+    "you are a helpful assistant",
+    "helpful assistant",
 )
 
 
@@ -156,6 +160,10 @@ def draft_text_is_bad(text: str, *, position: int = 0) -> bool:
         if re.match(r"^(analyze|send_message|based on|looking at|according to)\b", lowered):
             return True
         if re.match(r"^\d{4}-\d{2}-\d{2}", lowered):
+            return True
+        if re.match(r"^\d{1,3}$", lowered):
+            return True
+        if lowered.startswith("you are a helpful"):
             return True
         if re.match(r"^\d{5}-rgb\.png", lowered, re.I):
             return True

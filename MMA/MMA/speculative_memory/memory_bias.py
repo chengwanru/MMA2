@@ -10,6 +10,8 @@ from typing import Dict, List, Optional, Union
 
 import torch
 
+from mma.speculative_memory.memory_text_sanitize import sanitize_memory_text_for_inference
+
 
 # Type for a single memory item as returned by MMA retrieval (e.g. episodic, semantic)
 MemoryItem = Union[dict, object]  # at least .get("content"/"text") and .get("confidence", 1.0)
@@ -85,7 +87,8 @@ def _get_content_and_confidence(item: MemoryItem) -> tuple:
         conf = float(getattr(item, "confidence", 1.0))
     elif isinstance(item, dict) and "confidence" in item:
         conf = float(item["confidence"])
-    return (content or "").strip(), max(0.0, min(1.0, conf))
+    content = sanitize_memory_text_for_inference((content or "").strip())
+    return content, max(0.0, min(1.0, conf))
 
 
 def _bias_text_from_item(item: MemoryItem) -> str:

@@ -19,6 +19,7 @@ from mma.speculative_memory.kv_extension import (
     strip_rope_from_memory_keys,
 )
 from mma.speculative_memory.memory_bias import _get_content_and_confidence
+from mma.speculative_memory.memory_text_sanitize import sanitize_memory_text_for_inference
 from mma.speculative_memory.draft_guards import (
     force_reject_accepted_prefix,
     resolve_max_draft_steps,
@@ -112,6 +113,7 @@ def _memory_items_to_input_ids(
     all_conf: List[float] = []
     for item in items:
         content, confidence = _get_content_and_confidence(item)
+        content = sanitize_memory_text_for_inference(content)
         if not content:
             continue
         try:

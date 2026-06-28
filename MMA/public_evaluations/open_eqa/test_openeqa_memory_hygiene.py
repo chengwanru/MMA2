@@ -1,0 +1,121 @@
+"""Lightweight hygiene tests for OpenEQA memory / normalize helpers."""
+
+from __future__ import annotations
+
+import importlib.util
+import sys
+import unittest
+from pathlib import Path
+
+_OPEN_EQA_DIR = Path(__file__).resolve().parent
+if str(_OPEN_EQA_DIR) not in sys.path:
+    sys.path.insert(0, str(_OPEN_EQA_DIR))
+
+from openeqa_memory import (  # noqa: E402
+    _detect_memory_conflict,
+    compute_draft_policy,
+    episodic_relevance_score,
+    normalize_qa_prediction,
+)
+
+
+class _Event:
+    def __init__(self, summary: str, details: str = ""):
+        self.summary = summary
+        self.details = details
+        self.confidence = 0.8
+        self.tree_path = ["openeqa", "scene"]
+
+
+class OpenEQAMemoryHygieneTests(unittest.TestCase):
+    def test_normalize_strips_timestamp_and_persona(self):
+        raw = (
+            "2026-06-28 14:52:10 - The living room ceiling is vaulted.\n\n"
+            "You are a helpful assistant."
+        )
+        pred, _ = normalize_qa_prediction(raw, question="What type of ceiling is in the living room?")
+        self.assertNotIn("2026", pred)
+        self.assertNotIn("helpful assistant", pred.lower())
+
+    def test_normalize_yes_no_from_polluted_line(self):
+        pred, _ = normalize_qa_prediction(
+            "21\nYou are a helpful assistant",
+            question="Is the front door open?",
+        )
+        self.assertIn(pred, ("Yes", "No", ""))
+
+    def test_normalize_functional_cool_down(self):
+        raw = "2026-06-28 14:52:10 - Turn on the air conditioner to cool the room."
+        pred, _ = normalize_qa_prediction(raw, question="What should I do to cool down the room?")
+        self.assertIn("air conditioner", pred.lower())
+
+    def test_between_frames_conflict_ac_vs_tv(self):
+        events = [
+            _Event("Between picture frames there is a wall-mounted air conditioning unit"),
+            _Event("Between the two picture frames there is a TV on the blue wall"),
+        ]
+        q = "What is between the two picture frames on the wall?"
+        self.assertTrue(_detect_memory_conflict(events, q))
+
+    def test_door_open_closed_conflict(self):
+        events = [
+            _Event("The front door is open"),
+            _Event("The front door is closed"),
+        ]
+        self.assertTrue(
+            _detect_memory_conflict(events, "Is the front door open?")
+        )
+
+    def test_functional_qa_forces_target_only(self):
+        policy = compute_draft_policy(
+            "What should I do to cool down the room?",
+            [_Event("Turn on the air conditioner")],
+        )
+        self.assertEqual(policy["max_draft_steps"], 0)
+        self.assertEqual(policy["memory_bias_scale"], 0.0)
+
+    def test_between_frames_rerank_prefers_tv(self):
+        ac = _Event("Between frames, wall-mounted air conditioning unit")
+        tv = _Event("Between the two picture frames there is a TV")
+        q = "What is between the two picture frames on the wall?"
+        self.assertGreater(
+            episodic_relevance_score(tv, q),
+            episodic_relevance_score(ac, q),
+        )
+
+    def test_ceiling_material_prefers_wood_in_living_room(self):
+        wood = _Event("Living room ceiling has vaulted wood beams")
+        drywall = _Event("Living room ceiling is plain drywall")
+        q = "What material is the ceiling in the living room?"
+        self.assertGreater(
+            episodic_relevance_score(wood, q),
+            episodic_relevance_score(drywall, q),
+        )
+
+
+class MemoryTextSanitizeTests(unittest.TestCase):
+    def test_sanitize_strips_timestamps(self):
+        mod_path = (
+            _OPEN_EQA_DIR.parent.parent
+            / "MMA"
+            / "speculative_memory"
+            / "memory_text_sanitize.py"
+        )
+        spec = importlib.util.spec_from_file_location("memory_text_sanitize", mod_path)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sanitize = mod.sanitize_memory_text_for_inference
+
+        raw = (
+            "Frames: 00000-rgb.png\n"
+            "2026-12-01 10:00:00 - Vaulted wood ceiling in the living room."
+        )
+        cleaned = sanitize(raw)
+        self.assertNotIn("2026", cleaned)
+        self.assertNotIn("Frames:", cleaned)
+        self.assertIn("vaulted", cleaned.lower())
+
+
+if __name__ == "__main__":
+    unittest.main()
