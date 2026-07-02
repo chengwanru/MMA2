@@ -179,6 +179,21 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         self.assertIn("wood", pred.lower())
 
+    def test_yes_no_table_mat_aligned_keeps_bias(self):
+        mats = _Event("Two yellow placemats on the dining table")
+        empty = _Event("The dining table is clear")
+        q = "Is the dining table set with table mats?"
+        policy = compute_draft_policy(q, select_events_for_qa([mats, empty], q))
+        self.assertTrue(policy["top_memory_aligned"])
+        self.assertGreater(policy["memory_bias_scale"], 0.0)
+
+    def test_yes_no_unaligned_top_disables_bias(self):
+        ceiling = _Event("The living room ceiling is plain white drywall")
+        q = "Is the dining table set with table mats?"
+        policy = compute_draft_policy(q, [ceiling])
+        self.assertFalse(policy["top_memory_aligned"])
+        self.assertEqual(policy["memory_bias_scale"], 0.0)
+
     def test_conflict_with_aligned_top_allows_bias(self):
         tv = _Event("Between the two picture frames there is a TV")
         ac = _Event("Between picture frames there is a wall-mounted air conditioning unit")

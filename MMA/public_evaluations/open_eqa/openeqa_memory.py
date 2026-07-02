@@ -796,6 +796,12 @@ _ENTITY_DRYWALL = frozenset(("drywall", "plaster"))
 _ENTITY_WOOD_CEILING = frozenset(
     ("vaulted", "wood panel", "wooden beam", "wood beam", "exposed beam")
 )
+_ENTITY_TABLE_MAT = frozenset(
+    ("placemat", "place mat", "table mat", "yellow mat")
+)
+_ENTITY_FAN_CONTROL = frozenset(
+    ("ceiling fan", "fan speed", "switch panel", "control panel", "speed dial", "fan dial")
+)
 
 
 def is_yes_no_question(question: str) -> bool:
@@ -820,6 +826,10 @@ def _memory_entity_tags(blob: str) -> set:
         tags.add("drywall")
     if _entity_hits(blob, _ENTITY_WOOD_CEILING):
         tags.add("wood_ceiling")
+    if _entity_hits(blob, _ENTITY_TABLE_MAT):
+        tags.add("table_mat")
+    if _entity_hits(blob, _ENTITY_FAN_CONTROL):
+        tags.add("fan_control")
     return tags
 
 
@@ -833,7 +843,9 @@ def _question_expects_tags(question: str) -> set:
     if "ceiling" in q and ("material" in q or "type" in q):
         tags.update({"drywall", "wood_ceiling"})
     if "ceiling fan" in q or ("fan" in q and "speed" in q):
-        tags.add("fan")
+        tags.add("fan_control")
+    if "table mat" in q or "placemat" in q:
+        tags.add("table_mat")
     if "cool down" in q or "cooling" in q or "air conditioner" in q:
         tags.add("ac")
     return tags
@@ -1068,7 +1080,10 @@ def compute_draft_policy(question: str, events: List[Any]) -> Dict[str, Any]:
         yes_no_mode = False
     elif yes_no:
         max_draft_steps = 1 if margin >= 1.5 else 0
-        bias_scale = 0.0
+        # Yes/no answers are easily misled by bias, so default off; but when the top
+        # memory clearly matches what the question asks about (e.g. a placemat row for
+        # a table-mat question), keep a small bias so real evidence isn't ignored.
+        bias_scale = 0.25 if top_aligned else 0.0
         bias_top_k = qa_memory_top_k()
         yes_no_mode = True
     elif spatial_hard or margin < 2.0:
