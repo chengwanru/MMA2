@@ -69,6 +69,8 @@ def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
         "Describe this frame only: objects, materials, colors, furniture, and precise spatial relations "
         "(e.g. what is above the TV, between picture frames, on the dining table, ceiling type/material, "
         "staircase railing color, whether doors are open). "
+        "Also note small tabletop items when present: placemats/table mats, tableware, plates, cups, "
+        "runners or centerpieces, and their colors. "
         "If something is not visible in this frame, say so explicitly.\n"
         "Reply exactly in this format:\n"
         "SUMMARY: <one short sentence>\n"

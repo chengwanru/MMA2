@@ -13,6 +13,8 @@ if str(_OPEN_EQA_DIR) not in sys.path:
 
 from openeqa_memory import (  # noqa: E402
     _detect_memory_conflict,
+    _door_closed,
+    _door_open,
     compute_draft_policy,
     episodic_relevance_score,
     filter_episodic_events,
@@ -156,6 +158,16 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
     def test_select_door_prefers_closed(self):
         open_e = _Event("The front door is open")
         closed = _Event("The front door is closed")
+        picked = select_events_for_qa([open_e, closed], "Is the front door open?")
+        self.assertIn("closed", picked[0].summary.lower())
+
+    def test_door_closed_detects_adjective_noun_order(self):
+        self.assertTrue(_door_closed("A closed door is visible near the entryway"))
+        self.assertFalse(_door_closed("The front door is open"))
+
+    def test_select_door_prefers_closed_adjective_noun(self):
+        open_e = _Event("The front door is open")
+        closed = _Event("A closed door is visible near the entryway")
         picked = select_events_for_qa([open_e, closed], "Is the front door open?")
         self.assertIn("closed", picked[0].summary.lower())
 

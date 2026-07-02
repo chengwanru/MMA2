@@ -55,6 +55,23 @@ _ISO_DATE_TIME_LINE_RE = re.compile(
     re.I,
 )
 _BARE_NUMBER_RE = re.compile(r"^\d{1,3}$")
+# Match either word order: "door is closed" / "door closed" and "closed door".
+_DOOR_CLOSED_RE = re.compile(
+    r"\bdoor\b[^.]{0,24}\bclosed\b|\bclosed\b[^.]{0,24}\bdoor\b",
+    re.I,
+)
+_DOOR_OPEN_RE = re.compile(
+    r"\bdoor\b[^.]{0,24}\bopen\b|\bopen\b[^.]{0,24}\bdoor\b",
+    re.I,
+)
+
+
+def _door_closed(blob: str) -> bool:
+    return bool(_DOOR_CLOSED_RE.search(blob or ""))
+
+
+def _door_open(blob: str) -> bool:
+    return bool(_DOOR_OPEN_RE.search(blob or ""))
 _ACTION_COOLDOWN_RE = re.compile(
     r"(turn on|use|activate|switch on)\s+(the\s+)?(air conditioner|ac unit|a/?c\b)",
     re.I,
@@ -294,9 +311,9 @@ def episodic_relevance_score(event: Any, query: str) -> float:
     if door_open_q:
         if "front door" in blob:
             score += 5.0
-        if "door is closed" in blob or "door closed" in blob:
+        if _door_closed(blob):
             score += 3.0
-        if "door is open" in blob or "door open" in blob:
+        if _door_open(blob):
             score += 3.0
     ceiling_material_q = ceiling_q and "material" in q_l
     if ceiling_material_q and not fan_q:
@@ -338,8 +355,12 @@ def episodic_relevance_score(event: Any, query: str) -> float:
     if railing_color_q:
         if "staircase" in blob and "railing" in blob:
             score += 10.0
-        if any(tok in blob for tok in ("brown", "black", "white", "color", "colour")):
-            score += 3.0
+            if any(tok in blob for tok in ("brown", "black", "white", "color", "colour")):
+                score += 3.0
+        elif "staircase" in blob:
+            score += 4.0
+        else:
+            score -= 8.0
         if "ceiling" in blob and "staircase" not in blob:
             score -= 6.0
     if between_frames_q:
@@ -712,9 +733,9 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
 
     if yes_no_q and "front door" in q_l and "open" in q_l:
         hint_l = blob.lower()
-        if re.search(r"door\s+(is\s+)?closed|door closed", hint_l):
+        if _door_closed(hint_l):
             return "No"
-        if re.search(r"door\s+(is\s+)?open|door open", hint_l):
+        if _door_open(hint_l):
             return "Yes"
 
     if yes_no_q and ("table mat" in q_l or "placemat" in q_l):
@@ -840,7 +861,7 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
         closed = [
             event
             for event in ranked
-            if re.search(r"door\s+(is\s+)?closed|door closed", _event_text(event))
+            if _door_closed(_event_text(event))
         ]
         if closed:
             return closed[:top_k]
@@ -865,6 +886,13 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
         ]
         if railing_rows:
             return railing_rows[:top_k]
+        staircase_rows = [
+            event
+            for event in ranked
+            if "staircase" in _event_text(event)
+        ]
+        if staircase_rows:
+            return staircase_rows[:top_k]
 
     if "ceiling" in q and ("material" in q or "type" in q):
         panel_rows = [
@@ -968,11 +996,8 @@ def _detect_memory_conflict(events: List[Any], question: str) -> bool:
     tags = [_memory_entity_tags(blob) for blob in blobs]
 
     if "front door" in q and "open" in q:
-        open_seen = any(re.search(r"door\s+(is\s+)?open", blob) for blob in blobs)
-        closed_seen = any(
-            re.search(r"door\s+(is\s+)?closed", blob) or "door closed" in blob
-            for blob in blobs
-        )
+        open_seen = any(_door_open(blob) for blob in blobs)
+        closed_seen = any(_door_closed(blob) for blob in blobs)
         if open_seen and closed_seen:
             return True
 
@@ -1098,8 +1123,37 @@ def apply_draft_policy_to_env(policy: Dict[str, Any]) -> None:
         os.environ.pop("OPENEQA_DRAFT_YES_NO", None)
 
 
+def apply_qa_generation_limits(mma_agent: Any, question: str) -> None:
+    """Tighten max_tokens for yes/no questions so the model stops right after Yes/No.
+
+    Sample 6 (front-door) kept generating persona bleed (`\\nuser: You memorized...`)
+    after emitting "No", wasting ~60s. Yes/No answers never need more than a couple
+    tokens, so cap generation hard for those questions.
+    """
+    try:
+        state = mma_agent.agent_states.agent_state
+        cfg = getattr(state, "llm_config", None)
+        if cfg is None:
+            return
+        base = max(4, int(os.environ.get("OPENEQA_QA_MAX_TOKENS", "24")))
+        yn_cap = max(2, int(os.environ.get("OPENEQA_QA_MAX_TOKENS_YESNO", "4")))
+        target = yn_cap if is_yes_no_question(question) else base
+        if int(getattr(cfg, "max_tokens", 0) or 0) == target:
+            return
+        updated = cfg.model_copy(update={"max_tokens": target})
+        mma_agent.client.server.agent_manager.update_llm_config(
+            agent_id=state.id,
+            llm_config=updated,
+            actor=mma_agent.client.user,
+        )
+        state.llm_config = updated
+    except Exception:
+        pass
+
+
 def prepare_draft_policy_for_agent(mma_agent: Any, question: str) -> Dict[str, Any]:
     """Set per-question OPENEQA_* / MMA_* env before speculative QA."""
+    apply_qa_generation_limits(mma_agent, question)
     if os.environ.get("OPENEQA_TRUST_GATE", "1").strip().lower() in ("0", "false", "no"):
         _qa_session.update(question=question, ranked_events=[], policy={})
         return {}
