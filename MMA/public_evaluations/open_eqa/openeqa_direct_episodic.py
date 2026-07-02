@@ -62,15 +62,20 @@ def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
     if client is None:
         raise RuntimeError("Failed to create SpeculativeMemoryClient for episodic caption")
 
-    q_hint = f" The user may later ask: {question}" if question else ""
+    # Memory is recorded BEFORE any question is known and one store is reused for
+    # every question about this video, so the caption must stay question-neutral and
+    # cover all attribute types uniformly (a question hint biases the shared store).
     prompt = (
-        "You are the episodic memory recorder for an indoor scene video."
-        f"{q_hint}\n"
+        "You are the episodic memory recorder for an indoor scene video. "
+        "You do not know what questions will be asked later, so record every salient "
+        "detail neutrally and completely.\n"
         "Describe this frame only: objects, materials, colors, furniture, and precise spatial relations "
         "(e.g. what is above the TV, between picture frames, on the dining table, ceiling type/material, "
-        "staircase railing color, whether doors are open). "
+        "staircase railing color, whether doors are open or closed). "
         "Also note small tabletop items when present: placemats/table mats, tableware, plates, cups, "
         "runners or centerpieces, and their colors. "
+        "Also note appliances and their controls: air conditioner, ceiling fan, light switches, and any "
+        "wall switch panel or dial, including where it is located relative to doors or windows. "
         "If something is not visible in this frame, say so explicitly.\n"
         "Reply exactly in this format:\n"
         "SUMMARY: <one short sentence>\n"
