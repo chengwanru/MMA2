@@ -59,6 +59,23 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         self.assertEqual(pred, "Yes")
 
+    def test_table_mats_overrides_model_no_when_hint_has_placemats(self):
+        pred, _ = normalize_qa_prediction(
+            "No\n\nuser: You memorized video frames of an indoor scene.",
+            question="Is the dining table set with table mats?",
+            memory_hint=(
+                "Dining table with mosaic surface. Two yellow placemats on the dining table."
+            ),
+        )
+        self.assertEqual(pred, "Yes")
+
+    def test_top_memory_hint_includes_details(self):
+        mats = _Event("Dining table with mosaic surface", "Two yellow placemats on the table")
+        from openeqa_memory import memory_hint_from_events
+
+        hint = memory_hint_from_events([mats])
+        self.assertIn("placemat", hint.lower())
+
     def test_normalize_yes_no_from_polluted_line(self):
         pred, _ = normalize_qa_prediction(
             "21\nYou are a helpful assistant",

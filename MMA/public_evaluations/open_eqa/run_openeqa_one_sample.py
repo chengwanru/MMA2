@@ -650,7 +650,9 @@ def _run_qa(
         print("  [qa] empty response after retries", flush=True)
         raw_prediction = "ERROR"
 
-    memory_hint = (draft_policy or {}).get("top_memory_preview") or ""
+    memory_hint = (draft_policy or {}).get("top_memory_hint") or (
+        (draft_policy or {}).get("top_memory_preview") or ""
+    )
     prediction, _ = normalize_qa_prediction(
         raw_prediction,
         question=question,
