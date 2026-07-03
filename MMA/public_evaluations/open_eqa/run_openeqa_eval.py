@@ -96,6 +96,12 @@ def parse_args() -> argparse.Namespace:
         help="Optional limit on number of samples to evaluate (for smoke tests).",
     )
     parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Skip this many samples from the start of the input JSON.",
+    )
+    parser.add_argument(
         "--variants",
         type=str,
         default="both",
@@ -106,7 +112,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _load_samples(path: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+def _load_samples(
+    path: str,
+    limit: Optional[int] = None,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
     """Load evaluation samples from JSON file."""
     if not os.path.exists(path):
         raise FileNotFoundError(f"input_file not found: {path}")
@@ -122,6 +132,8 @@ def _load_samples(path: str, limit: Optional[int] = None) -> List[Dict[str, Any]
     if not isinstance(samples, list):
         raise ValueError("input_file must contain a list of samples or a dict with key 'data'.")
 
+    if offset:
+        samples = samples[offset:]
     if limit is not None:
         samples = samples[:limit]
 
@@ -429,7 +441,7 @@ def _run_variant(
 def main() -> None:
     args = parse_args()
 
-    samples = _load_samples(args.input_file, args.limit)
+    samples = _load_samples(args.input_file, args.limit, args.offset)
 
     use_speculative_baseline = os.path.abspath(args.baseline_config) == os.path.abspath(args.ours_config)
 

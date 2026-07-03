@@ -89,6 +89,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Stop after this many samples (smoke).",
     )
+    parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Skip this many samples from the start of the source QA JSON.",
+    )
     return parser.parse_args()
 
 
@@ -398,6 +404,9 @@ def main() -> None:
 
     with open(args.src, "r", encoding="utf-8") as f:
         data: List[Dict[str, Any]] = json.load(f)
+
+    if args.offset:
+        data = data[args.offset :]
 
     out: List[Dict[str, Any]] = []
     missing_episodes = 0

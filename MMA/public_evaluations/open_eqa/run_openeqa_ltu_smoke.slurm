@@ -98,6 +98,7 @@ INPUT="${INPUT:-data/open-eqa-multimodal.json}"
 # Override quick smoke: ALL_FRAMES=0 FRAMES_PER_EPISODE=16 LIMIT=1 sbatch ...
 ALL_FRAMES="${ALL_FRAMES:-1}"
 MAX_SAMPLES="${MAX_SAMPLES:-10}"
+OFFSET="${OFFSET:-0}"
 FRAMES_PER_EPISODE="${FRAMES_PER_EPISODE:-16}"
 FRAME_SAMPLING="${FRAME_SAMPLING:-uniform}"
 
@@ -105,6 +106,9 @@ echo "=== data check ==="
 python check_openeqa_data.py --frames_root "${FRAMES_ROOT}" --qa_json "${QA_SRC}"
 
 MULTIMODAL_ARGS=(--src "${QA_SRC}" --frames_root "${FRAMES_ROOT}" --frame_cache "${FRAME_CACHE}" --dst "${INPUT}" --max_samples "${MAX_SAMPLES}")
+if [[ "${OFFSET}" != "0" ]]; then
+  MULTIMODAL_ARGS+=(--offset "${OFFSET}")
+fi
 if [[ "${ALL_FRAMES}" == "1" ]]; then
   MULTIMODAL_ARGS+=(--all_frames)
 else
@@ -126,6 +130,7 @@ PY
 
 OUTPUT="${OUTPUT:-results/smoke_${SLURM_JOB_ID}.json}"
 LIMIT="${LIMIT:-2}"
+OFFSET_EVAL="${OFFSET_EVAL:-0}"
 VARIANTS="${VARIANTS:-ours}"
 CFG="${ROOT}/configs/mma_speculative_memory.yaml"
 
@@ -168,6 +173,7 @@ else
     --baseline_config "${CFG}" \
     --ours_config "${CFG}" \
     --limit "${LIMIT}" \
+    --offset "${OFFSET_EVAL}" \
     --variants "${VARIANTS}"
 fi
 
