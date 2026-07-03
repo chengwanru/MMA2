@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=openeqa_tc20
 #SBATCH -p day
-#SBATCH -t 48:00:00
+#SBATCH -t 24:00:00
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH --cpus-per-task=8
