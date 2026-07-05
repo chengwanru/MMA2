@@ -161,6 +161,47 @@ def generate_draft_tokens(
         )
         logits_processor_list.append(logits_processor)
 
+    model_inputs = {
+        "input_ids": input_ids.to(device),
+        "attention_mask": attention_mask.to(device),
+    }
+    if pixel_values is not None:
+        model_inputs["pixel_values"] = pixel_values.to(device)
+    if image_grid_thw is not None:
+        model_inputs["image_grid_thw"] = image_grid_thw.to(device)
+    if pixel_values_videos is not None:
+        model_inputs["pixel_values_videos"] = pixel_values_videos.to(device)
+    if video_grid_thw is not None:
+        model_inputs["video_grid_thw"] = video_grid_thw.to(device)
+
+    use_fast_single = os.environ.get("MMA_DRAFT_FAST_SINGLE_STEP", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+    if max_steps == 1 and use_fast_single and not config.do_sample:
+        with torch.no_grad():
+            model_inputs_on_device = {k: v.to(device) if torch.is_tensor(v) else v for k, v in model_inputs.items()}
+            outputs = model(**model_inputs_on_device)
+            logits = outputs.logits[:, -1, :].clone()
+            for processor in logits_processor_list:
+                logits = processor(input_ids.to(device), logits)
+            next_id = int(logits.argmax(dim=-1).item())
+        draft_token_ids = [next_id]
+        draft_logits_per_position = logits.detach()
+        if not ignore_eos and eos_token_id is not None and next_id == eos_token_id:
+            pass  # keep one EOS token for verify
+        full_output_ids = torch.cat(
+            [input_ids.to(device), torch.tensor([[next_id]], dtype=torch.long, device=device)],
+            dim=1,
+        )
+        return DraftResult(
+            draft_token_ids=draft_token_ids,
+            draft_logits_per_position=draft_logits_per_position,
+            full_output_ids=full_output_ids,
+            num_draft=len(draft_token_ids),
+        )
+
     # Generation kwargs. min_new_tokens=1 avoids 0 draft tokens when draft emits EOS
     # immediately (e.g. long agent system prompt); we always get at least one token.
     gen_kwargs = {
@@ -176,20 +217,6 @@ def generate_draft_tokens(
         gen_kwargs["eos_token_id"] = eos_token_id
     if config.do_sample:
         gen_kwargs["temperature"] = config.temperature
-
-    # Forward inputs
-    model_inputs = {
-        "input_ids": input_ids.to(device),
-        "attention_mask": attention_mask.to(device),
-    }
-    if pixel_values is not None:
-        model_inputs["pixel_values"] = pixel_values.to(device)
-    if image_grid_thw is not None:
-        model_inputs["image_grid_thw"] = image_grid_thw.to(device)
-    if pixel_values_videos is not None:
-        model_inputs["pixel_values_videos"] = pixel_values_videos.to(device)
-    if video_grid_thw is not None:
-        model_inputs["video_grid_thw"] = video_grid_thw.to(device)
 
     with torch.no_grad():
         gen_output = safe_generate(model, **model_inputs, **gen_kwargs)

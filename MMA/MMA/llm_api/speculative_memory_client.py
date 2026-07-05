@@ -335,7 +335,7 @@ class SpeculativeMemoryClient(LLMClientBase):
             ),
             max_new_tokens=self.llm_config.max_tokens or 256,
             do_sample=False,
-            memory_bias_scale=float(os.environ.get("MMA_MEMORY_BIAS_SCALE", "0.6")),
+            memory_bias_scale=float(os.environ.get("MMA_MEMORY_BIAS_SCALE", "0.35")),
             memory_bias_top_k_memories=int(os.environ.get("MMA_MEMORY_BIAS_TOP_K", "1")),
         )
         device = "cuda"

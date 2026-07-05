@@ -29,7 +29,7 @@ export FRAMES_PER_EPISODE=8
 export OPENEQA_DIRECT_SD_MAX_FRAMES="${OPENEQA_DIRECT_SD_MAX_FRAMES:-1}"
 export OPENEQA_VL_MAX_PIXELS="${OPENEQA_VL_MAX_PIXELS:-401408}"
 export OPENEQA_DIRECT_SD_MAX_TOKENS="${OPENEQA_DIRECT_SD_MAX_TOKENS:-128}"
-export MMA_REJECT_STRATEGY="${MMA_REJECT_STRATEGY:-greedy}"
+export MMA_REJECT_STRATEGY="${MMA_REJECT_STRATEGY:-greedy+semantic}"
 export OUTPUT="${OUTPUT:-results/direct_sd_smoke_${SLURM_JOB_ID:-local}.json}"
 
 exec bash run_openeqa_ltu_smoke.slurm

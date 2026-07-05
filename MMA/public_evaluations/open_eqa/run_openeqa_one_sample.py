@@ -66,70 +66,32 @@ def _format_eqa_question(question: str) -> str:
     q_l = question.lower()
     spatial_hint = ""
     if "above" in q_l and "tv" in q_l:
-        spatial_hint = (
-            "Focus on the object mounted directly above the TV. "
-            "Ignore other white objects elsewhere on walls (doors, rugs, trim). "
-        )
+        spatial_hint = "Object mounted above the TV. "
     elif "between" in q_l and ("frame" in q_l or "picture" in q_l):
-        spatial_hint = (
-            "Focus on what sits spatially between the two picture frames on the wall, not objects above the TV. "
-        )
+        spatial_hint = "What is between the picture frames on the wall. "
     elif "ceiling fan" in q_l or (
         "fan" in q_l and any(tok in q_l for tok in ("speed", "increase", "decrease", "switch", "dial"))
     ):
-        spatial_hint = (
-            "Focus on how to control the ceiling fan speed "
-            "(switch, dial, or panel location such as near the front door). "
-            "Do not describe ceiling material or color. "
-        )
+        spatial_hint = "How to control ceiling fan speed (switch/dial location). "
     elif "front door" in q_l and "open" in q_l:
-        spatial_hint = (
-            "Focus on whether the front door is open or closed in the visible frames. "
-        )
+        spatial_hint = "Is the front door open or closed. "
     elif "cool down" in q_l or "cooling" in q_l:
-        spatial_hint = (
-            "Focus on what action to take with the air conditioner or AC unit to cool the room. "
-        )
+        spatial_hint = "Action to cool the room with AC. "
     elif "ceiling" in q_l and "material" in q_l:
-        spatial_hint = (
-            "Focus on ceiling material or type visible in the living room; "
-            "prefer frames where the living room ceiling is visible. "
-        )
-    elif "ceiling" in q_l:
-        spatial_hint = (
-            "Focus on the ceiling in the living room; prefer frames where the ceiling is visible. "
-        )
-    elif "living room" in q_l:
-        spatial_hint = "Focus on observations from the living room area. "
+        spatial_hint = "Living room ceiling material. "
     elif "table mat" in q_l or "placemat" in q_l:
-        spatial_hint = (
-            "Focus on whether placemats or table mats are visible on the dining table surface. "
-        )
-    elif "dining table" in q_l:
-        spatial_hint = "Focus on the dining table surface and whether it has free space or place settings. "
-    elif "staircase" in q_l and "railing" in q_l:
-        spatial_hint = "Focus on the staircase railing color if mentioned in memory. "
+        spatial_hint = "Placemats on the dining table. "
 
     if _is_yes_no_question(question):
-        answer_hint = "Answer with exactly one word: Yes or No. "
+        answer_hint = "Reply with one word: Yes or No."
     else:
-        answer_hint = (
-            "Answer with EXACTLY ONE brief factual phrase "
-            "(a few words, no full sentence, no numbered list, no steps like '1. Analyze', "
-            "no timestamps, no frame filenames). "
-        )
+        answer_hint = "Reply with a short factual phrase only (no steps, timestamps, or analysis)."
 
-    return (
-        "You memorized video frames of an indoor scene. "
-        "Search episodic memory for relevant observations, then answer. "
-        f"{answer_hint}"
-        f"{spatial_hint}"
-        "If memories conflict, prefer the observation that matches the question's spatial relation "
-        "and the room named in the question. "
-        "Do not ask clarifying questions. Do not call tools. Do not repeat the question. "
-        "Never use numbered steps or analysis. Stop after the answer.\n\n"
-        f"Question: {question}"
-    )
+    parts = [answer_hint]
+    if spatial_hint:
+        parts.append(spatial_hint.strip())
+    parts.append(f"Question: {question}")
+    return " ".join(parts)
 
 
 def _set_chat_topic(mma_agent, question: str) -> None:

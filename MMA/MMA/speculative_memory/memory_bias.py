@@ -50,7 +50,7 @@ def draft_memory_bias_enabled() -> bool:
 
 def memory_bias_use_summary() -> bool:
     """Bias from episodic summary (short) instead of full content (summary + details)."""
-    return _env_flag("MMA_MEMORY_BIAS_USE_SUMMARY", True)
+    return _env_flag("MMA_MEMORY_BIAS_USE_SUMMARY", False)
 
 
 def memory_bias_filter_invisible() -> bool:
@@ -62,7 +62,13 @@ def _memory_bias_dedup_enabled() -> bool:
     return _env_flag("MMA_MEMORY_BIAS_DEDUP", True)
 
 
-def resolve_memory_bias_scale(default: float = 0.8) -> float:
+def memory_item_text_for_inference(item: MemoryItem) -> str:
+    """Same sanitized text for draft bias and target KV (summary+details content)."""
+    content, _ = _get_content_and_confidence(item)
+    return content
+
+
+def resolve_memory_bias_scale(default: float = 0.35) -> float:
     raw = os.environ.get("MMA_MEMORY_BIAS_SCALE", "").strip()
     if raw:
         return float(raw)
@@ -92,7 +98,7 @@ def _get_content_and_confidence(item: MemoryItem) -> tuple:
 
 
 def _bias_text_from_item(item: MemoryItem) -> str:
-    """Text used for token-level bias (prefer short summary when enabled)."""
+    """Text used for token-level bias; aligned with target KV unless summary-only env set."""
     if memory_bias_use_summary():
         if hasattr(item, "summary"):
             summary = getattr(item, "summary", None) or ""
@@ -100,11 +106,10 @@ def _bias_text_from_item(item: MemoryItem) -> str:
             summary = item.get("summary") or ""
         else:
             summary = ""
-        summary = (summary or "").strip()
+        summary = sanitize_memory_text_for_inference((summary or "").strip())
         if summary:
             return summary
-    content, _ = _get_content_and_confidence(item)
-    return content
+    return memory_item_text_for_inference(item)
 
 
 def filter_memory_items_for_bias(

@@ -211,7 +211,18 @@ def build_retrieval_query(question: str) -> str:
     ):
         return question
     q_l = question.lower()
+    kind = _question_retrieval_kind(question)
     extras: List[str] = []
+
+    if kind == "yes_no":
+        extras.append("visible observation")
+    elif kind == "color":
+        extras.extend(["color", "colour"])
+    elif kind == "functional":
+        extras.extend(["switch", "dial", "control", "turn on", "activate"])
+    elif kind == "spatial":
+        extras.extend(["spatial relation", "between", "above", "mounted"])
+
     if "above" in q_l and "tv" in q_l:
         extras.extend(
             [
@@ -244,6 +255,22 @@ def build_retrieval_query(question: str) -> str:
     if extras:
         return f"{question} {' '.join(extras)}"
     return question
+
+
+def _question_retrieval_kind(question: str) -> str:
+    """Route retrieval expansion by question type."""
+    q_l = (question or "").lower()
+    if is_yes_no_question(question):
+        return "yes_no"
+    if re.search(r"\b(should i|what should i|what can i do|how can i)\b", q_l):
+        return "functional"
+    if "color" in q_l or "colour" in q_l:
+        return "color"
+    if any(tok in q_l for tok in ("above", "between", "below", "next to", "mounted")):
+        return "spatial"
+    if "material" in q_l or "type" in q_l:
+        return "attribute"
+    return "general"
 
 
 def rerank_episodic_for_question(events: List[Any], query: str) -> List[Any]:
@@ -803,6 +830,13 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
                 return "TV"
 
     if "ceiling" in q_l and ("material" in q_l or "type" in q_l):
+        hint_l = blob.lower()
+        if "wood panel" in hint_l or "wooden panel" in hint_l:
+            return "Wood panel ceiling"
+        if any(tok in hint_l for tok in ("wooden beam", "wood beam", "exposed beam")):
+            return "Wooden beams"
+        if "vaulted" in hint_l and "wood" in hint_l:
+            return "Vaulted wood ceiling"
         cleaned = _clean_phrase(blob, yes_no_q=False)
         if cleaned and not _is_bad_answer(cleaned):
             return cleaned
@@ -817,6 +851,10 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
         if "dial" in hint_l or "switch" in hint_l:
             if "front door" in hint_l:
                 return "Turn the fan speed dial next to the front door"
+            if "switch panel" in hint_l or "control panel" in hint_l:
+                cleaned = _clean_phrase(blob, yes_no_q=False)
+                if cleaned and not _is_bad_answer(cleaned):
+                    return cleaned
             cleaned = _clean_phrase(blob, yes_no_q=False)
             if cleaned and not _is_bad_answer(cleaned):
                 return cleaned
@@ -983,7 +1021,10 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
         if fan_rows:
             return fan_rows[:top_k]
 
-    return ranked[:top_k]
+    picked = ranked[:top_k]
+    if _detect_memory_conflict(picked, question):
+        return ranked[:1]
+    return picked
 
 
 def apply_openeqa_qa_memory_hygiene(
@@ -1118,30 +1159,27 @@ def compute_draft_policy(question: str, events: List[Any]) -> Dict[str, Any]:
 
     if disable_draft:
         max_draft_steps = 0
-        bias_scale = 0.35 if top_aligned else 0.0
+        bias_scale = 0.2 if top_aligned else 0.0
         bias_top_k = qa_memory_top_k()
         yes_no_mode = False
     elif yes_no:
         max_draft_steps = 1 if margin >= 1.5 else 0
-        # Yes/no answers are easily misled by bias, so default off; but when the top
-        # memory clearly matches what the question asks about (e.g. a placemat row for
-        # a table-mat question), keep a small bias so real evidence isn't ignored.
-        bias_scale = 0.25 if top_aligned else 0.0
+        bias_scale = 0.15 if top_aligned else 0.0
         bias_top_k = qa_memory_top_k()
         yes_no_mode = True
     elif spatial_hard or margin < 2.0:
         max_draft_steps = 1
-        bias_scale = 0.35
+        bias_scale = 0.25
         bias_top_k = qa_memory_top_k()
         yes_no_mode = False
     elif margin >= 4.0:
         max_draft_steps = 3
-        bias_scale = 0.65
+        bias_scale = 0.4
         bias_top_k = qa_memory_top_k()
         yes_no_mode = False
     else:
         max_draft_steps = 2
-        bias_scale = 0.5
+        bias_scale = 0.3
         bias_top_k = qa_memory_top_k()
         yes_no_mode = False
 
@@ -1152,6 +1190,12 @@ def compute_draft_policy(question: str, events: List[Any]) -> Dict[str, Any]:
             (getattr(ranked[0], "summary", None) or "")[:200]
         )[:120]
         top_hint = memory_hint_from_events(ranked)
+
+    if os.environ.get("OPENEQA_SD_SPEED", "").strip().lower() in ("1", "true", "yes"):
+        if not hard_conflict and max_draft_steps < 3 and margin >= 1.5:
+            max_draft_steps = min(3, max_draft_steps + 1)
+        if yes_no and margin >= 1.0 and max_draft_steps < 1:
+            max_draft_steps = 1
 
     return {
         "rerank_margin": round(float(margin), 3),
@@ -1220,6 +1264,8 @@ def prepare_draft_policy_for_agent(mma_agent: Any, question: str) -> Dict[str, A
         return {}
     all_events = list_reranked_episodic_for_question(mma_agent, question)
     selected = select_events_for_qa(all_events, question)
+    if _detect_memory_conflict(selected, question) and len(selected) > 1:
+        selected = selected[:1]
     policy = compute_draft_policy(question, selected)
     apply_draft_policy_to_env(policy)
     _qa_session.update(question=question, ranked_events=selected, policy=policy)

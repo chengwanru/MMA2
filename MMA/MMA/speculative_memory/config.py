@@ -21,19 +21,19 @@ class SpeculativeMemoryConfig:
     # Draft
     max_draft_steps: int = 3  # max candidate tokens per draft phase
     memory_bias_scale: float = (
-        0.6  # scale for logits bias from memory (log-space additive)
+        0.35  # scale for logits bias from memory (log-space additive)
     )
     memory_bias_top_k_memories: Optional[int] = (
         1  # only use top-k by relevance/confidence for bias
     )
 
     # Verify
+    reject_strategy: str = "greedy+semantic"
+    prob_diff_threshold: float = (
+        0.35  # reject if |P_draft - P_target| > this (when strategy includes prob_diff)
+    )
     accept_threshold: float = (
         0.1  # min P_target(draft_token) to accept (when strategy == "threshold")
-    )
-    reject_strategy: Literal["threshold", "prob_diff", "greedy"] = "greedy"
-    prob_diff_threshold: float = (
-        0.3  # reject if |P_draft - P_target| > this (when strategy == "prob_diff")
     )
 
     # Generation
@@ -50,11 +50,8 @@ class SpeculativeMemoryConfig:
     memory_position_strategy: Literal["virtual_after_context"] = "virtual_after_context"
 
     def __post_init__(self) -> None:
-        if self.reject_strategy == "prob_diff" and not (
-            0 <= self.prob_diff_threshold <= 1
-        ):
+        rs = (self.reject_strategy or "").lower()
+        if "prob_diff" in rs and not (0 <= self.prob_diff_threshold <= 1):
             raise ValueError("prob_diff_threshold should be in [0, 1]")
-        if self.reject_strategy == "threshold" and not (
-            0 <= self.accept_threshold <= 1
-        ):
+        if "threshold" in rs and not (0 <= self.accept_threshold <= 1):
             raise ValueError("accept_threshold should be in [0, 1]")

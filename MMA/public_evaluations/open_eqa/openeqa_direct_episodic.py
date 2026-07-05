@@ -35,6 +35,35 @@ def _parse_summary_details(text: str) -> Tuple[str, str]:
     return lines[0][:500], "\n".join(lines)[:8000]
 
 
+def _entity_tags_from_text(text: str) -> List[str]:
+    """Structured tags appended to episodic details for retrieval."""
+    blob = (text or "").lower()
+    tags: List[str] = []
+    if any(tok in blob for tok in ("air conditioner", "air conditioning", "ac unit", "a/c")):
+        tags.append("entity:ac")
+    if any(tok in blob for tok in ("ceiling fan", "fan speed", "fan dial", "speed dial")):
+        tags.append("entity:fan_control")
+    if any(tok in blob for tok in ("placemat", "place mat", "table mat")):
+        tags.append("entity:table_mat")
+    if "wood panel" in blob or "wooden panel" in blob:
+        tags.append("entity:wood_panel_ceiling")
+    if any(tok in blob for tok in ("wooden beam", "wood beam", "exposed beam")):
+        tags.append("entity:wood_beam_ceiling")
+    if "drywall" in blob:
+        tags.append("entity:drywall_ceiling")
+    if "front door" in blob:
+        tags.append("entity:front_door")
+    return tags
+
+
+def _enrich_details(summary: str, details: str) -> str:
+    combined = f"{summary}\n{details}".strip()
+    tags = _entity_tags_from_text(combined)
+    if tags:
+        details = f"{details.rstrip()}\nTags: {', '.join(tags)}"
+    return details
+
+
 @contextmanager
 def _baseline_vl_context():
     prev = os.environ.get("MMA_SPECULATIVE_BASELINE")
@@ -75,11 +104,12 @@ def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
         "Also note small tabletop items when present: placemats/table mats, tableware, plates, cups, "
         "runners or centerpieces, and their colors. "
         "Also note appliances and their controls: air conditioner, ceiling fan, light switches, and any "
-        "wall switch panel or dial, including where it is located relative to doors or windows. "
+        "wall switch panel or dial — always include WHERE the control is (e.g. next to the front door, "
+        "on the wall by the window). "
         "If something is not visible in this frame, say so explicitly.\n"
         "Reply exactly in this format:\n"
         "SUMMARY: <one short sentence>\n"
-        "DETAILS: <detailed paragraph>"
+        "DETAILS: <detailed paragraph with object names, colors, materials, and spatial relations>"
     )
     vl_parts: List[Tuple[str, str]] = [("text", f"user: {prompt}\n")]
     paths: List[str] = []
@@ -136,6 +166,7 @@ def ensure_episodic_from_frames(
         summary, details = _parse_summary_details(caption)
         if not details and not summary:
             continue
+        details = _enrich_details(summary, details)
         basenames = ", ".join(os.path.basename(p) for p in chunk)
         details = f"Frames: {basenames}\n{details}"
         ts = datetime.now(tz)

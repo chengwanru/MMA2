@@ -159,8 +159,6 @@ def _subprocess_env(use_speculative_baseline: bool, phase: str = "all") -> Dict[
         env.pop("MMA_SPECULATIVE_BASELINE", None)
     if env.get("MMA_OFFLINE", "").strip().lower() in ("1", "true", "yes"):
         env["MMA_MEMORY_SEARCH_METHOD"] = "bm25"
-    if env.get("OPENEQA_NO_OFFLOAD", "").strip().lower() not in ("1", "true", "yes"):
-        env.setdefault("MMA_SPECULATIVE_OFFLOAD_TARGET", "1")
     default_batch = "1" if phase == "memorize" else "4"
     env.setdefault("OPENEQA_ABSORB_BATCH_SIZE", default_batch)
     env.setdefault("OPENEQA_SKIP_META", "1")
@@ -183,12 +181,22 @@ def _subprocess_env(use_speculative_baseline: bool, phase: str = "all") -> Dict[
     env.setdefault("OPENEQA_TUNE_QA_AGENT", "1")
     env.setdefault("OPENEQA_TRUST_GATE", "1")
     env.setdefault("OPENEQA_VERIFY_REJECT_BAD_DRAFT", "1")
+    env.setdefault("MMA_REJECT_STRATEGY", "greedy+semantic")
+    env.setdefault("MMA_SEMANTIC_THRESHOLD", "0.78")
+    env.setdefault("MMA_SEMANTIC_TOP_K", "8")
+    env.setdefault("MMA_DRAFT_FAST_SINGLE_STEP", "1")
+    if env.get("OPENEQA_SD_NO_OFFLOAD", "").strip().lower() in ("1", "true", "yes"):
+        env["MMA_SPECULATIVE_OFFLOAD_TARGET"] = "0"
+    elif env.get("OPENEQA_NO_OFFLOAD", "").strip().lower() not in ("1", "true", "yes"):
+        env.setdefault("MMA_SPECULATIVE_OFFLOAD_TARGET", "1")
     # Conditional draft: trust gate sets per-question OPENEQA_MAX_DRAFT_STEPS / bias scale.
     env.setdefault("MMA_MEMORY_BIAS_DEDUP", "1")
-    env.setdefault("MMA_MEMORY_BIAS_USE_SUMMARY", "1")
+    env.setdefault("MMA_MEMORY_BIAS_USE_SUMMARY", "0")
     env.setdefault("MMA_MEMORY_BIAS_FILTER_INVISIBLE", "1")
-    env.setdefault("MMA_MEMORY_BIAS_SCALE", "0.6")
+    env.setdefault("MMA_MEMORY_BIAS_SCALE", "0.35")
     env.setdefault("MMA_MEMORY_BIAS_TOP_K", "1")
+    env.setdefault("MMA_SD_TARGET_KV_CACHE", "1")
+    env.setdefault("MMA_ENABLE_VISUAL_ROUTING", "1")
 
     if phase == "memorize":
         # Per-frame VL captions (direct episodic); tool-call often collapses 8 frames into 1 summary.

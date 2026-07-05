@@ -18,13 +18,22 @@ from mma.speculative_memory.kv_extension import (
     get_memory_kv_from_target_model,
     strip_rope_from_memory_keys,
 )
-from mma.speculative_memory.memory_bias import _get_content_and_confidence
-from mma.speculative_memory.memory_text_sanitize import sanitize_memory_text_for_inference
+from mma.speculative_memory.memory_bias import (
+    _get_content_and_confidence,
+    memory_item_text_for_inference,
+)
 from mma.speculative_memory.draft_guards import (
     force_reject_accepted_prefix,
     resolve_max_draft_steps,
 )
-from mma.speculative_memory.verify import verify_draft_tokens, AcceptRejectResult
+from mma.speculative_memory.verify import (
+    verify_draft_tokens,
+    AcceptRejectResult,
+    resolve_reject_strategy,
+    resolve_semantic_threshold,
+    resolve_semantic_top_k,
+    strategy_needs_embeddings,
+)
 
 class CudaTimer:
     def __init__(self, device: torch.device):
@@ -43,6 +52,26 @@ class CudaTimer:
         if self.is_cuda:
             torch.cuda.synchronize(self.device)
         self.elapsed = time.perf_counter() - self.start_time
+
+
+def _target_kv_cache_enabled() -> bool:
+    return os.environ.get("MMA_SD_TARGET_KV_CACHE", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+
+
+class _TargetPrefixCache:
+    """Caches committed prefix K/V for target verify (excludes unaccepted draft tokens)."""
+
+    def __init__(self) -> None:
+        self.past_key_values: Any = None
+        self.cached_len: int = 0
+
+    def reset(self) -> None:
+        self.past_key_values = None
+        self.cached_len = 0
 
 
 # Same as memory_bias: item with content/text and optional confidence
@@ -113,7 +142,7 @@ def _memory_items_to_input_ids(
     all_conf: List[float] = []
     for item in items:
         content, confidence = _get_content_and_confidence(item)
-        content = sanitize_memory_text_for_inference(content)
+        content = memory_item_text_for_inference(item) or content
         if not content:
             continue
         try:
@@ -255,15 +284,18 @@ def generate_with_speculative_memory(
 
     device = next(target_model.parameters()).device
 
-    reject_strategy = os.environ.get("MMA_REJECT_STRATEGY", config.reject_strategy).strip().lower()
-    semantic_threshold = float(os.environ.get("MMA_SEMANTIC_THRESHOLD", "0.82"))
+    reject_strategy = resolve_reject_strategy(config.reject_strategy)
+    semantic_threshold = resolve_semantic_threshold()
+    semantic_top_k = resolve_semantic_top_k()
 
     target_embeddings = None
-    if "semantic" in reject_strategy:
+    if strategy_needs_embeddings(reject_strategy) or "semantic" in reject_strategy:
         try:
             target_embeddings = target_model.get_input_embeddings().weight
         except AttributeError:
             pass
+    if "semantic" in reject_strategy and target_embeddings is None:
+        reject_strategy = reject_strategy.replace("+semantic", "").replace("semantic+", "").replace("semantic", "greedy")
 
     if stats_out is not None:
         stats_out["reject_strategy"] = reject_strategy
@@ -361,6 +393,138 @@ def generate_with_speculative_memory(
         "verify_time": 0.0,
         "total_rounds": 0
     }
+    memory_kv_rope_cache: Dict[int, Any] = {}
+    prefix_cache = _TargetPrefixCache()
+    use_target_kv_cache = _target_kv_cache_enabled()
+
+    def _memory_kv_at(context_len: int):
+        if memory_kv_raw is None:
+            return None
+        if context_len not in memory_kv_rope_cache:
+            with CudaTimer(device) as t_rope:
+                memory_kv_rope_cache[context_len] = apply_rope_to_memory_keys(
+                    memory_kv_raw, context_len, rotary_emb, device
+                )
+            time_stats["rope_time"] += t_rope.elapsed
+        return memory_kv_rope_cache[context_len]
+
+    def _vl_kwargs(include_vl: bool) -> dict:
+        kwargs: dict = {}
+        if include_vl:
+            if pixel_values is not None:
+                kwargs["pixel_values"] = pixel_values.to(device)
+            if image_grid_thw is not None:
+                kwargs["image_grid_thw"] = image_grid_thw.to(device)
+            if pixel_values_videos is not None:
+                kwargs["pixel_values_videos"] = pixel_values_videos.to(device)
+            if video_grid_thw is not None:
+                kwargs["video_grid_thw"] = video_grid_thw.to(device)
+        return kwargs
+
+    def _extend_prefix_cache(
+        input_ids: torch.Tensor,
+        upto: int,
+        *,
+        memory_kv_positioned: Any,
+    ) -> None:
+        """Commit tokens input_ids[:, cached_len:upto] into the prefix KV cache."""
+        if not use_target_kv_cache or upto <= prefix_cache.cached_len:
+            return
+        if prefix_cache.cached_len > upto:
+            prefix_cache.reset()
+        chunk = input_ids[:, prefix_cache.cached_len:upto]
+        if chunk.size(1) == 0:
+            return
+        include_vl = prefix_cache.cached_len == 0
+        forward_kwargs = {
+            "input_ids": chunk,
+            "attention_mask": torch.ones_like(chunk, dtype=torch.long, device=device),
+            "memory_past_key_values": memory_kv_positioned,
+            "memory_attention_bias": memory_attention_bias,
+            "use_cache": True,
+            "past_key_values": prefix_cache.past_key_values,
+            **_vl_kwargs(include_vl),
+        }
+        with torch.no_grad():
+            outputs = target_model(**forward_kwargs)
+        if getattr(outputs, "past_key_values", None) is not None:
+            prefix_cache.past_key_values = outputs.past_key_values
+            prefix_cache.cached_len = upto
+
+    def _target_forward_logits(
+        input_ids: torch.Tensor,
+        *,
+        context_len: int,
+        logits_to_keep: int,
+        memory_kv_positioned: Any,
+    ) -> torch.Tensor:
+        """Run target forward; reuse prefix KV when enabled."""
+        if not use_target_kv_cache:
+            forward_kwargs = {
+                "input_ids": input_ids,
+                "attention_mask": torch.ones_like(
+                    input_ids, dtype=torch.long, device=device
+                ),
+                "memory_past_key_values": memory_kv_positioned,
+                "memory_attention_bias": memory_attention_bias,
+                "use_cache": False,
+                "logits_to_keep": logits_to_keep,
+                **_vl_kwargs(include_vl=True),
+            }
+            with torch.no_grad():
+                outputs = target_model(**forward_kwargs)
+            logits = outputs.logits
+            if logits.dim() == 3:
+                logits = logits.squeeze(0)
+            return logits
+
+        if prefix_cache.cached_len > context_len:
+            prefix_cache.reset()
+        if context_len > 0 and prefix_cache.cached_len < context_len - 1:
+            _extend_prefix_cache(
+                input_ids,
+                context_len - 1,
+                memory_kv_positioned=_memory_kv_at(max(1, context_len - 1)),
+            )
+        if context_len == 0:
+            new_tokens = input_ids
+            include_vl = prefix_cache.cached_len == 0
+        else:
+            new_tokens = input_ids[:, context_len - 1 :]
+            include_vl = prefix_cache.cached_len == 0 and context_len == 1
+        forward_kwargs = {
+            "input_ids": new_tokens,
+            "attention_mask": torch.ones_like(
+                new_tokens, dtype=torch.long, device=device
+            ),
+            "memory_past_key_values": memory_kv_positioned,
+            "memory_attention_bias": memory_attention_bias,
+            "use_cache": True,
+            "past_key_values": prefix_cache.past_key_values,
+            "logits_to_keep": logits_to_keep,
+            **_vl_kwargs(include_vl),
+        }
+        with torch.no_grad():
+            outputs = target_model(**forward_kwargs)
+        logits = outputs.logits
+        if logits.dim() == 3:
+            logits = logits.squeeze(0)
+        return logits
+
+    def _commit_prefix_cache(
+        input_ids: torch.Tensor,
+        committed_len: int,
+        *,
+        memory_kv_positioned: Any,
+    ) -> None:
+        """Extend prefix cache with accepted tokens after verify (not draft-only forwards)."""
+        if not use_target_kv_cache or committed_len <= prefix_cache.cached_len:
+            return
+        _extend_prefix_cache(
+            input_ids,
+            committed_len,
+            memory_kv_positioned=memory_kv_positioned,
+        )
 
     while total_generated < max_new_tokens:
         context_len = current_ids.size(1)
@@ -381,39 +545,15 @@ def generate_with_speculative_memory(
             # Generate one token from target and continue (no raise). See also draft_model:
             # min_new_tokens=1 and keeping first EOS as one draft token.
             with torch.no_grad():
-                # Re-encode memory K at positions [context_len .. context_len+memory_len-1]
-                # so that the query at position context_len sees memory at the right distance.
-                memory_kv_positioned = (
-                    apply_rope_to_memory_keys(
-                        memory_kv_raw, context_len, rotary_emb, device
+                memory_kv_positioned = _memory_kv_at(context_len)
+                with CudaTimer(device) as t_target:
+                    logits = _target_forward_logits(
+                        current_ids,
+                        context_len=context_len,
+                        logits_to_keep=1,
+                        memory_kv_positioned=memory_kv_positioned,
                     )
-                    if memory_kv_raw is not None
-                    else None
-                )
-                target_forward_kwargs = {
-                    "input_ids": current_ids,
-                    "attention_mask": torch.ones_like(
-                        current_ids, dtype=torch.long, device=device
-                    ),
-                    "memory_past_key_values": memory_kv_positioned,
-                    "memory_attention_bias": memory_attention_bias,
-                    "use_cache": False,
-                    "logits_to_keep": 1,
-                }
-                if pixel_values is not None:
-                    target_forward_kwargs["pixel_values"] = pixel_values.to(device)
-                if image_grid_thw is not None:
-                    target_forward_kwargs["image_grid_thw"] = image_grid_thw.to(device)
-                if pixel_values_videos is not None:
-                    target_forward_kwargs["pixel_values_videos"] = (
-                        pixel_values_videos.to(device)
-                    )
-                if video_grid_thw is not None:
-                    target_forward_kwargs["video_grid_thw"] = video_grid_thw.to(device)
-                target_outputs = target_model(**target_forward_kwargs)
-            logits = target_outputs.logits
-            if logits.dim() == 3:
-                logits = logits.squeeze(0)
+                time_stats["target_time"] += t_target.elapsed
             last_logits = logits[-1:]
             if config.do_sample:
                 probs = torch.softmax(last_logits.float(), dim=-1)
@@ -423,6 +563,11 @@ def generate_with_speculative_memory(
             next_token = next_token.squeeze(-1).unsqueeze(0)
             current_ids = torch.cat([current_ids, next_token], dim=1)
             total_generated += 1
+            _commit_prefix_cache(
+                current_ids,
+                current_ids.size(1),
+                memory_kv_positioned=_memory_kv_at(context_len),
+            )
             _record_draft_round(
                 round_no=time_stats["total_rounds"],
                 draft_token_ids=[],
@@ -456,49 +601,16 @@ def generate_with_speculative_memory(
         # i.e. num_draft positions for verify, plus last for bonus token -> logits_to_keep = num_draft + 1
         logits_to_keep = num_draft + 1
 
-        with CudaTimer(device) as t_rope:
-            memory_kv_positioned = (
-                apply_rope_to_memory_keys(memory_kv_raw, context_len, rotary_emb, device)
-                if memory_kv_raw is not None
-                else None
-            )
-        time_stats["rope_time"] += t_rope.elapsed
-
         with torch.no_grad():
-            # Re-encode memory K at positions [context_len .. context_len+memory_len-1].
-            # Use context_len (before draft tokens) so memory position is consistent with
-            # the verification step that references the pre-draft context boundary.
-            memory_kv_positioned = (
-                apply_rope_to_memory_keys(
-                    memory_kv_raw, context_len, rotary_emb, device
+            memory_kv_positioned = _memory_kv_at(context_len)
+            with CudaTimer(device) as t_target:
+                logits = _target_forward_logits(
+                    full_ids,
+                    context_len=context_len,
+                    logits_to_keep=logits_to_keep,
+                    memory_kv_positioned=memory_kv_positioned,
                 )
-                if memory_kv_raw is not None
-                else None
-            )
-            target_forward_kwargs = {
-                "input_ids": full_ids,
-                "attention_mask": torch.ones_like(
-                    full_ids, dtype=torch.long, device=device
-                ),
-                "memory_past_key_values": memory_kv_positioned,
-                "memory_attention_bias": memory_attention_bias,
-                "use_cache": False,
-                "logits_to_keep": logits_to_keep,
-            }
-            if pixel_values is not None:
-                target_forward_kwargs["pixel_values"] = pixel_values.to(device)
-            if image_grid_thw is not None:
-                target_forward_kwargs["image_grid_thw"] = image_grid_thw.to(device)
-            if pixel_values_videos is not None:
-                target_forward_kwargs["pixel_values_videos"] = pixel_values_videos.to(
-                    device
-                )
-            if video_grid_thw is not None:
-                target_forward_kwargs["video_grid_thw"] = video_grid_thw.to(device)
-            target_outputs = target_model(**target_forward_kwargs)
-        logits = target_outputs.logits
-        if logits.dim() == 3:
-            logits = logits.squeeze(0)
+            time_stats["target_time"] += t_target.elapsed
         # logits shape (logits_to_keep, vocab_size) -> first num_draft rows for verify, last row for bonus
         target_logits_for_verify = logits[:num_draft]
         last_position_logits = logits[-1:]
@@ -507,13 +619,14 @@ def generate_with_speculative_memory(
         with CudaTimer(device) as t_verify:
             accept_result: AcceptRejectResult = verify_draft_tokens(
                 target_logits_for_verify,
-                draft_result.draft_token_ids,           # <--- 补上 draft_result.
-                draft_result.draft_logits_per_position, # <--- 补上 draft_result.
-                strategy=reject_strategy, 
+                draft_result.draft_token_ids,
+                draft_result.draft_logits_per_position,
+                strategy=reject_strategy,
                 accept_threshold=config.accept_threshold,
                 prob_diff_threshold=config.prob_diff_threshold,
-                embedding_matrix=target_embeddings, 
-                semantic_threshold=semantic_threshold, 
+                embedding_matrix=target_embeddings,
+                semantic_threshold=semantic_threshold,
+                semantic_top_k=semantic_top_k,
             )
         time_stats["verify_time"] += t_verify.elapsed
         num_accepted = accept_result.num_accepted
@@ -582,6 +695,11 @@ def generate_with_speculative_memory(
             next_token = next_token.squeeze(-1).unsqueeze(0)
         current_ids = torch.cat([current_ids, next_token], dim=1)
         total_generated += 1
+        _commit_prefix_cache(
+            current_ids,
+            current_ids.size(1),
+            memory_kv_positioned=_memory_kv_at(context_len),
+        )
         _record_draft_round(
             round_no=time_stats["total_rounds"],
             draft_token_ids=list(draft_result.draft_token_ids),
