@@ -206,6 +206,7 @@ class EmbodiedEpisodicStore:
         self._step_counter: Dict[str, int] = {}
         self._persist_path = persist_path
         self._max_per_task = max(5, max_per_task)
+        self._last_step_recorded_time = time.time()
         if persist_path and os.path.isfile(persist_path):
             self._load_jsonl(persist_path)
 
@@ -275,9 +276,11 @@ class EmbodiedEpisodicStore:
         last_env_feedback: str,
         sim_info: Optional[Dict[str, Any]] = None,
     ) -> Optional[EmbodiedEpisodicRecord]:
+        current_time = time.time()
+        elapsed_step_time = current_time - self._last_step_recorded_time
+        self._last_step_recorded_time = current_time
+
         feedback = (last_env_feedback or "").strip()
-        if not feedback:
-            return None
 
         sim_info = dict(sim_info or {})
         task_key = task_key_from_sentence(sentence)
@@ -311,6 +314,45 @@ class EmbodiedEpisodicStore:
             metadata_={EMBODIED_METADATA_KEY: embodied},
             task_key=task_key,
         )
+
+        if os.environ.get("EMBODIEDBENCH_VERBOSE_DEBUG", "1").strip().lower() in ("1", "true", "yes"):
+            print("\n" + "=" * 50 + " EMBODIEDBENCH STEP MONITOR " + "=" * 50)
+            print(f"【当前步骤/Step Index】: {step_index}")
+            print(f"【提问 / 任务目标 (Goal)】: {task_text}")
+            print(f"【此步总耗时 (Elapsed Time)】: {elapsed_step_time:.2f} 秒") 
+            
+            # 模型回答/传参
+            print("-" * 40 + " 模型动作执行 (Model Execution) " + "-" * 40)
+            print(f"  └─ 模型选择的Action ID   : {action.get('action_id', 'N/A')}")
+            print(f"  └─ 模型选择的Action Name : {an}")
+            if sim_info.get("holding_object"):
+                print(f"  └─ 模型抓取的物品 (Holding): {sim_info.get('holding_object')}")
+            
+            # 理论正确回答 / 环境真实状态反馈
+            print("-" * 40 + " 环境反馈与目标校验 (Ground Truth Checking) " + "-" * 40)
+            print(f"  └─ 执行结果 (Outcome)   : {outcome.upper()}")
+            print(f"  └─ 环境真实反馈 (Feedback): {feedback}")
+            if err:
+                print(f"  └─ 失败归类 (Error Class) : {err}")
+            if sim_info.get("reason_code"):
+                print(f"  └─ 环境状态码 (Reason Code): {sim_info.get('reason_code')}")
+            
+            # 获取当前的任务 Catalog
+            from embodiedbench_utils import _extract_action_catalog
+            catalog = _extract_action_catalog(sentence)
+            if catalog:
+                # 寻找包含目标词的候选
+                target_words = [w for w in task_text.split() if len(w) > 3]
+                suggested_gt = []
+                for aid, desc in catalog.items():
+                    if any(tw in desc.lower() for tw in target_words):
+                        suggested_gt.append(f"{aid}: {desc}")
+                if suggested_gt:
+                    print(f"  └─ 理论参考候选动作 (Expert Action Candidates):")
+                    for gt_line in suggested_gt[:3]:
+                        print(f"       * {gt_line}")
+            print("=" * 128 + "\n")
+            
         with self._lock:
             bucket = self._by_task.setdefault(task_key, [])
             bucket.append(record)

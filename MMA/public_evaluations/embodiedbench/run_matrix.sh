@@ -68,7 +68,7 @@ done
 # 3. 运行 EmbodiedBench Client
 set +e
 cd /data/group/zhaolab/project/EmbodiedBench
-python -m embodiedbench.main env=eb-alf model_name=mma model_type=custom exp_name=${exp_name} down_sample_ratio=0.1
+python -m embodiedbench.main env=eb-alf model_name=mma model_type=custom exp_name=${exp_name} down_sample_ratio=0.02 eval_sets=[base]
 CLIENT_EXIT=\$?
 set -e
 
