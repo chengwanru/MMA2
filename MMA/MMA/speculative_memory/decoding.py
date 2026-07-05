@@ -279,6 +279,32 @@ def generate_with_speculative_memory(
         raise ValueError("generate_with_speculative_memory expects batch_size=1.")
 
     initial_prompt_len = int(current_ids.size(1))
+    
+    from mma.visual_routing import (
+        VisualRoutingConfig, 
+        get_evidence_requirement, 
+        route_text_memory_items
+    )
+    
+    routing_config = VisualRoutingConfig()
+    if routing_config.enable_routing:
+        query_text = tokenizer.decode(current_ids[0], skip_special_tokens=True)
+        visual_budget = get_evidence_requirement(query_text, routing_config)
+        
+        original_mem_count = len(memory_items)
+        memory_items = route_text_memory_items(
+            memory_items=memory_items,
+            query_ids=current_ids,
+            target_model=target_model,
+            tokenizer=tokenizer,
+            budget=visual_budget,
+            device=device
+        )
+        
+        if stats_out is not None:
+            stats_out["routing_budget"] = visual_budget
+            stats_out["memories_before_routing"] = original_mem_count
+            stats_out["memories_after_routing"] = len(memory_items)
 
     # Stage 1: precompute memory K/V for target (once per call; reuse every round)
     # memory_kv_raw stores K tensors with RoPE *removed* so they can be re-encoded
