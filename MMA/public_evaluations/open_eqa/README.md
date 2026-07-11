@@ -236,11 +236,22 @@ python export_openeqa_official.py \
   --variant ours
 ```
 
+## Baidu AIBox 共享环境（`/workspace` + `/tmp`）
+
+Pod 重启后先激活共享 Python 3.11（包在 `/tmp/embench_staging`，备份在 `/workspace/conda_envs/site-packages_backup.tar`）：
+
+```bash
+source /workspace/MMA2/MMA/public_evaluations/open_eqa/use_mma_env.sh
+export CUDA_VISIBLE_DEVICES=0   # 选显存最多的 GPU
+cd /workspace/MMA2/MMA/public_evaluations/open_eqa
+$PY run_openeqa_eval.py ...
+```
+
 ## 常见报错
 
 | 报错 | 处理 |
 |------|------|
-| `No module named mma` | `cd MMA2/MMA && ln -sfn MMA mma` |
+| `No module named mma` | `cd MMA2/MMA && cp -a MMA mma`（bosfs 勿用 symlink） |
 | multimodal 条数为 0 | 确认 `../data/open_eqa_data/hm3d-v0/*.tar` 存在 |
 | inode 满 / 磁盘占满 | 勿整包解压 tar；跑 `bash cleanup_openeqa_extracted.sh` |
 | CUDA OOM（40G GPU） | 默认 smoke 只跑 `VARIANTS=ours`、`LIMIT=2`、2 帧；baseline 另开 job：`VARIANTS=baseline sbatch ...` |

@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-WORK_ROOT="${WORK_ROOT:-/nix/mma2}"
+WORK_ROOT="${WORK_ROOT:-/workspace}"
 ROOT="${ROOT:-${WORK_ROOT}/MMA2}"
 MMA_PKG="${ROOT}/MMA"
 OEQA="${MMA_PKG}/public_evaluations/open_eqa"
@@ -21,7 +21,8 @@ DATA_DIR="${MMA_PKG}/public_evaluations/data/open_eqa_data"
 HF_HOME="${HF_HOME:-${WORK_ROOT}/hf_cache}"
 CONDA_ENVS="${CONDA_ENVS:-${WORK_ROOT}/conda_envs}"
 CONDA_ENV_PATH="${CONDA_ENV_PATH:-${CONDA_ENVS}/embench}"
-CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-${WORK_ROOT}/conda_pkgs}"
+# bosfs (/workspace) rejects seek on .conda archives — keep package cache on local disk
+CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-/tmp/conda_pkgs}"
 
 OFFLINE=0
 SKIP_MODELS=0
@@ -46,26 +47,36 @@ mkdir -p "${WORK_ROOT}" "${CONDA_ENVS}" "${CONDA_PKGS_DIRS}"
   exit 1
 }
 
-echo "=== 1. conda env on /nix (avoid 40G root) ==="
+echo "=== 1. conda env ==="
 export CONDA_PKGS_DIRS
-if command -v conda >/dev/null 2>&1; then
+export CONDA_SOLVER="${CONDA_SOLVER:-classic}"
+export CONDA_NO_PLUGINS="${CONDA_NO_PLUGINS:-true}"
+
+if [[ ! -x "${CONDA_ENV_PATH}/bin/python" ]]; then
+  command -v conda >/dev/null 2>&1 || {
+    echo "ERROR: conda not found and ${CONDA_ENV_PATH}/bin/python missing." >&2
+    exit 1
+  }
   # shellcheck source=/dev/null
-  source "$(conda info --base)/etc/profile.d/conda.sh"
-else
-  echo "ERROR: conda not found. Server already has (base); check PATH." >&2
-  exit 1
+  source "$(CONDA_SOLVER=classic conda info --base)/etc/profile.d/conda.sh"
+  conda create -p "${CONDA_ENV_PATH}" python=3.11 -y
 fi
 
 if [[ ! -x "${CONDA_ENV_PATH}/bin/python" ]]; then
-  conda create -p "${CONDA_ENV_PATH}" python=3.11 -y
+  echo "ERROR: ${CONDA_ENV_PATH}/bin/python not found after setup." >&2
+  exit 1
 fi
 # shellcheck source=/dev/null
-source "${CONDA_ENV_PATH}/bin/activate" 2>/dev/null || conda activate "${CONDA_ENV_PATH}"
+source "${CONDA_ENV_PATH}/bin/activate"
 
-echo "=== 2. MMA package symlink ==="
+echo "=== 2. MMA package (mma import path) ==="
 if [[ ! -e "${MMA_PKG}/mma/__init__.py" ]]; then
-  ln -sfn MMA "${MMA_PKG}/mma"
-  echo "Created ${MMA_PKG}/mma -> MMA"
+  if ln -sfn MMA "${MMA_PKG}/mma" 2>/dev/null; then
+    echo "Created ${MMA_PKG}/mma -> MMA"
+  else
+    cp -a "${MMA_PKG}/MMA" "${MMA_PKG}/mma"
+    echo "Copied ${MMA_PKG}/MMA -> mma (bosfs: no symlinks)"
+  fi
 fi
 
 if [[ "${SKIP_DEPS}" -eq 0 ]]; then
@@ -84,13 +95,15 @@ else
   echo "=== 3. skip deps ==="
 fi
 
-echo "=== 3b. mma import path (Linux needs mma/ symlink) ==="
+echo "=== 3b. mma import path ==="
 if [[ ! -f "${MMA_PKG}/MMA/__init__.py" ]]; then
   echo "ERROR: ${MMA_PKG}/MMA/__init__.py missing — re-upload MMA2 from Mac (upload_via_jump.sh)" >&2
   exit 1
 fi
-ln -sfn MMA "${MMA_PKG}/mma"
-echo "mma package: $(readlink -f "${MMA_PKG}/mma/__init__.py")"
+if [[ ! -f "${MMA_PKG}/mma/__init__.py" ]]; then
+  ln -sfn MMA "${MMA_PKG}/mma" 2>/dev/null || cp -a "${MMA_PKG}/MMA" "${MMA_PKG}/mma"
+fi
+echo "mma package: ${MMA_PKG}/mma/__init__.py"
 
 echo "=== 4. env file ==="
 mkdir -p "${HF_HOME}" "${OEQA}/logs" "${OEQA}/results" "${DATA_DIR}"
@@ -148,7 +161,7 @@ fi
 echo "=== 7. sanity check ==="
 # shellcheck source=/dev/null
 source "${ENV_FILE}"
-conda activate "${CONDA_ENV_PATH}" 2>/dev/null || true
+source "${CONDA_ENV_PATH}/bin/activate"
 python - <<'PY'
 import sys
 print("python:", sys.executable)

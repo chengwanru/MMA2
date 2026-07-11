@@ -28,7 +28,7 @@ REMOTE_HOST="${REMOTE_HOST:-180.76.138.216}"
 REMOTE_USER="${REMOTE_USER:-root}"
 SSH_PORT="${SSH_PORT:-609}"
 SSH_JUMP="${SSH_JUMP:-}"
-WORK_ROOT="/nix/mma2"
+WORK_ROOT="${WORK_ROOT:-/workspace}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
 WITH_MODELS=0

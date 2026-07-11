@@ -20,6 +20,14 @@ if [[ -f "${ENV_FILE}" ]]; then
   source "${ENV_FILE}"
 fi
 
+if [[ -n "${CONDA_ENV_PATH:-}" && -x "${CONDA_ENV_PATH}/bin/python" ]]; then
+  # shellcheck source=/dev/null
+  source "${CONDA_ENV_PATH}/bin/activate"
+elif [[ "$(python -c 'import sys; print(sys.version_info >= (3,10))' 2>/dev/null || echo False)" != "True" ]]; then
+  echo "ERROR: need Python >=3.10 (match/case). Run: source /opt/conda/envs/embench/bin/activate" >&2
+  exit 1
+fi
+
 export PYTHONPATH="${ROOT}:${PEV}:${PYTHONPATH:-}"
 
 if [[ ! -e "${ROOT}/mma/__init__.py" ]]; then
