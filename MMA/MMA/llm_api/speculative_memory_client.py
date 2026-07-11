@@ -80,7 +80,7 @@ def _patch_tokenizer_no_trunc(tokenizer: Any):
 
 
 def _vl_parts_to_messages(
-    vl_content_parts: List[Tuple[str, str]],
+    vl_content_parts: List[Tuple[str, Any]],
     *,
     chat: Optional[List[Dict[str, str]]] = None,
     tool_instructions: Optional[str] = None,
@@ -101,7 +101,12 @@ def _vl_parts_to_messages(
             if text:
                 user_content.append({"type": "text", "text": text})
         else:
-            user_content.append({"type": "image", "image": value})
+            img = value
+            if isinstance(value, str):
+                from PIL import Image as PILImage
+
+                img = PILImage.open(value).convert("RGB")
+            user_content.append({"type": "image", "image": img})
 
     messages: List[Dict[str, Any]] = []
     if system_chunks:
@@ -127,7 +132,7 @@ def _run_vl_processor(
     text: str,
     images_list: List[Any],
     chat: Optional[List[Dict[str, str]]] = None,
-    vl_content_parts: Optional[List[Tuple[str, str]]] = None,
+    vl_content_parts: Optional[List[Tuple[str, Any]]] = None,
     tool_instructions: Optional[str] = None,
 ) -> Any:
     """Tokenize multimodal inputs; prefer apply_chat_template, force no truncation."""
@@ -504,13 +509,16 @@ class SpeculativeMemoryClient(LLMClientBase):
             image_token = getattr(processor, "image_token", "<|image_pad|>")
             text_parts: List[str] = []
             images_list: List[Any] = []
+            vl_content_parts_resolved: List[Tuple[str, Any]] = []
             for kind, value in vl_content_parts:
                 if kind == "text":
                     text_parts.append(value)
+                    vl_content_parts_resolved.append((kind, value))
                 else:
                     text_parts.append(image_token)
                     img = PILImage.open(value).convert("RGB")
                     images_list.append(img)
+                    vl_content_parts_resolved.append((kind, img))
             if not text_parts:
                 return None, None, None
             if tool_instructions:
@@ -521,7 +529,7 @@ class SpeculativeMemoryClient(LLMClientBase):
                 text="".join(text_parts),
                 images_list=images_list,
                 chat=chat,
-                vl_content_parts=vl_content_parts,
+                vl_content_parts=vl_content_parts_resolved,
                 tool_instructions=tool_instructions,
             )
             def _field(name: str):
