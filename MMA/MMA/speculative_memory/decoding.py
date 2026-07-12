@@ -26,6 +26,11 @@ from mma.speculative_memory.draft_guards import (
     force_reject_accepted_prefix,
     resolve_max_draft_steps,
 )
+from mma.speculative_memory.sd_target_utils import (
+    memory_forward_extras,
+    sd_debug_log,
+    target_supports_memory_kv,
+)
 from mma.speculative_memory.verify import (
     verify_draft_tokens,
     AcceptRejectResult,
@@ -283,6 +288,10 @@ def generate_with_speculative_memory(
         max_new_tokens = config.max_new_tokens
 
     device = next(target_model.parameters()).device
+    sd_debug_log(target_model)
+    use_memory_kv = target_supports_memory_kv(target_model)
+    if stats_out is not None:
+        stats_out["memory_kv_enabled"] = use_memory_kv
 
     reject_strategy = resolve_reject_strategy(config.reject_strategy)
     semantic_threshold = resolve_semantic_threshold()
@@ -338,9 +347,7 @@ def generate_with_speculative_memory(
             stats_out["memories_before_routing"] = original_mem_count
             stats_out["memories_after_routing"] = len(memory_items)
 
-    # Stage 1: precompute memory K/V for target (once per call; reuse every round)
-    # memory_kv_raw stores K tensors with RoPE *removed* so they can be re-encoded
-    # each round at the correct global positions (KVLink-style position re-encoding).
+    # Stage 1: precompute memory K/V for target (MMA Qwen3VL only; native HF target skips KV).
     memory_kv_raw: Optional[List[tuple]] = None
     memory_input_ids, memory_conf_weights = _memory_items_to_input_ids(
         memory_items,
@@ -349,30 +356,19 @@ def generate_with_speculative_memory(
         top_k=config.memory_bias_top_k_memories,
         max_memory_tokens=512,
     )
-    # Extract the rotary embedding module once; used every round for position re-encoding.
-    # Access path: ForConditionalGeneration → model (Qwen3VLModel) → language_model
-    #              (Qwen3VLTextModel) → rotary_emb
-    rotary_emb = _get_rotary_emb(target_model)
+    rotary_emb = _get_rotary_emb(target_model) if use_memory_kv else None
 
-    # Memory K/V: we run target on text-only memory tokens (no images). MMA memory content is
-    # retrieved text; if your memory ever has image placeholders, this may need to change.
-    if memory_input_ids is not None and memory_input_ids.size(1) > 0:
+    if use_memory_kv and memory_input_ids is not None and memory_input_ids.size(1) > 0:
         memory_kv = get_memory_kv_from_target_model(
             target_model,
             memory_input_ids,
             device=device,
             use_cache=True,
         )
-        # Strip RoPE from memory K tensors once (they were encoded at positions 0..N-1).
-        # Re-encoding at the correct positions happens every round (see apply_rope_to_memory_keys).
         memory_kv_raw = strip_rope_from_memory_keys(memory_kv, rotary_emb, device)
 
-    # Confidence-weighted attention logit bias: add log(confidence) to the attention
-    # mask for memory positions.  High-confidence → bias≈0 (attend freely);
-    # low-confidence → large negative bias (soft-masked out).
-    # Shape: (1, 1, 1, memory_len) — broadcast over (batch, heads, query_len, memory_len).
     memory_attention_bias: Optional[torch.Tensor] = None
-    if memory_conf_weights is not None:
+    if use_memory_kv and memory_conf_weights is not None:
         memory_attention_bias = build_memory_attention_bias(memory_conf_weights)
 
     total_generated = 0
@@ -398,7 +394,7 @@ def generate_with_speculative_memory(
     use_target_kv_cache = _target_kv_cache_enabled()
 
     def _memory_kv_at(context_len: int):
-        if memory_kv_raw is None:
+        if not use_memory_kv or memory_kv_raw is None or rotary_emb is None:
             return None
         if context_len not in memory_kv_rope_cache:
             with CudaTimer(device) as t_rope:
@@ -439,11 +435,14 @@ def generate_with_speculative_memory(
         forward_kwargs = {
             "input_ids": chunk,
             "attention_mask": torch.ones_like(chunk, dtype=torch.long, device=device),
-            "memory_past_key_values": memory_kv_positioned,
-            "memory_attention_bias": memory_attention_bias,
             "use_cache": True,
             "past_key_values": prefix_cache.past_key_values,
             **_vl_kwargs(include_vl),
+            **memory_forward_extras(
+                target_model,
+                memory_kv_positioned,
+                memory_attention_bias,
+            ),
         }
         with torch.no_grad():
             outputs = target_model(**forward_kwargs)
@@ -465,11 +464,14 @@ def generate_with_speculative_memory(
                 "attention_mask": torch.ones_like(
                     input_ids, dtype=torch.long, device=device
                 ),
-                "memory_past_key_values": memory_kv_positioned,
-                "memory_attention_bias": memory_attention_bias,
                 "use_cache": False,
                 "logits_to_keep": logits_to_keep,
                 **_vl_kwargs(include_vl=True),
+                **memory_forward_extras(
+                    target_model,
+                    memory_kv_positioned,
+                    memory_attention_bias,
+                ),
             }
             with torch.no_grad():
                 outputs = target_model(**forward_kwargs)
@@ -497,12 +499,15 @@ def generate_with_speculative_memory(
             "attention_mask": torch.ones_like(
                 new_tokens, dtype=torch.long, device=device
             ),
-            "memory_past_key_values": memory_kv_positioned,
-            "memory_attention_bias": memory_attention_bias,
             "use_cache": True,
             "past_key_values": prefix_cache.past_key_values,
             "logits_to_keep": logits_to_keep,
             **_vl_kwargs(include_vl),
+            **memory_forward_extras(
+                target_model,
+                memory_kv_positioned,
+                memory_attention_bias,
+            ),
         }
         with torch.no_grad():
             outputs = target_model(**forward_kwargs)

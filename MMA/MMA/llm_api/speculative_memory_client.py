@@ -561,7 +561,7 @@ class SpeculativeMemoryClient(LLMClientBase):
             "true",
             "yes",
         )
-        if use_native_target and target_only:
+        if use_native_target:
             from transformers import AutoModelForImageTextToText
 
             self._target_model = AutoModelForImageTextToText.from_pretrained(
@@ -571,7 +571,7 @@ class SpeculativeMemoryClient(LLMClientBase):
             if _vl_debug_enabled():
                 print(
                     f"[vl_load] target_model=AutoModelForImageTextToText "
-                    f"dtype={dtype_name}",
+                    f"dtype={dtype_name} draft={'no' if target_only else 'yes'}",
                     flush=True,
                 )
         else:

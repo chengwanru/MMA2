@@ -57,6 +57,11 @@ export MMA_VL_USE_TARGET_PROCESSOR="${MMA_VL_USE_TARGET_PROCESSOR:-1}"
 # AIBox caption: transformers AutoModelForImageTextToText (mma vendored Qwen3VL → garbage on this stack).
 export MMA_VL_NATIVE_TARGET="${MMA_VL_NATIVE_TARGET:-1}"
 export MMA_TARGET_DTYPE="${MMA_TARGET_DTYPE:-bfloat16}"
+# Native HF target has no memory_past_key_values; SD keeps draft memory bias + target verify.
+export MMA_SD_DISABLE_MEMORY_KV="${MMA_SD_DISABLE_MEMORY_KV:-1}"
+# Keep draft+8B on GPU (42GB free on GPU0); CPU offload breaks SD verify on AIBox.
+export MMA_SPECULATIVE_OFFLOAD_TARGET="${MMA_SPECULATIVE_OFFLOAD_TARGET:-0}"
+export OPENEQA_SD_NO_OFFLOAD="${OPENEQA_SD_NO_OFFLOAD:-1}"
 export OPENEQA_QA_MAX_TOKENS="${OPENEQA_QA_MAX_TOKENS:-64}"
 
 MMA_RUNTIME="${MMA_RUNTIME:-/tmp/mma_runtime}"

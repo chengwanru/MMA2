@@ -277,8 +277,21 @@ def load_draft_model(
 
     model_id = config.draft_model_name_or_path
     local_only = os.environ.get("TRANSFORMERS_OFFLINE", "") == "1" or os.environ.get("MMA_OFFLINE", "") == "1"
+    dtype_name = (
+        os.environ.get("MMA_TARGET_DTYPE", "").strip()
+        or config.torch_dtype
+        or "auto"
+    )
+    if dtype_name == "bfloat16":
+        torch_dtype: Any = torch.bfloat16
+    elif dtype_name in ("float16", "fp16"):
+        torch_dtype = torch.float16
+    elif dtype_name in ("float32", "fp32"):
+        torch_dtype = torch.float32
+    else:
+        torch_dtype = config.torch_dtype or "auto"
     load_kw = dict(
-        torch_dtype=config.torch_dtype or "auto",
+        torch_dtype=torch_dtype,
         device_map=device_map or config.device or "auto",
         trust_remote_code=True,
     )
