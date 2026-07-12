@@ -13,25 +13,37 @@ set -euo pipefail
 OEQA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${ROOT:-$(cd "${OEQA}/../.." && pwd)}"
 PEV="${ROOT}/public_evaluations"
+MMA_ENV="${OEQA}/use_mma_env.sh"
 ENV_FILE="${OEQA}/env_a800.sh"
+
+if [[ -f "${MMA_ENV}" ]]; then
+  # shellcheck source=/dev/null
+  source "${MMA_ENV}"
+fi
 
 if [[ -f "${ENV_FILE}" ]]; then
   # shellcheck source=/dev/null
   source "${ENV_FILE}"
 fi
 
-if [[ -n "${CONDA_ENV_PATH:-}" && -x "${CONDA_ENV_PATH}/bin/python" ]]; then
+if [[ -n "${PY:-}" && -x "${PY}" ]]; then
+  export PATH="$(dirname "${PY}"):${PATH}"
+elif [[ -n "${CONDA_ENV_PATH:-}" && -x "${CONDA_ENV_PATH}/bin/python" ]]; then
   # shellcheck source=/dev/null
   source "${CONDA_ENV_PATH}/bin/activate"
 elif [[ "$(python -c 'import sys; print(sys.version_info >= (3,10))' 2>/dev/null || echo False)" != "True" ]]; then
-  echo "ERROR: need Python >=3.10 (match/case). Run: source /opt/conda/envs/embench/bin/activate" >&2
+  echo "ERROR: need Python >=3.10. Run: source ${MMA_ENV}" >&2
   exit 1
 fi
 
+MMA_RUNTIME="${MMA_RUNTIME:-/tmp/mma_runtime}"
+if [[ -f "${MMA_RUNTIME}/mma/__init__.py" ]]; then
+  export PYTHONPATH="${MMA_RUNTIME}:${PYTHONPATH:-}"
+fi
 export PYTHONPATH="${ROOT}:${PEV}:${PYTHONPATH:-}"
 
-if [[ ! -e "${ROOT}/mma/__init__.py" ]]; then
-  ln -sfn MMA "${ROOT}/mma"
+if [[ ! -e "${ROOT}/mma/__init__.py" && -f "${ROOT}/MMA/__init__.py" ]]; then
+  echo "WARN: ${ROOT}/mma missing; use MMA_RUNTIME=${MMA_RUNTIME} or rsync MMA/MMA -> mma on /tmp" >&2
 fi
 
 mkdir -p "${OEQA}/logs" "${OEQA}/results"
