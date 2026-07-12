@@ -527,8 +527,19 @@ class SpeculativeMemoryClient(LLMClientBase):
                 self._config, device_map=device
             )
             self._tokenizer = self._draft_processor.tokenizer
+        dtype_name = (
+            os.environ.get("MMA_TARGET_DTYPE", "").strip()
+            or self._config.torch_dtype
+            or "float16"
+        )
+        if dtype_name == "bfloat16":
+            target_dtype = torch.bfloat16
+        elif dtype_name in ("float32", "fp32"):
+            target_dtype = torch.float32
+        else:
+            target_dtype = torch.float16
         target_kw = dict(
-            torch_dtype=self._config.torch_dtype or "float16",
+            torch_dtype=target_dtype,
             trust_remote_code=True,
         )
         if _local:
@@ -545,11 +556,36 @@ class SpeculativeMemoryClient(LLMClientBase):
             target_kw["max_memory"] = {0: f"{gpu_max}GiB", "cpu": "20GiB"}
         else:
             target_kw["device_map"] = device
-        self._target_model = Qwen3VLForConditionalGeneration.from_pretrained(
-            self._config.target_model_name_or_path,
-            ignore_mismatched_sizes=True,
-            **target_kw,
+        use_native_target = os.environ.get("MMA_VL_NATIVE_TARGET", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
         )
+        if use_native_target and target_only:
+            from transformers import AutoModelForImageTextToText
+
+            self._target_model = AutoModelForImageTextToText.from_pretrained(
+                self._config.target_model_name_or_path,
+                **target_kw,
+            )
+            if _vl_debug_enabled():
+                print(
+                    f"[vl_load] target_model=AutoModelForImageTextToText "
+                    f"dtype={dtype_name}",
+                    flush=True,
+                )
+        else:
+            self._target_model = Qwen3VLForConditionalGeneration.from_pretrained(
+                self._config.target_model_name_or_path,
+                ignore_mismatched_sizes=True,
+                **target_kw,
+            )
+            if _vl_debug_enabled():
+                print(
+                    f"[vl_load] target_model=Qwen3VLForConditionalGeneration "
+                    f"dtype={dtype_name}",
+                    flush=True,
+                )
         self._target_model.eval()
         from mma.speculative_memory.generation_helpers import (
             patch_model_generation_config,
@@ -834,6 +870,9 @@ class SpeculativeMemoryClient(LLMClientBase):
                             "eos_token_id": tokenizer.eos_token_id,
                         }
                     )
+                    gc = getattr(self._target_model, "generation_config", None)
+                    if gc is not None:
+                        gc.do_sample = False
                     if pixel_values is not None and "pixel_values" not in gen_kwargs:
                         gen_kwargs["pixel_values"] = pixel_values
                     if image_grid_thw is not None and "image_grid_thw" not in gen_kwargs:
