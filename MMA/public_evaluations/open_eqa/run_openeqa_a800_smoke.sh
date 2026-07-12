@@ -111,3 +111,14 @@ python run_openeqa_eval.py \
   --variants "${VARIANTS}"
 
 echo "Wrote ${OUTPUT}"
+
+if [[ "${WRITE_SUMMARY:-0}" == "1" ]] && [[ -f "${OUTPUT}" ]]; then
+  SUMMARY="${OUTPUT}.summary.txt"
+  python write_openeqa_result_summary.py \
+    --input_file "${OUTPUT}" \
+    --output_file "${SUMMARY}" \
+    --variant "${VARIANTS}" \
+    --embed
+  echo "Wrote ${SUMMARY}"
+  cat "${SUMMARY}"
+fi
