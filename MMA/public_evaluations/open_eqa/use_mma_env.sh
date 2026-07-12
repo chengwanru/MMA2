@@ -53,4 +53,9 @@ export MMA_MEMORY_SEARCH_METHOD="${MMA_MEMORY_SEARCH_METHOD:-bm25}"
 export OPENEQA_VL_MAX_PIXELS="${OPENEQA_VL_MAX_PIXELS:-401408}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
+MMA_RUNTIME="${MMA_RUNTIME:-/tmp/mma_runtime}"
+if [[ -f "${MMA_RUNTIME}/mma/__init__.py" ]]; then
+  export PYTHONPATH="${MMA_RUNTIME}:${PYTHONPATH}"
+fi
+
 echo "[mma_env] $($PY --version) | torch=$($PY -c 'import torch; print(torch.__version__)' 2>/dev/null || echo missing)"

@@ -126,6 +126,22 @@ def _processor_mm_kwargs() -> Dict[str, Any]:
     return mm
 
 
+def _extract_images_from_messages(messages: List[Dict[str, Any]]) -> List[Any]:
+    images: List[Any] = []
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "image" and part.get("image") is not None:
+                images.append(part["image"])
+    return images
+
+
+def _vl_debug_enabled() -> bool:
+    return os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes")
+
+
 def _run_vl_processor(
     processor: Any,
     *,
@@ -147,7 +163,7 @@ def _run_vl_processor(
         )
         try:
             with _patch_tokenizer_no_trunc(tokenizer):
-                return processor.apply_chat_template(
+                out = processor.apply_chat_template(
                     messages,
                     tokenize=True,
                     add_generation_prompt=True,
@@ -155,17 +171,67 @@ def _run_vl_processor(
                     return_tensors="pt",
                     **mm_kwargs,
                 )
+            if images_list and _vl_debug_enabled():
+                pv = out.get("pixel_values") if hasattr(out, "get") else getattr(out, "pixel_values", None)
+                ig = out.get("image_grid_thw") if hasattr(out, "get") else getattr(out, "image_grid_thw", None)
+                print(
+                    f"[vl_tokenize] apply_chat_template ok; pixel_values={None if pv is None else tuple(pv.shape)} "
+                    f"image_grid_thw={None if ig is None else tuple(ig.shape)}",
+                    flush=True,
+                )
+            if images_list:
+                pv = out.get("pixel_values") if hasattr(out, "get") else getattr(out, "pixel_values", None)
+                if pv is None:
+                    raise RuntimeError(
+                        "apply_chat_template returned no pixel_values for image inputs"
+                    )
+            return out
         except Exception as exc:
             print(
-                f"[vl_tokenize] apply_chat_template failed: {exc!r}; fallback to legacy processor()",
+                f"[vl_tokenize] apply_chat_template failed: {exc!r}; trying template+processor fallback",
                 flush=True,
             )
             if not images_list:
                 raise
+            try:
+                with _patch_tokenizer_no_trunc(tokenizer):
+                    prompt_text = processor.apply_chat_template(
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=True,
+                    )
+                tmpl_images = _extract_images_from_messages(messages) or images_list
+                with _patch_tokenizer_no_trunc(tokenizer):
+                    out = processor(
+                        text=prompt_text,
+                        images=tmpl_images,
+                        return_tensors="pt",
+                        truncation=False,
+                        padding=False,
+                        **mm_kwargs,
+                    )
+                if _vl_debug_enabled():
+                    pv = out.get("pixel_values") if hasattr(out, "get") else getattr(out, "pixel_values", None)
+                    print(
+                        f"[vl_tokenize] template+processor ok; pixel_values={None if pv is None else tuple(pv.shape)}",
+                        flush=True,
+                    )
+                if tmpl_images:
+                    pv = out.get("pixel_values") if hasattr(out, "get") else getattr(out, "pixel_values", None)
+                    if pv is None:
+                        raise RuntimeError(
+                            "template+processor fallback returned no pixel_values"
+                        )
+                return out
+            except Exception as exc2:
+                print(
+                    f"[vl_tokenize] template+processor failed: {exc2!r}; fallback to legacy processor()",
+                    flush=True,
+                )
 
     proc_kwargs: Dict[str, Any] = {
-        "text": text,
-        "images": images_list,
+        "text": [text] if images_list else text,
+        "images": images_list if images_list else None,
         "return_tensors": "pt",
         "truncation": False,
         "padding": False,
@@ -179,7 +245,18 @@ def _run_vl_processor(
             proc_kwargs["max_length"] = int(max_len)
 
     with _patch_tokenizer_no_trunc(tokenizer):
-        return processor(**proc_kwargs)
+        out = processor(**proc_kwargs)
+    if images_list and _vl_debug_enabled():
+        pv = out.get("pixel_values") if hasattr(out, "get") else getattr(out, "pixel_values", None)
+        print(
+            f"[vl_tokenize] legacy processor ok; pixel_values={None if pv is None else tuple(pv.shape)}",
+            flush=True,
+        )
+    if images_list:
+        pv = out.get("pixel_values") if hasattr(out, "get") else getattr(out, "pixel_values", None)
+        if pv is None:
+            raise RuntimeError("legacy processor() returned no pixel_values for image inputs")
+    return out
 
 
 def _model_max_positions(model: Any) -> Optional[int]:
@@ -676,6 +753,8 @@ class SpeculativeMemoryClient(LLMClientBase):
         prompt_len = prompt_ids.size(1)
         new_ids = output_ids[0, prompt_len:]
         generated_text = tokenizer.decode(new_ids, skip_special_tokens=True)
+        if _vl_debug_enabled() and vl_content_parts:
+            print(f"[vl_gen] generated_text={generated_text[:240]!r}", flush=True)
 
         response: Dict[str, Any] = {
             "generated_text": generated_text,
