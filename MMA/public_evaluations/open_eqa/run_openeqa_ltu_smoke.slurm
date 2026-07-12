@@ -98,7 +98,8 @@ INPUT="${INPUT:-data/open-eqa-multimodal.json}"
 # Override quick smoke: ALL_FRAMES=0 FRAMES_PER_EPISODE=16 LIMIT=1 sbatch ...
 ALL_FRAMES="${ALL_FRAMES:-1}"
 MAX_SAMPLES="${MAX_SAMPLES:-10}"
-OFFSET="${OFFSET:-0}"
+export OFFSET="${OFFSET:-0}"
+export OFFSET_EVAL="${OFFSET_EVAL:-0}"
 FRAMES_PER_EPISODE="${FRAMES_PER_EPISODE:-16}"
 FRAME_SAMPLING="${FRAME_SAMPLING:-uniform}"
 

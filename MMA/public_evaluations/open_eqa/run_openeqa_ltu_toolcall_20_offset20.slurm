@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=openeqa_tc10
+#SBATCH --job-name=openeqa_tc20o20
 #SBATCH -p day
 #SBATCH -t 24:00:00
 #SBATCH -N 1
@@ -7,27 +7,27 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --gres=gpu:1
-#SBATCH -o logs/openeqa_toolcall_10_%j.log
-#SBATCH -e logs/openeqa_toolcall_10_%j.err
+#SBATCH -o logs/openeqa_toolcall_20_offset20_%j.log
+#SBATCH -e logs/openeqa_toolcall_20_offset20_%j.err
 
-# Rerun original first 10: open-eqa-v0 indices 0-9 (episode 000-hm3d-BFRyYbPCCPE).
-# Same pipeline as offset20 batch; use distinct INPUT so parallel jobs do not clobber JSON.
+# Third batch of 20: open-eqa-v0 indices 20-39 (no overlap with 0-19 or 10-29 runs).
+# Memorize: direct episodic (no MMA 1.0 tool-call absorb). QA: ours + trust gate + SD stats.
 #
 #   cd /data/group/zhaolab/project/MMA2/MMA/public_evaluations/open_eqa
 #   git pull && mkdir -p logs
-#   sbatch run_openeqa_ltu_toolcall_10.slurm
-#   tail -f logs/openeqa_toolcall_10_<jobid>.log
+#   sbatch run_openeqa_ltu_toolcall_20_offset20.slurm
+#   tail -f logs/openeqa_toolcall_20_offset20_<jobid>.log
 
 set -euo pipefail
 
-export OFFSET=0
+export OFFSET=20
 export OFFSET_EVAL=0
-export LIMIT=10
-export MAX_SAMPLES=10
+export LIMIT=20
+export MAX_SAMPLES=20
 export ALL_FRAMES=0
 export FRAMES_PER_EPISODE=8
 export VARIANTS=ours
-export INPUT="${INPUT:-data/open-eqa-multimodal-10-o0.json}"
+export INPUT="${INPUT:-data/open-eqa-multimodal-20-o20.json}"
 export OPENEQA_DEBUG=1
 export OPENEQA_EPISODIC_TOOL_CALL=0
 export OPENEQA_DIRECT_EPISODIC=1
@@ -49,7 +49,7 @@ export MMA_DRAFT_FAST_SINGLE_STEP="${MMA_DRAFT_FAST_SINGLE_STEP:-1}"
 export MMA_SD_TARGET_KV_CACHE="${MMA_SD_TARGET_KV_CACHE:-1}"
 export MMA_ENABLE_VISUAL_ROUTING="${MMA_ENABLE_VISUAL_ROUTING:-1}"
 export OPENEQA_VL_MAX_PIXELS="${OPENEQA_VL_MAX_PIXELS:-401408}"
-export OUTPUT="${OUTPUT:-results/trust_gate_10_rerun_${SLURM_JOB_ID:-local}.json}"
+export OUTPUT="${OUTPUT:-results/trust_gate_20_offset20_${SLURM_JOB_ID:-local}.json}"
 
 bash run_openeqa_ltu_smoke.slurm
 
