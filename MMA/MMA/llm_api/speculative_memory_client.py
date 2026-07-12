@@ -436,15 +436,15 @@ class SpeculativeMemoryClient(LLMClientBase):
             proc_kw = dict(trust_remote_code=True)
             if _local:
                 proc_kw["local_files_only"] = True
-            # Prefer target processor so pixel_values/image_grid_thw match the 8B model.
-            # Draft (2B) processor can mis-align vision tensors on some stacks (AIBox → "its" garbage).
-            # Truncation is handled by _patch_tokenizer_no_trunc in _run_vl_processor.
-            use_draft_proc = os.environ.get("MMA_VL_USE_DRAFT_PROCESSOR", "").strip().lower() in (
+            # Default: 2B draft processor (LTU-stable; avoids 8B processor image-token truncation).
+            # AIBox stacks with "its" garbage captions: set MMA_VL_USE_TARGET_PROCESSOR=1
+            # (see use_mma_env.sh). Truncation is also patched via _patch_tokenizer_no_trunc.
+            use_target_proc = os.environ.get("MMA_VL_USE_TARGET_PROCESSOR", "").strip().lower() in (
                 "1",
                 "true",
                 "yes",
             )
-            proc_path = draft_path if use_draft_proc else target_path
+            proc_path = target_path if use_target_proc else draft_path
             self._draft_processor = AutoProcessor.from_pretrained(
                 proc_path,
                 **proc_kw,
@@ -454,7 +454,7 @@ class SpeculativeMemoryClient(LLMClientBase):
             if _vl_debug_enabled():
                 print(
                     f"[vl_load] target_only processor={proc_path} "
-                    f"(draft_processor={use_draft_proc})",
+                    f"(use_target_processor={use_target_proc})",
                     flush=True,
                 )
         else:
