@@ -57,6 +57,7 @@ export MMA_VL_USE_TARGET_PROCESSOR="${MMA_VL_USE_TARGET_PROCESSOR:-1}"
 # AIBox caption: transformers AutoModelForImageTextToText (mma vendored Qwen3VL → garbage on this stack).
 export MMA_VL_NATIVE_TARGET="${MMA_VL_NATIVE_TARGET:-1}"
 export MMA_TARGET_DTYPE="${MMA_TARGET_DTYPE:-bfloat16}"
+export OPENEQA_QA_MAX_TOKENS="${OPENEQA_QA_MAX_TOKENS:-64}"
 
 MMA_RUNTIME="${MMA_RUNTIME:-/tmp/mma_runtime}"
 if [[ -f "${MMA_RUNTIME}/mma/__init__.py" ]]; then
