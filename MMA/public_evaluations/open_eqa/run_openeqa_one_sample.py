@@ -279,15 +279,21 @@ def _parse_summary_details(text: str) -> Tuple[str, str]:
 
 @contextmanager
 def _baseline_vl_context():
-    prev = os.environ.get("MMA_SPECULATIVE_BASELINE")
+    prev_baseline = os.environ.get("MMA_SPECULATIVE_BASELINE")
+    prev_target_only = os.environ.get("MMA_TARGET_ONLY")
     os.environ["MMA_SPECULATIVE_BASELINE"] = "1"
+    os.environ.setdefault("MMA_TARGET_ONLY", "1")
     try:
         yield
     finally:
-        if prev is None:
+        if prev_baseline is None:
             os.environ.pop("MMA_SPECULATIVE_BASELINE", None)
         else:
-            os.environ["MMA_SPECULATIVE_BASELINE"] = prev
+            os.environ["MMA_SPECULATIVE_BASELINE"] = prev_baseline
+        if prev_target_only is None:
+            os.environ.pop("MMA_TARGET_ONLY", None)
+        else:
+            os.environ["MMA_TARGET_ONLY"] = prev_target_only
 
 
 def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
@@ -527,6 +533,9 @@ def _run_memorize(
                 )
     elif _skip_memory_agent_absorb():
         print("  [memorize] direct episodic only (skip memory-agent absorb)", flush=True)
+        n_direct, direct_errors = ensure_episodic_from_frames(agent.agent, image_paths, sample)
+    elif _memorize_uses_direct_episodic():
+        print("  [memorize] direct episodic only (no memory-agent absorb)", flush=True)
         n_direct, direct_errors = ensure_episodic_from_frames(agent.agent, image_paths, sample)
     else:
         _memorize_frames(agent.agent, image_paths)

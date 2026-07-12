@@ -206,7 +206,7 @@ def _subprocess_env(use_speculative_baseline: bool, phase: str = "all") -> Dict[
         env["MMA_SPECULATIVE_BASELINE"] = "1"
         env["MMA_BASELINE_TOOLS"] = "1"
         env.setdefault("MMA_BASELINE_TOOLS_MAX_TOKENS", "1024")
-        env.setdefault("OPENEQA_SKIP_ABSORB", "0")
+        env.setdefault("OPENEQA_SKIP_ABSORB", "1")
         for key in ("MMA_SPECULATIVE_LOCAL_RAG", "OPENEQA_QA_BASELINE"):
             env.pop(key, None)
     elif phase == "qa":
