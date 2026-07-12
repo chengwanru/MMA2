@@ -195,6 +195,7 @@ def collect_qa_debug(
     prediction_raw: Optional[str] = None,
     speculative_stats: Optional[Dict[str, Any]] = None,
     draft_policy: Optional[Dict[str, Any]] = None,
+    qa_answer_source: Optional[str] = None,
 ) -> Dict[str, Any]:
     question = sample.get("question", "")
     episodic = collect_episodic_debug(mma_agent, question=question)
@@ -209,6 +210,7 @@ def collect_qa_debug(
         "gold_answer": gold,
         "prediction": prediction,
         "prediction_raw": prediction_raw if prediction_raw is not None else prediction,
+        "qa_answer_source": qa_answer_source,
         "formatted_question": formatted_question,
         "speculative_stats": speculative_stats,
         "draft_policy": draft_policy,

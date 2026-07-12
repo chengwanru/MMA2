@@ -670,15 +670,16 @@ def _qa_direct_sd_send(
             Message(role=MessageRole.system, content=[TextContent(text=system_prompt)]),
             Message(role=MessageRole.user, content=[TextContent(text=user_prompt)]),
         ]
-        response = client.send_llm_request(
-            messages=messages,
+        request_data = client.build_request_data(
+            messages,
+            llm_config,
             tools=None,
             retrieved_memories={"memory_items": memory_items},
         )
-        if not response or not response.choices:
-            print("  [qa] direct_sd FAILED: empty response choices", flush=True)
-            return ""
-        text = (response.choices[0].message.content or "").strip()
+        request_data["collect_stats"] = True
+        request_data["stats_out"] = {}
+        response = client.request(request_data)
+        text = (response.get("generated_text") or "").strip()
         if text and is_refusal_answer(text):
             print(f"  [qa] direct_sd refusal={text!r}; treating as empty", flush=True)
             return ""
@@ -697,6 +698,16 @@ def _qa_direct_sd_send(
                 os.environ[key] = value
         if baseline_only:
             _clear_speculative_client_cache()
+
+
+def _qa_answer_source(raw_prediction: str, prediction: str) -> str:
+    raw_s = (raw_prediction or "").strip()
+    pred_s = (prediction or "").strip()
+    if not pred_s or pred_s == "ERROR" or pred_s.startswith("ERROR:"):
+        return "error"
+    if raw_s:
+        return "model"
+    return "memory_hint"
 
 
 def _qa_direct_sd_with_fallback(mma_agent, formatted: str, question: str) -> str:
@@ -779,6 +790,7 @@ def _run_qa(
                 prediction = line[:200]
                 break
     sd_stats = collect_speculative_sd_stats()
+    qa_answer_source = _qa_answer_source(raw_prediction, prediction)
 
     debug_payload: Optional[Dict[str, Any]] = None
     if debug_enabled():
@@ -790,6 +802,7 @@ def _run_qa(
             prediction_raw=raw_prediction,
             speculative_stats=sd_stats,
             draft_policy=draft_policy or None,
+            qa_answer_source=qa_answer_source,
         )
         write_debug_file(home_dir, "qa", debug_payload)
         log_debug_summary(debug_payload, "qa")

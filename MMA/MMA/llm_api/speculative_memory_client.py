@@ -79,6 +79,99 @@ def _patch_tokenizer_no_trunc(tokenizer: Any):
             tokenizer.model_max_length = saved_mml
 
 
+def _chat_to_template_messages(
+    chat: List[Dict[str, str]],
+    tool_instructions: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Convert OpenAI-style chat dicts to HF apply_chat_template messages (text-only)."""
+    messages: List[Dict[str, Any]] = []
+    system_chunks: List[str] = []
+    if tool_instructions:
+        system_chunks.append(tool_instructions.strip())
+    for item in chat:
+        role = (item.get("role") or "").strip()
+        content = (item.get("content") or "").strip()
+        if not role or not content:
+            continue
+        if role == "system":
+            system_chunks.append(content)
+        else:
+            messages.append({"role": role, "content": content})
+    if system_chunks:
+        messages.insert(0, {"role": "system", "content": "\n\n".join(system_chunks)})
+    return messages
+
+
+def _tokenize_text_only_chat(
+    processor: Any,
+    chat: List[Dict[str, str]],
+    tokenizer: Any,
+    tool_instructions: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Tokenize text-only chat; prefer processor.apply_chat_template over manual role: lines."""
+    import torch
+
+    messages = _chat_to_template_messages(chat, tool_instructions)
+    if not messages:
+        raise RuntimeError("empty chat messages for text-only tokenize")
+
+    if processor is not None and hasattr(processor, "apply_chat_template"):
+        try:
+            proc_tok = getattr(processor, "tokenizer", tokenizer)
+            with _patch_tokenizer_no_trunc(proc_tok):
+                out = processor.apply_chat_template(
+                    messages,
+                    tokenize=True,
+                    add_generation_prompt=True,
+                    return_dict=True,
+                    return_tensors="pt",
+                )
+            inputs = _extract_vl_model_inputs(out)
+            if inputs.get("input_ids") is not None:
+                if _vl_debug_enabled():
+                    print(
+                        f"[vl_tokenize] text-only apply_chat_template ok; "
+                        f"prompt_len={int(inputs['input_ids'].shape[-1])}",
+                        flush=True,
+                    )
+                if inputs.get("attention_mask") is None:
+                    inputs["attention_mask"] = torch.ones_like(inputs["input_ids"])
+                return inputs
+        except Exception as exc:
+            print(
+                f"[vl_tokenize] text-only apply_chat_template failed: {exc!r}; "
+                "falling back to manual format",
+                flush=True,
+            )
+
+    text = (
+        "\n".join(f"{c['role']}: {c['content']}" for c in chat if c.get("content"))
+        + "\nassistant: "
+    )
+    if tool_instructions:
+        text = text.replace(
+            "\nassistant: ",
+            "\n" + tool_instructions.strip() + "\nassistant: ",
+            1,
+        )
+    out = tokenizer(text, return_tensors="pt", add_special_tokens=True)
+    prompt_ids = (
+        out.get("input_ids", out)
+        if hasattr(out, "get")
+        else getattr(out, "input_ids", out)
+    )
+    if hasattr(prompt_ids, "input_ids"):
+        prompt_ids = prompt_ids.input_ids
+    attention_mask = (
+        out.get("attention_mask")
+        if hasattr(out, "get")
+        else getattr(out, "attention_mask", None)
+    )
+    if attention_mask is None:
+        attention_mask = torch.ones_like(prompt_ids)
+    return {"input_ids": prompt_ids, "attention_mask": attention_mask}
+
+
 def _vl_parts_to_messages(
     vl_content_parts: List[Tuple[str, Any]],
     *,
@@ -731,34 +824,13 @@ class SpeculativeMemoryClient(LLMClientBase):
             if hasattr(prompt_ids, "input_ids"):
                 prompt_ids = prompt_ids.input_ids
         else:
-            # Manual format: transformers 4.57.x apply_chat_template can raise
-            # "Object of type set is not JSON serializable" on Qwen3-VL tokenizers.
-            text = (
-                "\n".join(f"{c['role']}: {c['content']}" for c in chat if c.get("content"))
-                + "\nassistant: "
+            vl_model_inputs = _tokenize_text_only_chat(
+                processor,
+                chat,
+                tokenizer,
+                tool_instructions=tool_instructions,
             )
-            if tool_instructions:
-                text = text.replace(
-                    "\nassistant: ",
-                    "\n" + tool_instructions.strip() + "\nassistant: ",
-                    1,
-                )
-            out = tokenizer(text, return_tensors="pt", add_special_tokens=True)
-            prompt_ids = (
-                out.get("input_ids", out)
-                if hasattr(out, "get")
-                else getattr(out, "input_ids", out)
-            )
-            if hasattr(prompt_ids, "input_ids"):
-                prompt_ids = prompt_ids.input_ids
-            vl_model_inputs = {
-                "input_ids": prompt_ids,
-                "attention_mask": out.get("attention_mask")
-                if hasattr(out, "get")
-                else getattr(out, "attention_mask", None),
-            }
-            if vl_model_inputs["attention_mask"] is None:
-                vl_model_inputs["attention_mask"] = torch.ones_like(prompt_ids)
+            prompt_ids = vl_model_inputs.get("input_ids")
 
         prompt_ids = prompt_ids.to(device)
         if prompt_ids.dim() == 1:
@@ -905,11 +977,11 @@ class SpeculativeMemoryClient(LLMClientBase):
             prompt_len = int(vl_model_inputs["input_ids"].size(1))
         new_ids = output_ids[0, prompt_len:]
         processor = self._draft_processor
-        if vl_content_parts and processor is not None:
+        if processor is not None:
             generated_text = _decode_vl_output(processor, output_ids, prompt_len)
         else:
             generated_text = tokenizer.decode(new_ids, skip_special_tokens=True)
-        if _vl_debug_enabled() and vl_content_parts:
+        if _vl_debug_enabled():
             print(f"[vl_gen] generated_text={generated_text[:240]!r}", flush=True)
 
         response: Dict[str, Any] = {

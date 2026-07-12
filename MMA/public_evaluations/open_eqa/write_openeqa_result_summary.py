@@ -69,19 +69,41 @@ def _truncate(text: str, limit: int = 72) -> str:
     return text[: limit - 3] + "..."
 
 
+def _qa_answer_source(row: Dict[str, Any]) -> str:
+    debug = row.get("debug")
+    qa = debug.get("qa") if isinstance(debug, dict) else None
+    if isinstance(qa, dict):
+        src = (qa.get("qa_answer_source") or "").strip().lower()
+        if src in ("model", "memory_hint", "error"):
+            return src
+        raw = (qa.get("prediction_raw") or "").strip()
+        pred = (row.get("prediction") or "").strip()
+        if not pred or pred.startswith("ERROR"):
+            return "error"
+        if raw:
+            return "model"
+        if pred:
+            return "memory_hint"
+    return "unknown"
+
+
 def _summarize_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     summary_rows: List[Dict[str, Any]] = []
     counts = {"EXACT": 0, "HIT": 0, "PARTIAL": 0, "MISS": 0, "ERROR": 0, "?": 0}
+    source_counts = {"model": 0, "memory_hint": 0, "error": 0, "unknown": 0}
     for i, row in enumerate(rows, start=1):
         gold = (row.get("gold_answer") or row.get("answer") or "").strip()
         pred = (row.get("prediction") or "").strip()
         label = _match_label(gold, pred)
         counts[label] = counts.get(label, 0) + 1
+        source = _qa_answer_source(row)
+        source_counts[source] = source_counts.get(source, 0) + 1
         summary_rows.append(
             {
                 "index": i,
                 "id": row.get("id") or row.get("question_id"),
                 "match": label,
+                "source": source,
                 "question": row.get("question") or "",
                 "gold_answer": gold,
                 "prediction": pred,
@@ -96,6 +118,8 @@ def _summarize_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "miss": counts["MISS"],
         "error": counts["ERROR"],
         "substring_or_overlap_hits": good,
+        "model_answers": source_counts.get("model", 0),
+        "memory_hint_rescued": source_counts.get("memory_hint", 0),
         "rows": summary_rows,
     }
 
@@ -105,16 +129,19 @@ def _format_text(variant: str, block: Dict[str, Any]) -> str:
         f"OpenEQA summary — variant={variant}",
         f"total={block['total']}  exact={block['exact']}  hit={block['hit']}  "
         f"partial={block['partial']}  miss={block['miss']}  error={block['error']}  "
-        f"good={block['substring_or_overlap_hits']}/{block['total']}",
+        f"good={block['substring_or_overlap_hits']}/{block['total']}  "
+        f"model={block.get('model_answers', 0)}  rescued={block.get('memory_hint_rescued', 0)}",
         "",
-        f"{'#':>2}  {'match':<7}  {'gold':<28}  {'prediction':<28}  question",
+        f"{'#':>2}  {'match':<7}  {'source':<12}  {'gold':<24}  {'prediction':<24}  question",
         "-" * 120,
     ]
     for row in block["rows"]:
+        source = row.get("source") or "unknown"
+        source_label = "RESCUED" if source == "memory_hint" else source.upper()
         lines.append(
-            f"{row['index']:>2}  {row['match']:<7}  "
-            f"{_truncate(row['gold_answer'], 28):<28}  "
-            f"{_truncate(row['prediction'], 28):<28}  "
+            f"{row['index']:>2}  {row['match']:<7}  {source_label:<12}  "
+            f"{_truncate(row['gold_answer'], 24):<24}  "
+            f"{_truncate(row['prediction'], 24):<24}  "
             f"{_truncate(row['question'], 36)}"
         )
     lines.append("")

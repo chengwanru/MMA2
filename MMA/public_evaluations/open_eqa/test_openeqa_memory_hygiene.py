@@ -172,6 +172,15 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         self.assertEqual(len(picked), 1)
         self.assertIn("tv", picked[0].summary.lower())
 
+    def test_select_above_tv_prefers_ac_rows(self):
+        hallway = _Event(
+            "Above the TV on the teal wall is a white wall-mounted air conditioner unit"
+        )
+        ceiling = _Event("The living room ceiling is plain white drywall")
+        q = "What is the white object on the wall above the TV?"
+        picked = select_events_for_qa([ceiling, hallway], q)
+        self.assertTrue(any("air conditioner" in (e.summary or "").lower() for e in picked))
+
     def test_select_door_prefers_closed(self):
         open_e = _Event("The front door is open")
         closed = _Event("The front door is closed")

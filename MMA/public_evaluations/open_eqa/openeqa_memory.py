@@ -1068,6 +1068,17 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
         if wood:
             return wood[:top_k]
 
+    if "above" in q and "tv" in q:
+        ac_above_tv = [
+            event
+            for event in ranked
+            if _entity_hits(_event_text(event), _ENTITY_AC)
+            and "above" in _event_text(event).lower()
+            and "tv" in _event_text(event).lower()
+        ]
+        if ac_above_tv:
+            return ac_above_tv[:top_k]
+
     if "cool down" in q or "cooling" in q or "air conditioner" in q:
         ac_rows = [
             event
