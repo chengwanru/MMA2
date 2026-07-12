@@ -40,10 +40,11 @@ JUDGE_PROFILES: Dict[str, JudgeConfig] = {
         name="openrouter-free",
         model=os.environ.get(
             "OPENEQA_OPENROUTER_MODEL",
-            "google/gemma-3-27b-it:free",
+            "meta-llama/llama-3.3-70b-instruct:free",
         ),
         api_key_env="OPENROUTER_API_KEY",
         base_url="https://openrouter.ai/api/v1",
+        max_tokens=64,
     ),
     # Alternative: Groq free tier (fast; good for quick smoke).
     "groq-free": JudgeConfig(
@@ -51,6 +52,7 @@ JUDGE_PROFILES: Dict[str, JudgeConfig] = {
         model=os.environ.get("OPENEQA_GROQ_MODEL", "llama-3.3-70b-versatile"),
         api_key_env="GROQ_API_KEY",
         base_url="https://api.groq.com/openai/v1",
+        max_tokens=64,
     ),
 }
 
@@ -67,19 +69,62 @@ def resolve_judge_config(
             f"Unknown judge profile {profile!r}. Choose from: {', '.join(JUDGE_PROFILES)}"
         )
     cfg = JUDGE_PROFILES[profile]
+    max_tokens = cfg.max_tokens
+    env_max_tokens = os.environ.get("OPENEQA_JUDGE_MAX_TOKENS", "").strip()
+    if env_max_tokens:
+        max_tokens = int(env_max_tokens)
     return JudgeConfig(
         name=cfg.name,
         model=model or cfg.model,
         api_key_env=api_key_env or cfg.api_key_env,
         base_url=base_url if base_url is not None else cfg.base_url,
         temperature=cfg.temperature,
-        max_tokens=cfg.max_tokens,
+        max_tokens=max_tokens,
         seed=cfg.seed,
     )
 
 
-def load_env_file(path: Path) -> None:
-    """Load KEY=VALUE lines into os.environ (does not override existing keys)."""
+_PLACEHOLDER_KEY_RE = re.compile(r"REPLACE|YOUR_.*_KEY|CHANGEME|INSERT", re.I)
+
+
+def is_placeholder_api_key(value: str) -> bool:
+    text = (value or "").strip()
+    if not text:
+        return True
+    return bool(_PLACEHOLDER_KEY_RE.search(text))
+
+
+def validate_judge_credentials(cfg: JudgeConfig, *, preflight: bool = False) -> None:
+    api_key = os.environ.get(cfg.api_key_env, "").strip()
+    if not api_key:
+        raise EnvironmentError(
+            f"Set {cfg.api_key_env} for judge profile {cfg.name!r} (model={cfg.model})."
+        )
+    if is_placeholder_api_key(api_key):
+        raise EnvironmentError(
+            f"{cfg.api_key_env} looks like a placeholder ({api_key[:24]}...). "
+            f"Edit openeqa_judge_smoke.env or export a real key."
+        )
+    if not preflight:
+        return
+
+    client = _openai_client(cfg)
+    completion = client.chat.completions.create(
+        model=cfg.model,
+        messages=[{"role": "user", "content": "Reply with exactly: Your mark: 5"}],
+        max_tokens=16,
+        temperature=0.0,
+    )
+    output = completion.choices[0].message.content or ""
+    parse_score(output)
+
+
+def load_env_file(path: Path, *, override: bool = False) -> None:
+    """Load KEY=VALUE lines into os.environ.
+
+    When override=True (used by the scoring CLI), values from the file replace
+    stale shell exports (e.g. an old REPLACE_ME OpenRouter key).
+    """
     if not path.is_file():
         raise FileNotFoundError(path)
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -93,7 +138,10 @@ def load_env_file(path: Path) -> None:
         key, value = line.split("=", 1)
         key = key.strip()
         value = value.strip().strip('"').strip("'")
-        os.environ.setdefault(key, value)
+        if override or key not in os.environ:
+            os.environ[key] = value
+        else:
+            os.environ.setdefault(key, value)
 
 
 def _load_prompt(name: str) -> str:
@@ -143,6 +191,8 @@ def get_llm_match_score(
     extra_answers: Optional[list] = None,
     cfg: JudgeConfig,
     verbose: bool = False,
+    max_retries: Optional[int] = None,
+    retry_sleep_sec: float = 0.0,
 ) -> int:
     if prediction is None:
         return 0
@@ -155,22 +205,42 @@ def get_llm_match_score(
         prediction=prediction,
         extra_answers=extra_answers,
     )
+    strict_suffix = (
+        "\n\nReply with exactly one line: Your mark: N (N is an integer from 1 to 5). "
+        "Do not explain."
+    )
+
+    if max_retries is None:
+        max_retries = int(os.environ.get("OPENEQA_JUDGE_MAX_RETRIES", "3") or 3)
 
     client = _openai_client(cfg)
-    request: Dict[str, Any] = {
-        "model": cfg.model,
-        "messages": [{"role": "user", "content": content}],
-        "max_tokens": cfg.max_tokens,
-        "temperature": cfg.temperature,
-    }
-    if cfg.seed is not None and cfg.base_url is None:
-        request["seed"] = cfg.seed
+    last_exc: Optional[Exception] = None
+    for attempt in range(max(1, max_retries)):
+        attempt_content = content if attempt == 0 else content + strict_suffix
+        request: Dict[str, Any] = {
+            "model": cfg.model,
+            "messages": [{"role": "user", "content": attempt_content}],
+            "max_tokens": cfg.max_tokens,
+            "temperature": cfg.temperature,
+        }
+        if cfg.seed is not None and cfg.base_url is None:
+            request["seed"] = cfg.seed
 
-    completion = client.chat.completions.create(**request)
-    output = completion.choices[0].message.content or ""
-    if verbose:
-        print(f"[judge/{cfg.model}] {output!r}")
-    return parse_score(output)
+        try:
+            completion = client.chat.completions.create(**request)
+            output = completion.choices[0].message.content or ""
+            if verbose:
+                print(f"[judge/{cfg.model} attempt {attempt + 1}] {output!r}")
+            return parse_score(output)
+        except Exception as exc:
+            last_exc = exc
+            if verbose:
+                print(f"[judge/{cfg.model} attempt {attempt + 1}] failed: {exc}")
+            if attempt + 1 < max_retries and retry_sleep_sec > 0:
+                time.sleep(retry_sleep_sec)
+
+    assert last_exc is not None
+    raise last_exc
 
 
 def evaluate_predictions_file(
@@ -180,6 +250,7 @@ def evaluate_predictions_file(
     cfg: JudgeConfig,
     *,
     force: bool = False,
+    rescore: bool = False,
     dry_run: bool = False,
     verbose: bool = False,
     sleep_sec: float = 0.0,
@@ -198,8 +269,10 @@ def evaluate_predictions_file(
             )
 
     all_scores: Dict[str, int] = {}
-    if metrics_path.is_file():
+    if metrics_path.is_file() and not rescore:
         all_scores = json.loads(metrics_path.read_text(encoding="utf-8"))
+
+    retry_sleep_sec = float(os.environ.get("OPENEQA_JUDGE_RETRY_SLEEP_SEC", "0") or 0)
 
     result_ids = list(question_id_to_result.keys())
     if dry_run:
@@ -226,9 +299,10 @@ def evaluate_predictions_file(
                 extra_answers=extra_answers,
                 cfg=cfg,
                 verbose=verbose,
+                retry_sleep_sec=retry_sleep_sec,
             )
         except Exception as exc:
-            print(f"WARN: score failed for {question_id}: {exc}")
+            print(f"WARN: score failed for {question_id} after retries: {exc}")
             score = 1
 
         all_scores[question_id] = score

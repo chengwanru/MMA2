@@ -219,13 +219,13 @@ python run_openeqa_official_score.py \
 
 | `--judge-profile` | Key 环境变量 | 默认模型 |
 |-------------------|-------------|----------|
-| `openrouter-free` | `OPENROUTER_API_KEY` | `google/gemma-3-27b-it:free` |
+| `openrouter-free` | `OPENROUTER_API_KEY` | `meta-llama/llama-3.3-70b-instruct:free` |
 | `groq-free` | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
 | `official` | `OPENAI_API_KEY` | `gpt-4-1106-preview` |
 
 换模型：`OPENEQA_OPENROUTER_MODEL=meta-llama/llama-3.3-70b-instruct:free` 或 `--judge-model ...`
 
-限流时在 env 里设 `OPENEQA_JUDGE_SLEEP_SEC=1.0`（两次请求间隔秒数）。
+限流时在 env 里设 `OPENEQA_JUDGE_SLEEP_SEC=1.0`（两次请求间隔秒数）。重跑全部 judge 分数加 `--rescore`；解析失败会自动重试（默认 3 次，可用 `OPENEQA_JUDGE_MAX_RETRIES` 调整）。
 
 ### 仅导出、不调用 API
 

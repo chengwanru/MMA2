@@ -31,6 +31,7 @@ from openeqa_llm_match import (
     evaluate_predictions_file,
     load_env_file,
     resolve_judge_config,
+    validate_judge_credentials,
 )
 
 _OPEN_EQA_DIR = Path(__file__).resolve().parent
@@ -75,6 +76,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Allow partial predictions (smoke).",
     )
+    parser.add_argument(
+        "--rescore",
+        action="store_true",
+        help="Ignore cached per-question metrics and re-score all questions.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Score only first 5 questions.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Print raw judge outputs.")
     parser.add_argument(
@@ -110,7 +116,7 @@ def _load_env(args: argparse.Namespace) -> None:
         if default.is_file():
             env_path = default
     if env_path is not None:
-        load_env_file(env_path)
+        load_env_file(env_path, override=True)
         print(f"Loaded env from {env_path}")
 
 
@@ -201,6 +207,20 @@ def main() -> None:
         flush=True,
     )
 
+    if args.judge_profile != "official":
+        preflight = os.environ.get("OPENEQA_JUDGE_PREFLIGHT", "1").strip() not in (
+            "0",
+            "false",
+            "no",
+        )
+        try:
+            validate_judge_credentials(cfg, preflight=preflight)
+        except Exception as exc:
+            print(f"ERROR: judge preflight failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+        if preflight:
+            print("Judge preflight OK.", flush=True)
+
     if args.judge_profile == "official":
         _run_official_subprocess(
             _official_root(args.official_root),
@@ -220,6 +240,7 @@ def main() -> None:
             metrics_path,
             cfg,
             force=args.force,
+            rescore=args.rescore,
             dry_run=args.dry_run,
             verbose=args.verbose,
             sleep_sec=sleep_sec,
