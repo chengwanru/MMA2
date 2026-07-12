@@ -237,6 +237,18 @@ def _invoke_one_sample_phase(
     home_dir: Path,
     env: Dict[str, str],
 ) -> Dict[str, Any]:
+    isolated_env = dict(env)
+    isolated_env["HOME"] = str(home_dir)
+    for pg_key in (
+        "MMA_PG_URI",
+        "MMA_PG_DB",
+        "MMA_PG_USER",
+        "MMA_PG_PASSWORD",
+        "MMA_PG_HOST",
+        "MMA_PG_PORT",
+        "PG_URI",
+    ):
+        isolated_env.pop(pg_key, None)
     proc = subprocess.run(
         [
             sys.executable,
@@ -250,7 +262,7 @@ def _invoke_one_sample_phase(
             "--phase",
             phase,
         ],
-        env=env,
+        env=isolated_env,
         capture_output=True,
         text=True,
     )

@@ -158,6 +158,60 @@ def wipe_mma_sqlite(home_dir: Path) -> bool:
     return removed
 
 
+def episodic_frame_batches(image_paths: List[str], batch_size: int) -> set[frozenset[str]]:
+    """Frame basenames grouped by absorb/caption batch."""
+    batches: set[frozenset[str]] = set()
+    for start in range(0, len(image_paths), batch_size):
+        chunk = image_paths[start : start + batch_size]
+        batches.add(frozenset(os.path.basename(p).lower() for p in chunk))
+    return batches
+
+
+def episodic_event_frame_batch(event: Any) -> Optional[frozenset[str]]:
+    details = getattr(event, "details", None) or ""
+    match = _FRAMES_LINE_RE.search(details)
+    if not match:
+        return None
+    names = [part.strip().lower() for part in match.group(1).split(",") if part.strip()]
+    return frozenset(names) if names else None
+
+
+def episodic_events_cover_frames(events: List[Any], image_paths: List[str], batch_size: int) -> bool:
+    """True when episodic rows include every frame batch for this sample."""
+    required = episodic_frame_batches(image_paths, batch_size)
+    if not required:
+        return False
+    found: set[frozenset[str]] = set()
+    for event in events:
+        batch = episodic_event_frame_batch(event)
+        if batch:
+            found.add(batch)
+    return required.issubset(found)
+
+
+def clear_openeqa_scene_episodic(mma_agent) -> int:
+    """Delete all episodic rows for the current agent (stale cross-sample reuse)."""
+    episodic_state = mma_agent.agent_states.episodic_memory_agent_state
+    mgr = mma_agent.client.server.episodic_memory_manager
+    tz = mma_agent.client.server.user_manager.get_user_by_id(mma_agent.client.user.id).timezone
+    events = mgr.list_episodic_memory(
+        agent_state=episodic_state,
+        limit=500,
+        timezone_str=tz,
+    )
+    cleared = 0
+    for event in events:
+        eid = getattr(event, "id", None)
+        if not eid:
+            continue
+        try:
+            mgr.delete_event_by_id(str(eid))
+            cleared += 1
+        except Exception:
+            continue
+    return cleared
+
+
 def _extract_frame_key(event: Any) -> Optional[str]:
     details = (getattr(event, "details", None) or "").lower()
     summary = (getattr(event, "summary", None) or "").lower()

@@ -33,7 +33,9 @@ from openeqa_debug import (
 )
 from openeqa_memory import (
     build_retrieval_query,
+    clear_openeqa_scene_episodic,
     events_to_memory_items,
+    episodic_events_cover_frames,
     format_episodic_block_for_qa,
     fresh_home_enabled,
     get_qa_ranked_events,
@@ -372,14 +374,35 @@ def ensure_episodic_from_frames(
     question = (sample or {}).get("question", "")
     batch_size = _absorb_batch_size()
     expected = _expected_episodic_batches(len(image_paths), batch_size)
-    existing = collect_episodic_debug(mma_agent, question=question)
-    if int(existing.get("episodic_total") or 0) >= expected:
+    mgr = mma_agent.client.server.episodic_memory_manager
+    episodic_state = mma_agent.agent_states.episodic_memory_agent_state
+    tz = mma_agent.client.server.user_manager.get_user_by_id(mma_agent.client.user.id).timezone
+    existing_events = mgr.list_episodic_memory(
+        agent_state=episodic_state,
+        limit=500,
+        timezone_str=tz,
+    )
+    existing_total = len(existing_events)
+    if existing_total >= expected and episodic_events_cover_frames(
+        existing_events, image_paths, batch_size
+    ):
+        print(
+            f"  [direct_episodic] skip: {existing_total} rows already cover "
+            f"{expected} frame batch(es)",
+            flush=True,
+        )
         return 0, errors
+    if existing_total > 0:
+        cleared = clear_openeqa_scene_episodic(mma_agent)
+        print(
+            f"  [direct_episodic] cleared {cleared} stale row(s) "
+            f"(had {existing_total}, need fresh captions for this episode)",
+            flush=True,
+        )
 
     mgr = mma_agent.client.server.episodic_memory_manager
-    state = mma_agent.agent_states.episodic_memory_agent_state
+    state = episodic_state
     org_id = mma_agent.client.user.organization_id
-    tz = mma_agent.timezone
     inserted = 0
 
     for start in range(0, len(image_paths), batch_size):
@@ -510,8 +533,11 @@ def _run_memorize(
     if missing:
         return f"ERROR:memorize:missing frames: {missing[:2]}", "", None
 
-    if fresh_home_enabled() and wipe_mma_sqlite(home_dir):
-        print("  [memorize] wiped stale ~/.mma/sqlite.db", flush=True)
+    if fresh_home_enabled():
+        if wipe_mma_sqlite(home_dir):
+            print("  [memorize] wiped stale ~/.mma/sqlite.db", flush=True)
+        else:
+            print("  [memorize] fresh HOME (no prior sqlite.db)", flush=True)
 
     _apply_memorize_baseline_tools_env()
     agent = _init_agent(config_path)

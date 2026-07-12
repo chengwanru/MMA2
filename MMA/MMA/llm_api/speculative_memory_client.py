@@ -83,7 +83,7 @@ def _chat_to_template_messages(
     chat: List[Dict[str, str]],
     tool_instructions: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Convert OpenAI-style chat dicts to HF apply_chat_template messages (text-only)."""
+    """Convert OpenAI-style chat dicts to Qwen3-VL apply_chat_template messages (text-only)."""
     messages: List[Dict[str, Any]] = []
     system_chunks: List[str] = []
     if tool_instructions:
@@ -95,6 +95,12 @@ def _chat_to_template_messages(
             continue
         if role == "system":
             system_chunks.append(content)
+        elif role == "user":
+            # Qwen3-VL processor expects list[{"type","text"}] — plain str causes
+            # TypeError("string indices must be integers, not 'str'") in template.
+            messages.append(
+                {"role": "user", "content": [{"type": "text", "text": content}]}
+            )
         else:
             messages.append({"role": role, "content": content})
     if system_chunks:
@@ -116,16 +122,19 @@ def _tokenize_text_only_chat(
         raise RuntimeError("empty chat messages for text-only tokenize")
 
     if processor is not None and hasattr(processor, "apply_chat_template"):
+        from mma.speculative_memory.generation_helpers import json_dumps_set_patch
+
+        proc_tok = getattr(processor, "tokenizer", tokenizer)
         try:
-            proc_tok = getattr(processor, "tokenizer", tokenizer)
-            with _patch_tokenizer_no_trunc(proc_tok):
-                out = processor.apply_chat_template(
-                    messages,
-                    tokenize=True,
-                    add_generation_prompt=True,
-                    return_dict=True,
-                    return_tensors="pt",
-                )
+            with json_dumps_set_patch():
+                with _patch_tokenizer_no_trunc(proc_tok):
+                    out = processor.apply_chat_template(
+                        messages,
+                        tokenize=True,
+                        add_generation_prompt=True,
+                        return_dict=True,
+                        return_tensors="pt",
+                    )
             inputs = _extract_vl_model_inputs(out)
             if inputs.get("input_ids") is not None:
                 if _vl_debug_enabled():
@@ -139,10 +148,38 @@ def _tokenize_text_only_chat(
                 return inputs
         except Exception as exc:
             print(
-                f"[vl_tokenize] text-only apply_chat_template failed: {exc!r}; "
-                "falling back to manual format",
+                f"[vl_tokenize] text-only apply_chat_template(tokenize=True) failed: {exc!r}; "
+                "trying tokenize=False",
                 flush=True,
             )
+            try:
+                with json_dumps_set_patch():
+                    with _patch_tokenizer_no_trunc(proc_tok):
+                        prompt_text = processor.apply_chat_template(
+                            messages,
+                            tokenize=False,
+                            add_generation_prompt=True,
+                        )
+                out = proc_tok(prompt_text, return_tensors="pt", add_special_tokens=False)
+                prompt_ids = out.get("input_ids", out)
+                if hasattr(prompt_ids, "input_ids"):
+                    prompt_ids = prompt_ids.input_ids
+                attention_mask = out.get("attention_mask")
+                if attention_mask is None:
+                    attention_mask = torch.ones_like(prompt_ids)
+                if _vl_debug_enabled():
+                    print(
+                        f"[vl_tokenize] text-only apply_chat_template(tokenize=False) ok; "
+                        f"prompt_len={int(prompt_ids.shape[-1])}",
+                        flush=True,
+                    )
+                return {"input_ids": prompt_ids, "attention_mask": attention_mask}
+            except Exception as exc2:
+                print(
+                    f"[vl_tokenize] text-only apply_chat_template failed: {exc2!r}; "
+                    "falling back to manual format",
+                    flush=True,
+                )
 
     text = (
         "\n".join(f"{c['role']}: {c['content']}" for c in chat if c.get("content"))

@@ -8,7 +8,10 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from openeqa_debug import collect_episodic_debug
+from openeqa_memory import (
+    clear_openeqa_scene_episodic,
+    episodic_events_cover_frames,
+)
 
 
 def direct_episodic_enabled() -> bool:
@@ -152,12 +155,32 @@ def ensure_episodic_from_frames(
     question = (sample or {}).get("question", "")
     batch_size = max(1, int(os.environ.get("OPENEQA_ABSORB_BATCH_SIZE", "4")))
     expected = max(0, (len(image_paths) + batch_size - 1) // batch_size)
-    existing = collect_episodic_debug(mma_agent, question=question)
-    if int(existing.get("episodic_total") or 0) >= expected:
-        return 0
-
     mgr = mma_agent.client.server.episodic_memory_manager
     state = mma_agent.agent_states.episodic_memory_agent_state
+    tz = mma_agent.client.server.user_manager.get_user_by_id(mma_agent.client.user.id).timezone
+    existing_events = mgr.list_episodic_memory(
+        agent_state=state,
+        limit=500,
+        timezone_str=tz,
+    )
+    existing_total = len(existing_events)
+    if existing_total >= expected and episodic_events_cover_frames(
+        existing_events, image_paths, batch_size
+    ):
+        print(
+            f"  [direct_episodic] skip: {existing_total} rows already cover "
+            f"{expected} frame batch(es)",
+            flush=True,
+        )
+        return 0
+    if existing_total > 0:
+        cleared = clear_openeqa_scene_episodic(mma_agent)
+        print(
+            f"  [direct_episodic] cleared {cleared} stale row(s) "
+            f"(had {existing_total}, need fresh captions for this episode)",
+            flush=True,
+        )
+
     org_id = mma_agent.client.user.organization_id
     tz = mma_agent.timezone
     inserted = 0
