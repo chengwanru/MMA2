@@ -436,14 +436,27 @@ class SpeculativeMemoryClient(LLMClientBase):
             proc_kw = dict(trust_remote_code=True)
             if _local:
                 proc_kw["local_files_only"] = True
-            # Tokenize with the draft-family processor (same as load_draft_model / direct SD).
-            # Target-only 8B AutoProcessor can truncate image tokens; draft processor matches 8B inference.
+            # Prefer target processor so pixel_values/image_grid_thw match the 8B model.
+            # Draft (2B) processor can mis-align vision tensors on some stacks (AIBox → "its" garbage).
+            # Truncation is handled by _patch_tokenizer_no_trunc in _run_vl_processor.
+            use_draft_proc = os.environ.get("MMA_VL_USE_DRAFT_PROCESSOR", "").strip().lower() in (
+                "1",
+                "true",
+                "yes",
+            )
+            proc_path = draft_path if use_draft_proc else target_path
             self._draft_processor = AutoProcessor.from_pretrained(
-                draft_path,
+                proc_path,
                 **proc_kw,
             )
             self._tokenizer = self._draft_processor.tokenizer
             self._draft_model = None
+            if _vl_debug_enabled():
+                print(
+                    f"[vl_load] target_only processor={proc_path} "
+                    f"(draft_processor={use_draft_proc})",
+                    flush=True,
+                )
         else:
             self._draft_model, self._draft_processor = load_draft_model(
                 self._config, device_map=device
