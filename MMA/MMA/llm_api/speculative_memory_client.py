@@ -142,6 +142,71 @@ def _vl_debug_enabled() -> bool:
     return os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes")
 
 
+def _tensor_field(out: Any, name: str) -> Any:
+    v = out.get(name) if hasattr(out, "get") else None
+    return v if v is not None else getattr(out, name, None)
+
+
+_VL_INPUT_KEYS = (
+    "input_ids",
+    "attention_mask",
+    "pixel_values",
+    "image_grid_thw",
+    "pixel_values_videos",
+    "video_grid_thw",
+    "second_per_grid_ts",
+)
+
+
+def _extract_vl_model_inputs(out: Any) -> Dict[str, Any]:
+    inputs: Dict[str, Any] = {}
+    for key in _VL_INPUT_KEYS:
+        value = _tensor_field(out, key)
+        if value is not None and hasattr(value, "to"):
+            inputs[key] = value
+    return inputs
+
+
+def _move_vl_inputs_to_device(
+    model_inputs: Dict[str, Any],
+    device: Any,
+    model: Any,
+) -> Dict[str, Any]:
+    import torch
+
+    model_dtype = next(model.parameters()).dtype
+    moved: Dict[str, Any] = {}
+    for key, value in model_inputs.items():
+        if not isinstance(value, torch.Tensor):
+            continue
+        if value.is_floating_point():
+            moved[key] = value.to(device=device, dtype=model_dtype)
+        else:
+            moved[key] = value.to(device=device)
+    return moved
+
+
+def _decode_vl_output(
+    processor: Any,
+    output_ids: Any,
+    prompt_len: int,
+) -> str:
+    new_ids = output_ids[0, prompt_len:]
+    if hasattr(processor, "batch_decode"):
+        try:
+            texts = processor.batch_decode(
+                new_ids.unsqueeze(0),
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=False,
+            )
+            if texts and texts[0]:
+                return texts[0]
+        except Exception:
+            pass
+    tokenizer = getattr(processor, "tokenizer", processor)
+    return tokenizer.decode(new_ids, skip_special_tokens=True)
+
+
 def _run_vl_processor(
     processor: Any,
     *,
@@ -580,14 +645,15 @@ class SpeculativeMemoryClient(LLMClientBase):
         image_paths: List[str],
         device: Any,
         tool_instructions: Optional[str] = None,
-    ) -> Tuple[Any, Optional[Any], Optional[Any]]:
-        """Tokenize chat (text-only or multimodal) and return (prompt_ids, pixel_values, image_grid_thw)."""
+    ) -> Tuple[Any, Optional[Any], Optional[Any], Optional[Dict[str, Any]]]:
+        """Tokenize chat; return (prompt_ids, pixel_values, image_grid_thw, vl_model_inputs)."""
         import torch
 
         tokenizer = self._tokenizer
         processor = self._draft_processor
         pixel_values = None
         image_grid_thw = None
+        vl_model_inputs: Optional[Dict[str, Any]] = None
 
         if image_paths and vl_content_parts and hasattr(processor, "image_token"):
             try:
@@ -610,7 +676,7 @@ class SpeculativeMemoryClient(LLMClientBase):
                     images_list.append(img)
                     vl_content_parts_resolved.append((kind, img))
             if not text_parts:
-                return None, None, None
+                return None, None, None, None
             if tool_instructions:
                 text_parts.append("\n" + tool_instructions.strip() + "\n")
             text_parts.append("\nassistant:")
@@ -622,13 +688,10 @@ class SpeculativeMemoryClient(LLMClientBase):
                 vl_content_parts=vl_content_parts_resolved,
                 tool_instructions=tool_instructions,
             )
-            def _field(name: str):
-                v = out.get(name) if hasattr(out, "get") else None
-                return v if v is not None else getattr(out, name, None)
-
-            prompt_ids = _field("input_ids")
-            pixel_values = _field("pixel_values")
-            image_grid_thw = _field("image_grid_thw")
+            vl_model_inputs = _extract_vl_model_inputs(out)
+            prompt_ids = vl_model_inputs.get("input_ids")
+            pixel_values = vl_model_inputs.get("pixel_values")
+            image_grid_thw = vl_model_inputs.get("image_grid_thw")
             if hasattr(prompt_ids, "input_ids"):
                 prompt_ids = prompt_ids.input_ids
         else:
@@ -652,11 +715,26 @@ class SpeculativeMemoryClient(LLMClientBase):
             )
             if hasattr(prompt_ids, "input_ids"):
                 prompt_ids = prompt_ids.input_ids
+            vl_model_inputs = {
+                "input_ids": prompt_ids,
+                "attention_mask": out.get("attention_mask")
+                if hasattr(out, "get")
+                else getattr(out, "attention_mask", None),
+            }
+            if vl_model_inputs["attention_mask"] is None:
+                vl_model_inputs["attention_mask"] = torch.ones_like(prompt_ids)
 
         prompt_ids = prompt_ids.to(device)
         if prompt_ids.dim() == 1:
             prompt_ids = prompt_ids.unsqueeze(0)
-        return prompt_ids, pixel_values, image_grid_thw
+        if vl_model_inputs is not None:
+            vl_model_inputs["input_ids"] = prompt_ids
+            if "attention_mask" in vl_model_inputs and vl_model_inputs["attention_mask"] is not None:
+                mask = vl_model_inputs["attention_mask"]
+                if mask.dim() == 1:
+                    mask = mask.unsqueeze(0)
+                vl_model_inputs["attention_mask"] = mask.to(device)
+        return prompt_ids, pixel_values, image_grid_thw, vl_model_inputs
 
     def request(self, request_data: dict) -> dict:
         import torch
@@ -682,7 +760,7 @@ class SpeculativeMemoryClient(LLMClientBase):
         device = next(self._target_model.parameters()).device
 
         try:
-            prompt_ids, pixel_values, image_grid_thw = self._tokenize_chat(
+            prompt_ids, pixel_values, image_grid_thw, vl_model_inputs = self._tokenize_chat(
                 chat,
                 vl_content_parts,
                 image_paths,
@@ -693,6 +771,15 @@ class SpeculativeMemoryClient(LLMClientBase):
             raise RuntimeError(f"tokenize failed: {e}") from e
         if prompt_ids is None:
             return {"generated_text": ""}
+
+        model_dtype = next(self._target_model.parameters()).dtype
+        if pixel_values is not None and hasattr(pixel_values, "is_floating_point"):
+            if pixel_values.is_floating_point():
+                pixel_values = pixel_values.to(device=device, dtype=model_dtype)
+            else:
+                pixel_values = pixel_values.to(device)
+        if image_grid_thw is not None:
+            image_grid_thw = image_grid_thw.to(device)
 
         prompt_len = int(prompt_ids.size(1))
         max_new_tokens = _clamp_max_new_tokens(self._target_model, prompt_len, max_new_tokens)
@@ -726,20 +813,31 @@ class SpeculativeMemoryClient(LLMClientBase):
                 # baseline4/local_rag OR baseline1(target-only): standard AR generation with target model.
                 # No draft verification loop, no memory KV injection, no speculative logits path.
                 with torch.no_grad():
-                    gen_kwargs: dict = {
-                        "input_ids": prompt_ids,
-                        "attention_mask": torch.ones_like(
-                            prompt_ids, dtype=torch.long, device=device
-                        ),
-                        "max_new_tokens": max_new_tokens,
-                        "do_sample": False,
-                        "pad_token_id": tokenizer.pad_token_id or tokenizer.eos_token_id,
-                        "eos_token_id": tokenizer.eos_token_id,
-                    }
-                    if pixel_values is not None:
-                        gen_kwargs["pixel_values"] = pixel_values.to(device)
-                    if image_grid_thw is not None:
-                        gen_kwargs["image_grid_thw"] = image_grid_thw.to(device)
+                    if vl_model_inputs:
+                        gen_kwargs = _move_vl_inputs_to_device(
+                            vl_model_inputs,
+                            device,
+                            self._target_model,
+                        )
+                    else:
+                        gen_kwargs = {
+                            "input_ids": prompt_ids,
+                            "attention_mask": torch.ones_like(
+                                prompt_ids, dtype=torch.long, device=device
+                            ),
+                        }
+                    gen_kwargs.update(
+                        {
+                            "max_new_tokens": max_new_tokens,
+                            "do_sample": False,
+                            "pad_token_id": tokenizer.pad_token_id or tokenizer.eos_token_id,
+                            "eos_token_id": tokenizer.eos_token_id,
+                        }
+                    )
+                    if pixel_values is not None and "pixel_values" not in gen_kwargs:
+                        gen_kwargs["pixel_values"] = pixel_values
+                    if image_grid_thw is not None and "image_grid_thw" not in gen_kwargs:
+                        gen_kwargs["image_grid_thw"] = image_grid_thw
                     output_ids = safe_generate(self._target_model, **gen_kwargs)
             else:
                 if self._draft_model is None:
@@ -763,9 +861,15 @@ class SpeculativeMemoryClient(LLMClientBase):
         _sync_cuda()
         elapsed_sec = time.perf_counter() - t0
 
-        prompt_len = prompt_ids.size(1)
+        prompt_len = int(prompt_ids.size(1))
+        if vl_model_inputs and "input_ids" in vl_model_inputs:
+            prompt_len = int(vl_model_inputs["input_ids"].size(1))
         new_ids = output_ids[0, prompt_len:]
-        generated_text = tokenizer.decode(new_ids, skip_special_tokens=True)
+        processor = self._draft_processor
+        if vl_content_parts and processor is not None:
+            generated_text = _decode_vl_output(processor, output_ids, prompt_len)
+        else:
+            generated_text = tokenizer.decode(new_ids, skip_special_tokens=True)
         if _vl_debug_enabled() and vl_content_parts:
             print(f"[vl_gen] generated_text={generated_text[:240]!r}", flush=True)
 
