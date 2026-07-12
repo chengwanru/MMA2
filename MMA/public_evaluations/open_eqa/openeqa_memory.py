@@ -588,6 +588,9 @@ def normalize_qa_prediction(
 
     raw_text = (raw or "").strip()
     if not raw_text or raw_text == "ERROR":
+        fallback = _answer_from_memory_hint(memory_hint, question)
+        if fallback:
+            return _finalize(fallback, raw_text or "ERROR")
         return raw_text, raw_text
     if os.environ.get("OPENEQA_NORMALIZE_ANSWER", "1").strip().lower() in (
         "0",

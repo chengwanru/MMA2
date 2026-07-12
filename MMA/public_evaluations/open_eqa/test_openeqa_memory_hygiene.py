@@ -212,6 +212,15 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         self.assertIn("air", pred.lower())
 
+    def test_normalize_error_falls_back_to_memory_hint(self):
+        pred, raw = normalize_qa_prediction(
+            "ERROR",
+            question="What is the white object on the wall above the TV?",
+            memory_hint="Above the TV is a white wall-mounted air conditioner unit",
+        )
+        self.assertIn("air", pred.lower())
+        self.assertEqual(raw, "ERROR")
+
     def test_yes_no_table_mat_aligned_keeps_bias(self):
         mats = _Event("Two yellow placemats on the dining table")
         empty = _Event("The dining table is clear")

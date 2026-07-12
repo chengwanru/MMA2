@@ -243,6 +243,10 @@ def _apply_qa_env() -> None:
         os.environ.pop("MMA_SPECULATIVE_BASELINE", None)
         os.environ.pop("MMA_TARGET_ONLY", None)
         os.environ.pop("MMA_BASELINE_TOOLS", None)
+    if _qa_uses_direct_sd():
+        # Text-only direct SD: visual routing embed pass is unnecessary and can fail on VL targets.
+        os.environ["MMA_ENABLE_VISUAL_ROUTING"] = "0"
+        os.environ.setdefault("OPENEQA_QA_DIRECT_SD", "1")
 
 
 def _apply_skip_meta_memory() -> None:
@@ -597,37 +601,105 @@ def _qa_send(agent, message: str) -> str:
     return ""
 
 
-def _qa_direct_sd_send(mma_agent, formatted: str, question: str) -> str:
+def _clear_speculative_client_cache() -> None:
+    try:
+        from mma.llm_api import llm_client as llm_client_mod
+
+        llm_client_mod._speculative_memory_client_cache = None
+    except Exception:
+        pass
+
+
+def _qa_direct_sd_send(
+    mma_agent,
+    formatted: str,
+    question: str,
+    *,
+    baseline_only: bool = False,
+) -> str:
     """Text-only speculative QA with episodic memory_items (no chat-agent tools)."""
+    import traceback
+
     from mma.llm_api.llm_client import LLMClient
+    from mma.schemas.enums import MessageRole
+    from mma.schemas.message import Message
+    from mma.schemas.mma_message_content import TextContent
 
     selected = get_qa_ranked_events()
     block = format_episodic_block_for_qa(selected)
     memory_items = events_to_memory_items(selected)
-    prompt = f"Episodic Memory:\n{block}\n\n{formatted}" if block.strip() else formatted
+    user_prompt = f"Episodic Memory:\n{block}\n\n{formatted}" if block.strip() else formatted
+    system_prompt = (
+        "You answer embodied questions using episodic memory. "
+        "Reply with a short factual phrase only (no analysis, tools, or send_message)."
+    )
 
     state = mma_agent.agent_states.agent_state
     llm_config = state.llm_config
-    client = LLMClient.create(llm_config=llm_config, put_inner_thoughts_first=True)
-    request_data = client.build_request_data([], llm_config)
-    request_data["chat"] = [{"role": "user", "content": prompt}]
-    request_data["memory_items"] = memory_items
-    request_data["local_rag"] = os.environ.get("MMA_SPECULATIVE_LOCAL_RAG", "").strip() == "1"
     max_tokens = max(8, int(os.environ.get("OPENEQA_QA_MAX_TOKENS", "32")))
     if is_yes_no_question(question):
         max_tokens = min(
             max_tokens,
             max(2, int(os.environ.get("OPENEQA_QA_MAX_TOKENS_YESNO", "4"))),
         )
-    request_data["max_new_tokens"] = max_tokens
-    request_data["collect_stats"] = True
-    request_data["stats_out"] = {}
+    llm_config = llm_config.model_copy(update={"max_tokens": max_tokens})
+
+    saved_env = {
+        "MMA_SPECULATIVE_BASELINE": os.environ.get("MMA_SPECULATIVE_BASELINE"),
+        "MMA_TARGET_ONLY": os.environ.get("MMA_TARGET_ONLY"),
+    }
+    if baseline_only:
+        os.environ["MMA_SPECULATIVE_BASELINE"] = "1"
+        os.environ["MMA_TARGET_ONLY"] = "1"
+        _clear_speculative_client_cache()
+
     print(
-        f"  [qa] direct_sd: memory_items={len(memory_items)} max_tokens={max_tokens}",
+        f"  [qa] direct_sd: baseline_only={baseline_only} "
+        f"memory_items={len(memory_items)} max_tokens={max_tokens}",
         flush=True,
     )
-    response = client.request(request_data)
-    return (response.get("generated_text") or "").strip()
+    try:
+        client = LLMClient.create(llm_config=llm_config, put_inner_thoughts_first=True)
+        if client is None:
+            print("  [qa] direct_sd FAILED: LLMClient.create returned None", flush=True)
+            return ""
+        messages = [
+            Message(role=MessageRole.system, content=[TextContent(text=system_prompt)]),
+            Message(role=MessageRole.user, content=[TextContent(text=user_prompt)]),
+        ]
+        response = client.send_llm_request(
+            messages=messages,
+            tools=None,
+            retrieved_memories={"memory_items": memory_items},
+        )
+        if not response or not response.choices:
+            print("  [qa] direct_sd FAILED: empty response choices", flush=True)
+            return ""
+        text = (response.choices[0].message.content or "").strip()
+        if text:
+            print(f"  [qa] direct_sd raw={text[:120]!r}", flush=True)
+        return text
+    except Exception as exc:
+        print(f"  [qa] direct_sd FAILED: {exc}", flush=True)
+        traceback.print_exc()
+        return ""
+    finally:
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        if baseline_only:
+            _clear_speculative_client_cache()
+
+
+def _qa_direct_sd_with_fallback(mma_agent, formatted: str, question: str) -> str:
+    raw = _qa_direct_sd_send(mma_agent, formatted, question)
+    if raw:
+        return raw
+    print("  [qa] direct_sd empty; retrying target-only baseline", flush=True)
+    _release_gpu_cache()
+    return _qa_direct_sd_send(mma_agent, formatted, question, baseline_only=True)
 
 
 def _run_qa(
@@ -644,6 +716,21 @@ def _run_qa(
     agent = _init_agent(config_path, for_qa=True)
     _set_chat_topic(_mma_core(agent), question)
     draft_policy = prepare_draft_policy_for_agent(_mma_core(agent), question)
+    selected_events = get_qa_ranked_events()
+    if not selected_events:
+        episodic_debug = collect_episodic_debug(_mma_core(agent), question=question)
+        episodic_total = int(episodic_debug.get("episodic_total") or 0)
+        if episodic_total == 0:
+            return (
+                f"ERROR:qa:no episodic memory in {home_dir} "
+                "(memorize phase may have failed or HOME mismatch)",
+                "",
+                None,
+            )
+        print(
+            f"  [qa] WARN: rerank returned 0 events (episodic_total={episodic_total})",
+            flush=True,
+        )
     if draft_policy:
         print(
             "  [qa] draft_policy: "
@@ -655,7 +742,7 @@ def _run_qa(
         )
     formatted = _format_eqa_question(question)
     if _qa_uses_direct_sd():
-        raw_prediction = _qa_direct_sd_send(_mma_core(agent), formatted, question)
+        raw_prediction = _qa_direct_sd_with_fallback(_mma_core(agent), formatted, question)
     else:
         raw_prediction = _qa_send(agent, formatted)
     if not raw_prediction and _is_yes_no_question(question):
@@ -665,12 +752,11 @@ def _run_qa(
         )
         print("  [qa] empty first response; retrying yes/no fallback", flush=True)
         if _qa_uses_direct_sd():
-            raw_prediction = _qa_direct_sd_send(_mma_core(agent), fallback, question)
+            raw_prediction = _qa_direct_sd_with_fallback(_mma_core(agent), fallback, question)
         else:
             raw_prediction = _qa_send(agent, fallback)
     if not raw_prediction:
-        print("  [qa] empty response after retries", flush=True)
-        raw_prediction = "ERROR"
+        print("  [qa] empty response after retries (normalize may use memory hint)", flush=True)
 
     memory_hint = (draft_policy or {}).get("top_memory_hint") or (
         (draft_policy or {}).get("top_memory_preview") or ""

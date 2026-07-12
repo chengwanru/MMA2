@@ -214,6 +214,8 @@ def _subprocess_env(use_speculative_baseline: bool, phase: str = "all") -> Dict[
         env.pop("OPENEQA_EPISODIC_ONLY", None)
         env.pop("OPENEQA_EPISODIC_TOOL_CALL", None)
         env.setdefault("OPENEQA_QA_BASELINE", "0")
+        env.setdefault("OPENEQA_QA_DIRECT_SD", "1")
+        env["MMA_ENABLE_VISUAL_ROUTING"] = "0"
         env.pop("MMA_TARGET_ONLY", None)
         if use_speculative_baseline:
             env["MMA_SPECULATIVE_BASELINE"] = "1"
