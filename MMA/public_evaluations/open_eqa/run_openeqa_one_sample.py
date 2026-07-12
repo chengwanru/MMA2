@@ -33,7 +33,10 @@ from openeqa_debug import (
 )
 from openeqa_memory import (
     build_retrieval_query,
+    events_to_memory_items,
+    format_episodic_block_for_qa,
     fresh_home_enabled,
+    get_qa_ranked_events,
     is_yes_no_question,
     normalize_qa_prediction,
     patch_agent_for_openeqa_qa,
@@ -578,11 +581,53 @@ def _run_memorize(
     return "OK", "", debug_payload
 
 
+def _qa_uses_direct_sd() -> bool:
+    """Bypass chat-agent send_message tooling; call speculative client directly."""
+    return os.environ.get("OPENEQA_QA_DIRECT_SD", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+
+
 def _qa_send(agent, message: str) -> str:
     raw = (agent.send_message(message=message, memorizing=False) or "").strip()
     if raw and raw != "ERROR":
         return raw
     return ""
+
+
+def _qa_direct_sd_send(mma_agent, formatted: str, question: str) -> str:
+    """Text-only speculative QA with episodic memory_items (no chat-agent tools)."""
+    from mma.llm_api.llm_client import LLMClient
+
+    selected = get_qa_ranked_events()
+    block = format_episodic_block_for_qa(selected)
+    memory_items = events_to_memory_items(selected)
+    prompt = f"Episodic Memory:\n{block}\n\n{formatted}" if block.strip() else formatted
+
+    state = mma_agent.agent_states.agent_state
+    llm_config = state.llm_config
+    client = LLMClient.create(llm_config=llm_config, put_inner_thoughts_first=True)
+    request_data = client.build_request_data([], llm_config)
+    request_data["chat"] = [{"role": "user", "content": prompt}]
+    request_data["memory_items"] = memory_items
+    request_data["local_rag"] = os.environ.get("MMA_SPECULATIVE_LOCAL_RAG", "").strip() == "1"
+    max_tokens = max(8, int(os.environ.get("OPENEQA_QA_MAX_TOKENS", "32")))
+    if is_yes_no_question(question):
+        max_tokens = min(
+            max_tokens,
+            max(2, int(os.environ.get("OPENEQA_QA_MAX_TOKENS_YESNO", "4"))),
+        )
+    request_data["max_new_tokens"] = max_tokens
+    request_data["collect_stats"] = True
+    request_data["stats_out"] = {}
+    print(
+        f"  [qa] direct_sd: memory_items={len(memory_items)} max_tokens={max_tokens}",
+        flush=True,
+    )
+    response = client.request(request_data)
+    return (response.get("generated_text") or "").strip()
 
 
 def _run_qa(
@@ -609,14 +654,20 @@ def _run_qa(
             flush=True,
         )
     formatted = _format_eqa_question(question)
-    raw_prediction = _qa_send(agent, formatted)
+    if _qa_uses_direct_sd():
+        raw_prediction = _qa_direct_sd_send(_mma_core(agent), formatted, question)
+    else:
+        raw_prediction = _qa_send(agent, formatted)
     if not raw_prediction and _is_yes_no_question(question):
         fallback = (
             "Based on episodic memory only, answer with exactly one word: Yes or No.\n\n"
             f"Question: {question}"
         )
         print("  [qa] empty first response; retrying yes/no fallback", flush=True)
-        raw_prediction = _qa_send(agent, fallback)
+        if _qa_uses_direct_sd():
+            raw_prediction = _qa_direct_sd_send(_mma_core(agent), fallback, question)
+        else:
+            raw_prediction = _qa_send(agent, fallback)
     if not raw_prediction:
         print("  [qa] empty response after retries", flush=True)
         raw_prediction = "ERROR"

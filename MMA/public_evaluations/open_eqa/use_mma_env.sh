@@ -63,6 +63,8 @@ export MMA_SD_DISABLE_MEMORY_KV="${MMA_SD_DISABLE_MEMORY_KV:-1}"
 export MMA_SPECULATIVE_OFFLOAD_TARGET="${MMA_SPECULATIVE_OFFLOAD_TARGET:-0}"
 export OPENEQA_SD_NO_OFFLOAD="${OPENEQA_SD_NO_OFFLOAD:-1}"
 export OPENEQA_QA_MAX_TOKENS="${OPENEQA_QA_MAX_TOKENS:-64}"
+# QA: skip chat-agent send_message tooling (SD degenerates to "The"/"a message:" spam).
+export OPENEQA_QA_DIRECT_SD="${OPENEQA_QA_DIRECT_SD:-1}"
 
 MMA_RUNTIME="${MMA_RUNTIME:-/tmp/mma_runtime}"
 if [[ -f "${MMA_RUNTIME}/mma/__init__.py" ]]; then

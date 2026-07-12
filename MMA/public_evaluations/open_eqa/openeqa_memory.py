@@ -24,6 +24,7 @@ _NUMBERED_ITEM_RE = re.compile(r"^\s*\d+[\.\)]\s*(.+)$", re.M)
 _RGB_FRAME_RE = re.compile(r"^\d{5}-rgb\.png$", re.I)
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 _SEND_MESSAGE_RE = re.compile(r"send_message\s*\(", re.I)
+_TOOL_ARG_MESSAGE_SPAM_RE = re.compile(r"(?:\ba\s+)?message\s*:", re.I)
 _META_REASONING_MARKERS = (
     "the user's question",
     "the user is asking",
@@ -713,6 +714,10 @@ def _is_bad_answer(text: str, *, yes_no_q: bool = False) -> bool:
         return True
     if _SEND_MESSAGE_RE.search(phrase):
         return True
+    if len(_TOOL_ARG_MESSAGE_SPAM_RE.findall(phrase)) >= 2:
+        return True
+    if _TOOL_ARG_MESSAGE_SPAM_RE.match(phrase) and len(phrase) < 80:
+        return True
     if "-rgb.png" in phrase.lower() or "frame_" in phrase.lower():
         return True
     if _BARE_NUMBER_RE.match(phrase):
@@ -1272,6 +1277,11 @@ def apply_qa_generation_limits(mma_agent: Any, question: str) -> None:
         state.llm_config = updated
     except Exception:
         pass
+
+
+def get_qa_ranked_events() -> List[Any]:
+    """Events selected for the current QA session (after prepare_draft_policy_for_agent)."""
+    return list(_qa_session.get("ranked_events") or [])
 
 
 def prepare_draft_policy_for_agent(mma_agent: Any, question: str) -> Dict[str, Any]:
