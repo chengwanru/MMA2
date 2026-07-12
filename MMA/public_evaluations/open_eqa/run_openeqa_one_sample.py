@@ -38,6 +38,7 @@ from openeqa_memory import (
     fresh_home_enabled,
     get_qa_ranked_events,
     is_yes_no_question,
+    is_refusal_answer,
     normalize_qa_prediction,
     patch_agent_for_openeqa_qa,
     patch_episodic_memory_manager,
@@ -630,8 +631,10 @@ def _qa_direct_sd_send(
     memory_items = events_to_memory_items(selected)
     user_prompt = f"Episodic Memory:\n{block}\n\n{formatted}" if block.strip() else formatted
     system_prompt = (
-        "You answer embodied questions using episodic memory. "
-        "Reply with a short factual phrase only (no analysis, tools, or send_message)."
+        "You answer embodied VQA questions using the episodic memory provided by the user. "
+        "Reply in English only with a short factual phrase (2-6 words). "
+        "If episodic memory describes the object, name it directly. "
+        "Never answer with Chinese and never say there is no relevant information when memory contains the answer."
     )
 
     state = mma_agent.agent_states.agent_state
@@ -676,6 +679,9 @@ def _qa_direct_sd_send(
             print("  [qa] direct_sd FAILED: empty response choices", flush=True)
             return ""
         text = (response.choices[0].message.content or "").strip()
+        if text and is_refusal_answer(text):
+            print(f"  [qa] direct_sd refusal={text!r}; treating as empty", flush=True)
+            return ""
         if text:
             print(f"  [qa] direct_sd raw={text[:120]!r}", flush=True)
         return text

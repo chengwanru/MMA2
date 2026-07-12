@@ -34,6 +34,22 @@ _META_REASONING_MARKERS = (
     "cannot be determined",
     "not visible in",
 )
+_REFUSAL_ANSWER_MARKERS = (
+    "无相关信息",
+    "没有相关信息",
+    "无法确定",
+    "无法回答",
+    "不知道",
+    "no relevant information",
+    "not enough information",
+    "no information available",
+    "insufficient information",
+    "cannot determine",
+    "cannot be determined",
+    "not mentioned in",
+    "not mentioned",
+    "unknown",
+)
 _POLLUTED_MEMORY_MARKERS = (
     "user provided screenshots",
     "the user provided",
@@ -600,6 +616,10 @@ def normalize_qa_prediction(
         return raw_text, raw_text
 
     raw_text = _strip_persona_bleed(raw_text)
+    if _is_refusal_answer(raw_text):
+        fallback = _answer_from_memory_hint(memory_hint, question)
+        if fallback:
+            return _finalize(fallback, raw_text)
     q_l = (question or "").lower()
     yes_no_q = bool(
         re.match(r"^(is|are|do|does|did|can|could|should|was|were|has|have)\b", q_l)
@@ -697,6 +717,23 @@ def _looks_like_meta_reasoning(text: str) -> bool:
     return any(marker in lowered for marker in _META_REASONING_MARKERS)
 
 
+def is_refusal_answer(text: str) -> bool:
+    return _is_refusal_answer(text)
+
+
+def _is_refusal_answer(text: str) -> bool:
+    phrase = (text or "").strip()
+    if not phrase:
+        return False
+    lowered = phrase.lower()
+    if any(marker in phrase or marker in lowered for marker in _REFUSAL_ANSWER_MARKERS):
+        return True
+    # OpenEQA gold answers are English; short Chinese-only replies are refusals/hallucinations.
+    if re.search(r"[\u4e00-\u9fff]", phrase) and not re.search(r"[a-zA-Z]{2,}", phrase):
+        return len(phrase) <= 24
+    return False
+
+
 def _strip_leading_timestamp(text: str) -> str:
     stripped = (text or "").strip()
     while True:
@@ -730,6 +767,8 @@ def _is_bad_answer(text: str, *, yes_no_q: bool = False) -> bool:
     if re.match(r"^\d{4}-\d{2}-\d{2}", phrase):
         return True
     if "you are a helpful assistant" in phrase.lower():
+        return True
+    if _is_refusal_answer(phrase):
         return True
     words = re.findall(r"\b[a-zA-Z]+\b", phrase.lower())
     if words and len(words) >= 2 and len(set(words)) == 1 and words[0] in (

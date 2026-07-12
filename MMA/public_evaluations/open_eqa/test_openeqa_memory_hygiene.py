@@ -212,6 +212,15 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         self.assertIn("air", pred.lower())
 
+    def test_normalize_rejects_chinese_no_info_refusal(self):
+        pred, raw = normalize_qa_prediction(
+            "无相关信息",
+            question="What is the white object on the wall above the TV?",
+            memory_hint="Above the TV is a white wall-mounted air conditioner unit",
+        )
+        self.assertIn("air", pred.lower())
+        self.assertEqual(raw, "无相关信息")
+
     def test_normalize_error_falls_back_to_memory_hint(self):
         pred, raw = normalize_qa_prediction(
             "ERROR",
