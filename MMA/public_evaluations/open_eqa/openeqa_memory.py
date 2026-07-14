@@ -12,11 +12,13 @@ try:
         sanitize_memory_text_for_inference,
     )
 except ImportError:
-    def sanitize_memory_text_for_inference(text: str) -> str:  # type: ignore[misc]
+    # type: ignore[misc]
+    def sanitize_memory_text_for_inference(text: str) -> str:
         return (text or "").strip()
 
 
-_qa_session: Dict[str, Any] = {"question": "", "ranked_events": [], "policy": {}}
+_qa_session: Dict[str, Any] = {
+    "question": "", "ranked_events": [], "policy": {}}
 
 _FRAME_KEY_RE = re.compile(r"frame_(\d+)", re.I)
 _FRAMES_LINE_RE = re.compile(r"frames?:\s*([^\n]+)", re.I)
@@ -89,6 +91,8 @@ def _door_closed(blob: str) -> bool:
 
 def _door_open(blob: str) -> bool:
     return bool(_DOOR_OPEN_RE.search(blob or ""))
+
+
 _ACTION_COOLDOWN_RE = re.compile(
     r"(turn on|use|activate|switch on)\s+(the\s+)?(air conditioner|ac unit|a/?c\b)",
     re.I,
@@ -162,7 +166,7 @@ def episodic_frame_batches(image_paths: List[str], batch_size: int) -> set[froze
     """Frame basenames grouped by absorb/caption batch."""
     batches: set[frozenset[str]] = set()
     for start in range(0, len(image_paths), batch_size):
-        chunk = image_paths[start : start + batch_size]
+        chunk = image_paths[start: start + batch_size]
         batches.add(frozenset(os.path.basename(p).lower() for p in chunk))
     return batches
 
@@ -172,7 +176,8 @@ def episodic_event_frame_batch(event: Any) -> Optional[frozenset[str]]:
     match = _FRAMES_LINE_RE.search(details)
     if not match:
         return None
-    names = [part.strip().lower() for part in match.group(1).split(",") if part.strip()]
+    names = [part.strip().lower()
+             for part in match.group(1).split(",") if part.strip()]
     return frozenset(names) if names else None
 
 
@@ -193,7 +198,8 @@ def clear_openeqa_scene_episodic(mma_agent) -> int:
     """Delete all episodic rows for the current agent (stale cross-sample reuse)."""
     episodic_state = mma_agent.agent_states.episodic_memory_agent_state
     mgr = mma_agent.client.server.episodic_memory_manager
-    tz = mma_agent.client.server.user_manager.get_user_by_id(mma_agent.client.user.id).timezone
+    tz = mma_agent.client.server.user_manager.get_user_by_id(
+        mma_agent.client.user.id).timezone
     events = mgr.list_episodic_memory(
         agent_state=episodic_state,
         limit=500,
@@ -219,7 +225,8 @@ def _extract_frame_key(event: Any) -> Optional[str]:
     match = _FRAME_KEY_RE.search(blob)
     if match:
         return f"frame_{match.group(1)}"
-    frames_match = _FRAMES_LINE_RE.search(getattr(event, "details", None) or "")
+    frames_match = _FRAMES_LINE_RE.search(
+        getattr(event, "details", None) or "")
     if frames_match:
         first = frames_match.group(1).split(",")[0].strip()
         if first:
@@ -232,7 +239,8 @@ def filter_episodic_events(events: List[Any]) -> List[Any]:
     if not events or not episodic_filter_enabled():
         return events
 
-    max_items = max(1, int(os.environ.get("OPENEQA_MAX_EPISODIC_RETRIEVAL", "8")))
+    max_items = max(1, int(os.environ.get(
+        "OPENEQA_MAX_EPISODIC_RETRIEVAL", "8")))
     scene_only = os.environ.get("OPENEQA_SCENE_TREE_ONLY", "1").strip().lower() not in (
         "0",
         "false",
@@ -288,7 +296,11 @@ def build_retrieval_query(question: str) -> str:
     if kind == "yes_no":
         extras.append("visible observation")
     elif kind == "color":
-        extras.extend(["color", "colour"])
+        # Do not append bare "color"/"colour": they substring-match "colored" and
+        # drown the subject noun (e.g. car) under unrelated hallway captions.
+        subject = _question_subject_noun(question)
+        if subject:
+            extras.append(subject)
     elif kind == "functional":
         extras.extend(["switch", "dial", "control", "turn on", "activate"])
     elif kind == "spatial":
@@ -308,15 +320,18 @@ def build_retrieval_query(question: str) -> str:
         extras.append("white wall")
     fan_q = "ceiling fan" in q_l or ("fan" in q_l and "speed" in q_l)
     if "ceiling" in q_l and not fan_q:
-        extras.extend(["ceiling", "wood", "beam", "vaulted", "drywall", "panel"])
+        extras.extend(["ceiling", "wood", "beam",
+                      "vaulted", "drywall", "panel"])
     if "table mat" in q_l or "placemat" in q_l:
         extras.extend(["placemat", "table mat", "dining table", "yellow mat"])
     elif "dining table" in q_l:
-        extras.extend(["dining table", "place settings", "plates", "room to eat"])
+        extras.extend(["dining table", "place settings",
+                      "plates", "room to eat"])
     if "staircase" in q_l and "railing" in q_l:
         extras.extend(["staircase railing", "railing color", "brown"])
     if "between" in q_l and ("frame" in q_l or "picture" in q_l):
-        extras.extend(["between picture frames", "tv", "blue wall", "teal wall"])
+        extras.extend(["between picture frames",
+                      "tv", "blue wall", "teal wall"])
     if "cool down" in q_l or "air conditioner" in q_l or "ac unit" in q_l:
         extras.extend(["air conditioner", "ac unit", "cool"])
     if fan_q:
@@ -326,6 +341,23 @@ def build_retrieval_query(question: str) -> str:
     if extras:
         return f"{question} {' '.join(extras)}"
     return question
+
+
+def _question_subject_noun(question: str) -> str:
+    """Best-effort subject for attribute questions (color / material / type)."""
+    q_l = (question or "").lower()
+    patterns = (
+        r"what\s+(?:color|colour)\s+(?:is|are)\s+(?:the\s+|a\s+|an\s+)?([a-z]+)",
+        r"what\s+(?:material|type)\s+(?:is|are)\s+(?:the\s+|a\s+|an\s+)?([a-z]+)",
+        r"what\s+(?:is|are)\s+(?:the\s+|a\s+|an\s+)?([a-z]+)\s+(?:color|colour|material)",
+    )
+    for pat in patterns:
+        match = re.search(pat, q_l)
+        if match:
+            noun = match.group(1).strip()
+            if noun and noun not in {"the", "a", "an", "of", "on", "in", "to"}:
+                return noun
+    return ""
 
 
 def _question_retrieval_kind(question: str) -> str:
@@ -373,7 +405,8 @@ def episodic_relevance_score(event: Any, query: str) -> float:
     dining_q = "dining table" in q_l
     table_mat_q = "table mat" in q_l or "placemat" in q_l
     railing_color_q = "staircase" in q_l and "railing" in q_l
-    between_frames_q = "between" in q_l and ("frame" in q_l or "picture" in q_l)
+    between_frames_q = "between" in q_l and (
+        "frame" in q_l or "picture" in q_l)
     fan_q = "ceiling fan" in q_l or ("fan" in q_l and "speed" in q_l)
     door_open_q = "front door" in q_l and "open" in q_l
     functional_q = bool(
@@ -389,8 +422,35 @@ def episodic_relevance_score(event: Any, query: str) -> float:
     elif _has_frame_provenance(event):
         score += 2.0
     for word in q_words:
-        if word in blob:
+        # Word boundaries avoid "color" matching "colored" / "colour" matching "coloured".
+        if re.search(rf"\b{re.escape(word)}\b", blob):
             score += 1.0
+    subject = _question_subject_noun(query)
+    color_q = "color" in q_l or "colour" in q_l
+    if subject and re.search(rf"\b{re.escape(subject)}\b", blob):
+        score += 8.0
+        if color_q and any(
+            re.search(rf"\b{tok}\b", blob)
+            for tok in (
+                "blue",
+                "red",
+                "black",
+                "white",
+                "brown",
+                "green",
+                "yellow",
+                "gray",
+                "grey",
+                "orange",
+                "purple",
+                "dark",
+                "light",
+            )
+        ):
+            score += 5.0
+    elif subject and color_q:
+        # Strongly demote captions that never mention the asked object.
+        score -= 4.0
     if "not visible" in blob or "cannot be determined" in blob or "is not shown" in blob:
         score += invisible_penalty
     if living_room_q:
@@ -514,7 +574,8 @@ def patch_episodic_memory_manager(server: Any) -> None:
     original = mgr.list_episodic_memory
 
     def wrapped(agent_state, *args, **kwargs):
-        events = filter_episodic_events(list(original(agent_state, *args, **kwargs) or []))
+        events = filter_episodic_events(
+            list(original(agent_state, *args, **kwargs) or []))
         query = (kwargs.get("query") or "").strip()
         if query:
             events = rerank_episodic_for_question(events, query)
@@ -634,7 +695,8 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
     if not pred or not is_yes_no_question(question):
         return pred
     q_l = (question or "").lower()
-    hint_l = sanitize_memory_text_for_inference((memory_hint or "").strip()).lower()
+    hint_l = sanitize_memory_text_for_inference(
+        (memory_hint or "").strip()).lower()
     if not hint_l:
         return pred
     if ("table mat" in q_l or "placemat" in q_l) and pred.strip().lower() == "no":
@@ -706,7 +768,8 @@ def normalize_qa_prediction(
         if cleaned and not _is_incomplete_answer(cleaned, question):
             return _finalize(cleaned, raw_text)
     else:
-        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        lines = [line.strip()
+                 for line in raw_text.splitlines() if line.strip()]
         if len(lines) > 1:
             for line in lines:
                 if not _looks_like_meta_reasoning(line) and not _is_bad_answer(line, yes_no_q=yes_no_q):
@@ -756,10 +819,12 @@ def _extract_functional_action(text: str, question: str) -> str:
             if not line or _looks_like_meta_reasoning(line):
                 continue
             if _ACTION_COOLDOWN_RE.search(line):
-                phrase = _ACTION_COOLDOWN_RE.search(line).group(0).strip().rstrip(".,;")
+                phrase = _ACTION_COOLDOWN_RE.search(
+                    line).group(0).strip().rstrip(".,;")
                 return phrase[0].upper() + phrase[1:] if phrase else phrase
             if _ACTION_FAN_RE.search(line):
-                phrase = _ACTION_FAN_RE.search(line).group(0).strip().rstrip(".,;")
+                phrase = _ACTION_FAN_RE.search(
+                    line).group(0).strip().rstrip(".,;")
                 return phrase[0].upper() + phrase[1:] if phrase else phrase
     return ""
 
@@ -794,7 +859,7 @@ def _strip_leading_timestamp(text: str) -> str:
         match = _TIMESTAMP_LEAD_RE.match(stripped)
         if not match:
             break
-        stripped = stripped[match.end() :].strip()
+        stripped = stripped[match.end():].strip()
     return stripped
 
 
@@ -853,7 +918,8 @@ def _clean_phrase(text: str, *, yes_no_q: bool = False) -> str:
     phrase = _strip_leading_timestamp(phrase)
     phrase = re.sub(r"^[-*•]\s*", "", phrase)
     phrase = re.sub(r"^\d+[\.\)]\s*", "", phrase)
-    phrase = re.sub(r"^analyze\s+(the\s+)?(memory|memories|scene|question)\b[:\s-]*", "", phrase, flags=re.I)
+    phrase = re.sub(
+        r"^analyze\s+(the\s+)?(memory|memories|scene|question)\b[:\s-]*", "", phrase, flags=re.I)
     phrase = re.sub(
         r"^send_message\s*\(\s*['\"]?(yes|no)['\"]?\s*\).*$",
         r"\1",
@@ -1000,7 +1066,8 @@ _ENTITY_TABLE_MAT = frozenset(
     ("placemat", "place mat", "table mat", "yellow mat")
 )
 _ENTITY_FAN_CONTROL = frozenset(
-    ("ceiling fan", "fan speed", "switch panel", "control panel", "speed dial", "fan dial")
+    ("ceiling fan", "fan speed", "switch panel",
+     "control panel", "speed dial", "fan dial")
 )
 
 
@@ -1209,7 +1276,8 @@ def patch_agent_for_openeqa_qa(server: Any) -> None:
         )
         return apply_openeqa_qa_memory_hygiene(prompt, memories, question)
 
-    Agent.build_system_prompt_with_memories = wrapped  # type: ignore[method-assign]
+    # type: ignore[method-assign]
+    Agent.build_system_prompt_with_memories = wrapped
     server._openeqa_agent_memory_patched = True
 
 
@@ -1269,11 +1337,13 @@ def compute_draft_policy(question: str, events: List[Any]) -> Dict[str, Any]:
     query = build_retrieval_query(question)
     ranked = rerank_episodic_for_question(list(events or []), query)
     scores = [episodic_relevance_score(event, query) for event in ranked[:5]]
-    margin = (scores[0] - scores[1]) if len(scores) >= 2 else (scores[0] if scores else 0.0)
+    margin = (scores[0] - scores[1]
+              ) if len(scores) >= 2 else (scores[0] if scores else 0.0)
     conflict = _detect_memory_conflict(ranked, question)
     yes_no = is_yes_no_question(question)
     q_l = (question or "").lower()
-    between_frames_q = "between" in q_l and ("frame" in q_l or "picture" in q_l)
+    between_frames_q = "between" in q_l and (
+        "frame" in q_l or "picture" in q_l)
     spatial_hard = between_frames_q or ("ceiling" in q_l and "material" in q_l)
     fan_q = "ceiling fan" in q_l or ("fan" in q_l and "speed" in q_l)
     cool_down_q = "cool down" in q_l or "cooling" in q_l
@@ -1299,7 +1369,12 @@ def compute_draft_policy(question: str, events: List[Any]) -> Dict[str, Any]:
         yes_no_mode = True
     elif spatial_hard or margin < 2.0:
         max_draft_steps = 1
-        bias_scale = 0.25
+        # Tiny/ambiguous margin + misaligned top memory: do not bias draft toward junk.
+        if margin < 1.0 and not top_aligned:
+            bias_scale = 0.0
+            max_draft_steps = 0
+        else:
+            bias_scale = 0.25
         bias_top_k = qa_memory_top_k()
         yes_no_mode = False
     elif margin >= 4.0:
@@ -1347,8 +1422,10 @@ def compute_draft_policy(question: str, events: List[Any]) -> Dict[str, Any]:
 
 def apply_draft_policy_to_env(policy: Dict[str, Any]) -> None:
     scale = float(policy.get("memory_bias_scale", 0.5))
-    top_k = int(policy.get("qa_memory_top_k") or policy.get("memory_bias_top_k") or qa_memory_top_k())
-    os.environ["OPENEQA_MAX_DRAFT_STEPS"] = str(int(policy.get("max_draft_steps", 2)))
+    top_k = int(policy.get("qa_memory_top_k") or policy.get(
+        "memory_bias_top_k") or qa_memory_top_k())
+    os.environ["OPENEQA_MAX_DRAFT_STEPS"] = str(
+        int(policy.get("max_draft_steps", 2)))
     os.environ["MMA_MEMORY_BIAS_SCALE"] = "0" if scale <= 0.0 else str(scale)
     os.environ["MMA_MEMORY_BIAS_TOP_K"] = str(top_k)
     os.environ["OPENEQA_QA_MEMORY_TOP_K"] = str(top_k)
@@ -1371,7 +1448,8 @@ def apply_qa_generation_limits(mma_agent: Any, question: str) -> None:
         if cfg is None:
             return
         base = max(4, int(os.environ.get("OPENEQA_QA_MAX_TOKENS", "24")))
-        yn_cap = max(2, int(os.environ.get("OPENEQA_QA_MAX_TOKENS_YESNO", "4")))
+        yn_cap = max(2, int(os.environ.get(
+            "OPENEQA_QA_MAX_TOKENS_YESNO", "4")))
         target = yn_cap if is_yes_no_question(question) else base
         if int(getattr(cfg, "max_tokens", 0) or 0) == target:
             return
@@ -1403,7 +1481,8 @@ def prepare_draft_policy_for_agent(mma_agent: Any, question: str) -> Dict[str, A
         selected = selected[:1]
     policy = compute_draft_policy(question, selected)
     apply_draft_policy_to_env(policy)
-    _qa_session.update(question=question, ranked_events=selected, policy=policy)
+    _qa_session.update(question=question,
+                       ranked_events=selected, policy=policy)
     return policy
 
 

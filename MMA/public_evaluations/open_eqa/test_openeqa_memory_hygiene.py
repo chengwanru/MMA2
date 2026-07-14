@@ -121,6 +121,24 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
             episodic_relevance_score(ac, q),
         )
 
+    def test_color_of_car_prefers_car_memory_over_colored_hallway(self):
+        hallway = _Event(
+            "A low-angle view down a narrow, dimly lit hallway",
+            "Frames: 00081-rgb.png\nA suitcase with light-colored fabric; no car visible.",
+        )
+        car = _Event(
+            "A cluttered garage with a dark blue car parked on the left",
+            "Frames: 00000-rgb.png\nOn the left side, a dark blue car is parked.",
+        )
+        q = "What color is the car?"
+        self.assertGreater(
+            episodic_relevance_score(car, q),
+            episodic_relevance_score(hallway, q),
+        )
+        policy = compute_draft_policy(q, [hallway, car])
+        self.assertIn("car", (policy.get("top_memory_preview") or "").lower())
+
+
     def test_ceiling_material_prefers_wood_in_living_room(self):
         wood = _Event("Living room ceiling has vaulted wood beams")
         drywall = _Event("Living room ceiling is plain drywall")
