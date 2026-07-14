@@ -49,7 +49,7 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
             raw,
             question="What color is the staircase railing?",
         )
-        self.assertEqual(pred, "brown")
+        self.assertEqual(pred.lower(), "brown")
 
     def test_table_mats_fallback_from_memory_hint(self):
         pred, _ = normalize_qa_prediction(
@@ -137,6 +137,21 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         policy = compute_draft_policy(q, [hallway, car])
         self.assertIn("car", (policy.get("top_memory_preview") or "").lower())
+
+    def test_normalize_color_from_scene_dump_and_memory(self):
+        raw = (
+            "The scene with a small wooden workbench, a\n\n"
+            "The scene, a concrete, a dark, and a dark blue, a cluttered on the car, "
+            "0000000000000000000000000"
+        )
+        pred, _ = normalize_qa_prediction(
+            raw,
+            question="What color is the car?",
+            memory_hint="A cluttered garage with a dark blue car parked on the left",
+        )
+        self.assertIn("blue", pred.lower())
+        self.assertLessEqual(len(pred.split()), 3)
+
 
 
     def test_ceiling_material_prefers_wood_in_living_room(self):

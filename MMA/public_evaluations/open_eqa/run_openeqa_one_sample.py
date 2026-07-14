@@ -90,6 +90,8 @@ def _format_eqa_question(question: str) -> str:
 
     if _is_yes_no_question(question):
         answer_hint = "Reply with one word: Yes or No."
+    elif "color" in q_l or "colour" in q_l:
+        answer_hint = "Reply with only the color word (e.g. Blue). No scene description."
     else:
         answer_hint = "Reply with a short factual phrase only (no steps, timestamps, or analysis)."
 
@@ -674,6 +676,11 @@ def _qa_direct_sd_send(
         max_tokens = min(
             max_tokens,
             max(2, int(os.environ.get("OPENEQA_QA_MAX_TOKENS_YESNO", "4"))),
+        )
+    elif "color" in (question or "").lower() or "colour" in (question or "").lower():
+        max_tokens = min(
+            max_tokens,
+            max(2, int(os.environ.get("OPENEQA_QA_MAX_TOKENS_COLOR", "8"))),
         )
     llm_config = llm_config.model_copy(update={"max_tokens": max_tokens})
 

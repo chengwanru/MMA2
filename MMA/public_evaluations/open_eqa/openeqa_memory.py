@@ -705,6 +705,65 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
     return pred
 
 
+_COLOR_WORDS = (
+    "blue",
+    "red",
+    "black",
+    "white",
+    "brown",
+    "green",
+    "yellow",
+    "orange",
+    "purple",
+    "pink",
+    "gray",
+    "grey",
+    "beige",
+    "cream",
+    "teal",
+    "silver",
+)
+
+
+def _extract_color_answer(text: str, question: str = "") -> str:
+    """Pull a short color phrase from model output or memory for color questions."""
+    blob = (text or "").strip()
+    if not blob:
+        return ""
+    q_l = (question or "").lower()
+    if "color" not in q_l and "colour" not in q_l:
+        return ""
+    subject = _question_subject_noun(question)
+    lowered = blob.lower()
+
+    # Prefer "<adj>? <color> <subject>" near the asked object.
+    if subject:
+        near = re.search(
+            rf"\b((?:dark|light|bright|pale)\s+)?({'|'.join(_COLOR_WORDS)})\s+(?:{re.escape(subject)})\b",
+            lowered,
+        )
+        if near:
+            phrase = near.group(0)
+            # Drop trailing subject: "dark blue car" -> "Dark blue"
+            phrase = re.sub(rf"\s+{re.escape(subject)}\b", "", phrase).strip()
+            return phrase[0].upper() + phrase[1:] if phrase else ""
+        # Or "<subject> ... is <color>"
+        after = re.search(
+            rf"\b{re.escape(subject)}\b[^.]{{0,40}}\b((?:dark|light|bright|pale)\s+)?({'|'.join(_COLOR_WORDS)})\b",
+            lowered,
+        )
+        if after:
+            phrase = (after.group(1) or "") + after.group(2)
+            phrase = phrase.strip()
+            return phrase[0].upper() + phrase[1:] if phrase else ""
+
+    # Fallback: first explicit color word not part of "colored"/"colourful".
+    for tok in ("dark blue", "light blue", "dark green", "light green", *_COLOR_WORDS):
+        if re.search(rf"\b{re.escape(tok)}\b", lowered):
+            return tok[0].upper() + tok[1:]
+    return ""
+
+
 def normalize_qa_prediction(
     raw: str,
     question: str = "",
@@ -740,9 +799,16 @@ def normalize_qa_prediction(
     yes_no_q = bool(
         re.match(r"^(is|are|do|does|did|can|could|should|was|were|has|have)\b", q_l)
     )
-    functional_q = bool(
-        re.search(r"\b(should i|what should i|what can i do|how can i)\b", q_l)
-    )
+    color_q = "color" in q_l or "colour" in q_l
+
+    # Color questions: extract before accepting long scene dumps.
+    if color_q:
+        color = _extract_color_answer(raw_text, question)
+        if color:
+            return _finalize(color, raw_text)
+        color = _extract_color_answer(memory_hint, question)
+        if color:
+            return _finalize(color, raw_text)
 
     action = _extract_functional_action(raw_text, question)
     if action:
@@ -954,9 +1020,15 @@ def _is_incomplete_answer(text: str, question: str) -> bool:
     phrase = (text or "").strip().lower()
     if not phrase:
         return True
-    if phrase.endswith((" in the", " in a", " with a", " on the", " in the living room")):
+    if phrase.endswith((" in the", " in a", " with a", " on the", " in the living room", ", a", ", the", ", and", " a", " the")):
+        return True
+    if phrase.startswith(("the scene", "a scene", "the image", "an indoor", "a cluttered")):
+        return True
+    if re.search(r"0{6,}", phrase):
         return True
     q_l = (question or "").lower()
+    if ("color" in q_l or "colour" in q_l) and len(phrase.split()) > 6:
+        return True
     if "ceiling" in q_l and ("material" in q_l or "type" in q_l):
         if phrase.startswith("the ceiling") and not any(
             kw in phrase for kw in ("wood", "drywall", "beam", "vaulted", "plaster", "panel")
@@ -1027,8 +1099,11 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
             return cleaned
 
     if "color" in q_l or "colour" in q_l:
+        color = _extract_color_answer(blob, question)
+        if color:
+            return color
         cleaned = _clean_phrase(blob, yes_no_q=False)
-        if cleaned and not _is_bad_answer(cleaned):
+        if cleaned and not _is_bad_answer(cleaned) and not _is_incomplete_answer(cleaned, question):
             return cleaned
 
     if "ceiling fan" in q_l or ("fan" in q_l and "speed" in q_l):
@@ -1354,6 +1429,9 @@ def compute_draft_policy(question: str, events: List[Any]) -> Dict[str, Any]:
     top_blob = _event_text(ranked[0]) if ranked else ""
     top_tags = _memory_entity_tags(top_blob)
     top_aligned = bool(expected and top_tags and (top_tags & expected))
+    subject = _question_subject_noun(question)
+    if subject and re.search(rf"\b{re.escape(subject)}\b", top_blob):
+        top_aligned = True
     hard_conflict = conflict and not top_aligned
     disable_draft = hard_conflict or functional or cool_down_q or fan_q
 
