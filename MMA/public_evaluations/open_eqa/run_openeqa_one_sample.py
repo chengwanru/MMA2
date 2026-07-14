@@ -376,11 +376,14 @@ def ensure_episodic_from_frames(
     expected = _expected_episodic_batches(len(image_paths), batch_size)
     mgr = mma_agent.client.server.episodic_memory_manager
     episodic_state = mma_agent.agent_states.episodic_memory_agent_state
-    tz = mma_agent.client.server.user_manager.get_user_by_id(mma_agent.client.user.id).timezone
+    # User.timezone is an IANA string for list_* APIs; datetime.now() needs tzinfo.
+    timezone_str = mma_agent.client.server.user_manager.get_user_by_id(
+        mma_agent.client.user.id
+    ).timezone
     existing_events = mgr.list_episodic_memory(
         agent_state=episodic_state,
         limit=500,
-        timezone_str=tz,
+        timezone_str=timezone_str,
     )
     existing_total = len(existing_events)
     if existing_total >= expected and episodic_events_cover_frames(
@@ -403,6 +406,7 @@ def ensure_episodic_from_frames(
     mgr = mma_agent.client.server.episodic_memory_manager
     state = episodic_state
     org_id = mma_agent.client.user.organization_id
+    insert_tz = mma_agent.timezone
     inserted = 0
 
     for start in range(0, len(image_paths), batch_size):
@@ -428,7 +432,7 @@ def ensure_episodic_from_frames(
             mgr.insert_event(
                 agent_state=state,
                 event_type="scene_observation",
-                timestamp=datetime.now(tz),
+                timestamp=datetime.now(insert_tz),
                 actor="system",
                 summary=summary,
                 details=details,

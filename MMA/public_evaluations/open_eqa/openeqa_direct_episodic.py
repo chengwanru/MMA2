@@ -157,11 +157,14 @@ def ensure_episodic_from_frames(
     expected = max(0, (len(image_paths) + batch_size - 1) // batch_size)
     mgr = mma_agent.client.server.episodic_memory_manager
     state = mma_agent.agent_states.episodic_memory_agent_state
-    tz = mma_agent.client.server.user_manager.get_user_by_id(mma_agent.client.user.id).timezone
+    # User.timezone is an IANA string for list_* APIs; datetime.now() needs tzinfo.
+    timezone_str = mma_agent.client.server.user_manager.get_user_by_id(
+        mma_agent.client.user.id
+    ).timezone
     existing_events = mgr.list_episodic_memory(
         agent_state=state,
         limit=500,
-        timezone_str=tz,
+        timezone_str=timezone_str,
     )
     existing_total = len(existing_events)
     if existing_total >= expected and episodic_events_cover_frames(
