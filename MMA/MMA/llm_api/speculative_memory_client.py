@@ -121,23 +121,132 @@ def _chat_to_template_messages(
     return messages
 
 
+def _chat_user_chars(chat: List[Dict[str, str]]) -> int:
+    total = 0
+    for item in chat:
+        if (item.get("role") or "") != "user":
+            continue
+        raw = item.get("content")
+        if isinstance(raw, list):
+            for part in raw:
+                if isinstance(part, dict):
+                    total += len(str(part.get("text") or ""))
+                else:
+                    total += len(str(part or ""))
+        else:
+            total += len(str(raw or ""))
+    return total
+
+
+def _chat_to_string_messages(
+    chat: List[Dict[str, str]],
+    tool_instructions: Optional[str] = None,
+) -> List[Dict[str, str]]:
+    """Plain string content for tokenizer.apply_chat_template (text-only)."""
+    messages: List[Dict[str, str]] = []
+    system_chunks: List[str] = []
+    if tool_instructions:
+        system_chunks.append(tool_instructions.strip())
+    for item in chat:
+        role = (item.get("role") or "").strip()
+        raw = item.get("content")
+        if isinstance(raw, list):
+            parts = []
+            for part in raw:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    parts.append(str(part.get("text") or ""))
+                elif isinstance(part, str):
+                    parts.append(part)
+            content = "\n".join(p for p in parts if p).strip()
+        else:
+            content = str(raw or "").strip()
+        if not role or not content:
+            continue
+        if role == "system":
+            system_chunks.append(content)
+        else:
+            messages.append({"role": role, "content": content})
+    if system_chunks:
+        messages.insert(0, {"role": "system", "content": "\n\n".join(system_chunks)})
+    return messages
+
+
+def _prompt_too_short(prompt_len: int, user_chars: int) -> bool:
+    # AIBox Qwen3-VL processor text-only path often yields ~215 toks and "You are" loops
+    # while dropping the episodic memory block.
+    return prompt_len < 400 and user_chars > 200
+
+
 def _tokenize_text_only_chat(
     processor: Any,
     chat: List[Dict[str, str]],
     tokenizer: Any,
     tool_instructions: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Tokenize text-only chat; prefer processor.apply_chat_template over manual role: lines."""
+    """Tokenize text-only chat.
+
+    Prefer tokenizer.apply_chat_template with plain string messages. The VL
+    processor template is image-oriented and on AIBox often returns a tiny
+    prompt (~215) that drops episodic memory and degenerates to 'You are'.
+    """
     import torch
 
-    messages = _chat_to_template_messages(chat, tool_instructions)
-    if not messages:
+    from mma.speculative_memory.generation_helpers import json_dumps_set_patch
+
+    user_chars = _chat_user_chars(chat)
+    string_messages = _chat_to_string_messages(chat, tool_instructions)
+    if not string_messages:
         raise RuntimeError("empty chat messages for text-only tokenize")
 
-    if processor is not None and hasattr(processor, "apply_chat_template"):
-        from mma.speculative_memory.generation_helpers import json_dumps_set_patch
+    proc_tok = getattr(processor, "tokenizer", tokenizer) if processor is not None else tokenizer
 
-        proc_tok = getattr(processor, "tokenizer", tokenizer)
+    # 1) Tokenizer chat template (string content) — best for text-only QA.
+    if proc_tok is not None and hasattr(proc_tok, "apply_chat_template"):
+        try:
+            with json_dumps_set_patch():
+                with _patch_tokenizer_no_trunc(proc_tok):
+                    out = proc_tok.apply_chat_template(
+                        string_messages,
+                        tokenize=True,
+                        add_generation_prompt=True,
+                        return_dict=True,
+                        return_tensors="pt",
+                    )
+            if hasattr(out, "input_ids"):
+                prompt_ids = out.input_ids
+                attention_mask = getattr(out, "attention_mask", None)
+            elif isinstance(out, dict):
+                prompt_ids = out.get("input_ids")
+                attention_mask = out.get("attention_mask")
+            else:
+                prompt_ids = out
+                attention_mask = None
+            if prompt_ids is not None:
+                prompt_len = int(prompt_ids.shape[-1])
+                if _prompt_too_short(prompt_len, user_chars):
+                    raise RuntimeError(
+                        f"tokenizer chat template prompt_len={prompt_len} "
+                        f"too short for user_chars={user_chars}"
+                    )
+                if attention_mask is None:
+                    attention_mask = torch.ones_like(prompt_ids)
+                if _vl_debug_enabled():
+                    print(
+                        f"[vl_tokenize] text-only tokenizer.apply_chat_template ok; "
+                        f"prompt_len={prompt_len} user_chars={user_chars}",
+                        flush=True,
+                    )
+                return {"input_ids": prompt_ids, "attention_mask": attention_mask}
+        except Exception as exc:
+            print(
+                f"[vl_tokenize] text-only tokenizer.apply_chat_template failed: {exc!r}; "
+                "trying processor / manual",
+                flush=True,
+            )
+
+    # 2) Processor VL-style list content (may work on some stacks).
+    messages = _chat_to_template_messages(chat, tool_instructions)
+    if processor is not None and hasattr(processor, "apply_chat_template"):
         try:
             with json_dumps_set_patch():
                 with _patch_tokenizer_no_trunc(proc_tok):
@@ -150,10 +259,16 @@ def _tokenize_text_only_chat(
                     )
             inputs = _extract_vl_model_inputs(out)
             if inputs.get("input_ids") is not None:
+                prompt_len = int(inputs["input_ids"].shape[-1])
+                if _prompt_too_short(prompt_len, user_chars):
+                    raise RuntimeError(
+                        f"processor chat template prompt_len={prompt_len} "
+                        f"too short for user_chars={user_chars}"
+                    )
                 if _vl_debug_enabled():
                     print(
-                        f"[vl_tokenize] text-only apply_chat_template ok; "
-                        f"prompt_len={int(inputs['input_ids'].shape[-1])}",
+                        f"[vl_tokenize] text-only processor.apply_chat_template ok; "
+                        f"prompt_len={prompt_len} user_chars={user_chars}",
                         flush=True,
                     )
                 if inputs.get("attention_mask") is None:
@@ -161,65 +276,16 @@ def _tokenize_text_only_chat(
                 return inputs
         except Exception as exc:
             print(
-                f"[vl_tokenize] text-only apply_chat_template(tokenize=True) failed: {exc!r}; "
-                "trying tokenize=False",
+                f"[vl_tokenize] text-only processor.apply_chat_template failed: {exc!r}; "
+                "falling back to manual format",
                 flush=True,
             )
-            try:
-                with json_dumps_set_patch():
-                    with _patch_tokenizer_no_trunc(proc_tok):
-                        prompt_text = processor.apply_chat_template(
-                            messages,
-                            tokenize=False,
-                            add_generation_prompt=True,
-                        )
-                if not isinstance(prompt_text, str):
-                    raise TypeError(
-                        f"apply_chat_template(tokenize=False) returned {type(prompt_text)}"
-                    )
-                out = proc_tok(prompt_text, return_tensors="pt", add_special_tokens=False)
-                prompt_ids = out.get("input_ids", out)
-                if hasattr(prompt_ids, "input_ids"):
-                    prompt_ids = prompt_ids.input_ids
-                attention_mask = out.get("attention_mask")
-                if attention_mask is None:
-                    attention_mask = torch.ones_like(prompt_ids)
-                prompt_len = int(prompt_ids.shape[-1])
-                # Broken templates yield tiny prompts and "You are" loops; reject and fall back.
-                user_chars = sum(
-                    len(str(c.get("content") or ""))
-                    for c in chat
-                    if (c.get("role") or "") == "user"
-                )
-                if prompt_len < 400 and user_chars > 200:
-                    raise RuntimeError(
-                        f"text-only prompt_len={prompt_len} too short for user_chars={user_chars}"
-                    )
-                if _vl_debug_enabled():
-                    print(
-                        f"[vl_tokenize] text-only apply_chat_template(tokenize=False) ok; "
-                        f"prompt_len={prompt_len}",
-                        flush=True,
-                    )
-                return {"input_ids": prompt_ids, "attention_mask": attention_mask}
-            except Exception as exc2:
-                print(
-                    f"[vl_tokenize] text-only apply_chat_template failed: {exc2!r}; "
-                    "falling back to manual format",
-                    flush=True,
-                )
 
-    # Manual Qwen-style chat (keeps full episodic memory text when VL template breaks).
+    # 3) Manual chat (keeps full episodic memory text).
     text = (
-        "\n".join(f"{c['role']}: {c['content']}" for c in chat if c.get("content"))
+        "\n".join(f"{c['role']}: {c['content']}" for c in string_messages)
         + "\nassistant: "
     )
-    if tool_instructions:
-        text = text.replace(
-            "\nassistant: ",
-            "\n" + tool_instructions.strip() + "\nassistant: ",
-            1,
-        )
     out = tokenizer(text, return_tensors="pt", add_special_tokens=True)
     prompt_ids = (
         out.get("input_ids", out)
@@ -235,6 +301,12 @@ def _tokenize_text_only_chat(
     )
     if attention_mask is None:
         attention_mask = torch.ones_like(prompt_ids)
+    if _vl_debug_enabled():
+        print(
+            f"[vl_tokenize] text-only manual format; "
+            f"prompt_len={int(prompt_ids.shape[-1])} user_chars={user_chars}",
+            flush=True,
+        )
     return {"input_ids": prompt_ids, "attention_mask": attention_mask}
 
 

@@ -720,6 +720,10 @@ def _qa_direct_sd_send(
         if text and is_refusal_answer(text):
             print(f"  [qa] direct_sd refusal={text!r}; treating as empty", flush=True)
             return ""
+        # Broken chat-template degeneracy (AIBox text-only SD).
+        if text and re.fullmatch(r"(?is)(you are[\s\n]*)+", text):
+            print(f"  [qa] direct_sd degenerate={text[:40]!r}; treating as empty", flush=True)
+            return ""
         if text:
             print(f"  [qa] direct_sd raw={text[:120]!r}", flush=True)
         return text
@@ -738,13 +742,21 @@ def _qa_direct_sd_send(
 
 
 def _qa_answer_source(raw_prediction: str, prediction: str) -> str:
+    from openeqa_memory import _is_bad_answer
+
     raw_s = (raw_prediction or "").strip()
     pred_s = (prediction or "").strip()
     if not pred_s or pred_s == "ERROR" or pred_s.startswith("ERROR:"):
         return "error"
-    if raw_s:
-        return "model"
-    return "memory_hint"
+    if not raw_s:
+        return "memory_hint"
+    # Model raw was garbage / refusal; final answer came from normalize/memory hint.
+    if _is_bad_answer(raw_s) or (
+        pred_s.lower() not in raw_s.lower() and re.fullmatch(r"(?is)(you are[\s\n]*)+", raw_s)
+    ):
+        if pred_s.lower() not in raw_s.lower():
+            return "memory_hint"
+    return "model"
 
 
 def _qa_direct_sd_with_fallback(mma_agent, formatted: str, question: str) -> str:
