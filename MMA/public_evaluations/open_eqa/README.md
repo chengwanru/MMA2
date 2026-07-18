@@ -246,33 +246,36 @@ AIBox 上请用 **`run_openeqa_aibox_ltu.sh`**，与 LTU 相同链路：
 
 **不会**走 `run_openeqa_direct_sd.py`（那是无 memory 的对照线）。
 
-Pod 重启后（`/tmp` 会空，环境从 workspace 备份重建）：
+Pod 重启后 `/tmp` 会空：代码重新 clone/pull 到 **`/tmp/MMA2`**，Python 由 `use_mma_env.sh` 从 `/workspace/conda_envs/site-packages_backup.tar` 重建；模型/数据仍在 `/workspace`。
 
 ```bash
-cd /workspace/MMA2/MMA/public_evaluations/open_eqa
-# 可选：先 dry-run 看路径与 env
-CUDA_VISIBLE_DEVICES=0 MODE=smoke DRY_RUN=1 bash run_openeqa_aibox_ltu.sh
+# 1) 代码（bosfs 上勿依赖 /workspace 热更新）
+cd /tmp
+[[ -d MMA2/.git ]] || git clone https://gitee.com/cheng-wanru666/mma2.git MMA2
+cd /tmp/MMA2 && git pull
+cd MMA/public_evaluations/open_eqa
 
-# 单样本 smoke（默认 8 帧、direct episodic、trust gate）
+# 2) 跑 smoke（脚本内部会 source use_mma_env.sh + sync_mma_runtime.sh）
+CUDA_VISIBLE_DEVICES=0 MODE=smoke DRY_RUN=1 bash run_openeqa_aibox_ltu.sh
 CUDA_VISIBLE_DEVICES=0 MODE=smoke bash run_openeqa_aibox_ltu.sh
 
-# 10 / 20 样本；offset20 = open-eqa-v0 下标 20–39（与 LTU toolcall_20_offset20 一致）
+# 10 / 20；offset20 = open-eqa-v0 下标 20–39（与 LTU toolcall_20_offset20 一致）
 CUDA_VISIBLE_DEVICES=0 MODE=10 bash run_openeqa_aibox_ltu.sh
 CUDA_VISIBLE_DEVICES=0 MODE=20 bash run_openeqa_aibox_ltu.sh
 CUDA_VISIBLE_DEVICES=0 MODE=offset20 bash run_openeqa_aibox_ltu.sh
 ```
 
-结果与日志写到 **`/workspace/open_eqa_runs/<RUN_NAME>/`**（持久）；帧缓存与中间 multimodal JSON 在 `/tmp`。
-
-仅保留的 AIBox 后端差异（流程仍是 LTU 主线）：`MMA_VL_NATIVE_TARGET=1`、`MMA_VL_USE_TARGET_PROCESSOR=1`、`MMA_SD_DISABLE_MEMORY_KV=1`、GPU 上不 offload 8B。
-
-手动激活环境（调试用）：
+等价手写环境（调试用；正式跑不必重复）：
 
 ```bash
-source /workspace/MMA2/MMA/public_evaluations/open_eqa/use_mma_env.sh
-bash sync_mma_runtime.sh   # SRC 默认可用 ROOT/MMA；勿依赖已清空的 /tmp/MMA2
+cd /tmp/MMA2 && git pull && cd MMA/public_evaluations/open_eqa
+bash sync_mma_runtime.sh && source use_mma_env.sh
 export CUDA_VISIBLE_DEVICES=0
 ```
+
+结果与日志写到 **`/workspace/open_eqa_runs/<RUN_NAME>/`**（持久）；帧缓存与中间 multimodal JSON 在 `/tmp`。
+
+仅保留的 AIBox 后端差异（流程仍是 LTU 主线）：`MMA_VL_NATIVE_TARGET=1`、`MMA_VL_USE_TARGET_PROCESSOR=1`、`MMA_SD_DISABLE_MEMORY_KV=1`、GPU 上不 offload 8B。不跑 `run_openeqa_direct_sd.py`。
 
 ## 常见报错
 
