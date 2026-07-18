@@ -951,17 +951,25 @@ def _is_bad_answer(text: str, *, yes_no_q: bool = False) -> bool:
         return True
     if re.match(r"^\d{4}-\d{2}-\d{2}", phrase):
         return True
-    if "you are a helpful assistant" in phrase.lower():
+    lowered = phrase.lower()
+    if "you are a helpful assistant" in lowered:
+        return True
+    # Broken chat-template degeneracy (seen on AIBox text-only SD).
+    if re.fullmatch(r"(you are[\s\n]*)+", lowered):
+        return True
+    if lowered in {"you are", "you", "are", "assistant"}:
         return True
     if _is_refusal_answer(phrase):
         return True
-    words = re.findall(r"\b[a-zA-Z]+\b", phrase.lower())
+    words = re.findall(r"\b[a-zA-Z]+\b", lowered)
     if words and len(words) >= 2 and len(set(words)) == 1 and words[0] in (
         "the",
         "a",
         "an",
         "it",
         "its",
+        "you",
+        "are",
     ):
         return True
     if yes_no_q and phrase.lower() not in ("yes", "no", "yes.", "no."):

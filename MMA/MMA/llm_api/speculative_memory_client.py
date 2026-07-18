@@ -79,6 +79,11 @@ def _patch_tokenizer_no_trunc(tokenizer: Any):
             tokenizer.model_max_length = saved_mml
 
 
+def _as_vl_text_content(text: str) -> List[Dict[str, str]]:
+    """Qwen3-VL chat templates index content like a list of parts; plain str breaks."""
+    return [{"type": "text", "text": text}]
+
+
 def _chat_to_template_messages(
     chat: List[Dict[str, str]],
     tool_instructions: Optional[str] = None,
@@ -90,21 +95,29 @@ def _chat_to_template_messages(
         system_chunks.append(tool_instructions.strip())
     for item in chat:
         role = (item.get("role") or "").strip()
-        content = (item.get("content") or "").strip()
+        raw = item.get("content")
+        if isinstance(raw, list):
+            # Already VL parts; keep text pieces only for text-only path.
+            parts = []
+            for part in raw:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    parts.append(str(part.get("text") or ""))
+                elif isinstance(part, str):
+                    parts.append(part)
+            content = "\n".join(p for p in parts if p).strip()
+        else:
+            content = str(raw or "").strip()
         if not role or not content:
             continue
         if role == "system":
             system_chunks.append(content)
-        elif role == "user":
-            # Qwen3-VL processor expects list[{"type","text"}] — plain str causes
-            # TypeError("string indices must be integers, not 'str'") in template.
-            messages.append(
-                {"role": "user", "content": [{"type": "text", "text": content}]}
-            )
         else:
-            messages.append({"role": role, "content": content})
+            messages.append({"role": role, "content": _as_vl_text_content(content)})
     if system_chunks:
-        messages.insert(0, {"role": "system", "content": "\n\n".join(system_chunks)})
+        messages.insert(
+            0,
+            {"role": "system", "content": _as_vl_text_content("\n\n".join(system_chunks))},
+        )
     return messages
 
 
@@ -160,6 +173,10 @@ def _tokenize_text_only_chat(
                             tokenize=False,
                             add_generation_prompt=True,
                         )
+                if not isinstance(prompt_text, str):
+                    raise TypeError(
+                        f"apply_chat_template(tokenize=False) returned {type(prompt_text)}"
+                    )
                 out = proc_tok(prompt_text, return_tensors="pt", add_special_tokens=False)
                 prompt_ids = out.get("input_ids", out)
                 if hasattr(prompt_ids, "input_ids"):
@@ -167,10 +184,21 @@ def _tokenize_text_only_chat(
                 attention_mask = out.get("attention_mask")
                 if attention_mask is None:
                     attention_mask = torch.ones_like(prompt_ids)
+                prompt_len = int(prompt_ids.shape[-1])
+                # Broken templates yield tiny prompts and "You are" loops; reject and fall back.
+                user_chars = sum(
+                    len(str(c.get("content") or ""))
+                    for c in chat
+                    if (c.get("role") or "") == "user"
+                )
+                if prompt_len < 400 and user_chars > 200:
+                    raise RuntimeError(
+                        f"text-only prompt_len={prompt_len} too short for user_chars={user_chars}"
+                    )
                 if _vl_debug_enabled():
                     print(
                         f"[vl_tokenize] text-only apply_chat_template(tokenize=False) ok; "
-                        f"prompt_len={int(prompt_ids.shape[-1])}",
+                        f"prompt_len={prompt_len}",
                         flush=True,
                     )
                 return {"input_ids": prompt_ids, "attention_mask": attention_mask}
@@ -181,6 +209,7 @@ def _tokenize_text_only_chat(
                     flush=True,
                 )
 
+    # Manual Qwen-style chat (keeps full episodic memory text when VL template breaks).
     text = (
         "\n".join(f"{c['role']}: {c['content']}" for c in chat if c.get("content"))
         + "\nassistant: "
