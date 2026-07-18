@@ -46,8 +46,8 @@ PEV="${ROOT}/public_evaluations"
 CFG="${ROOT}/configs/mma_speculative_memory.yaml"
 export ROOT PEV
 
-# Sync mma package from THIS checkout into /tmp/mma_runtime
-export SRC="${SRC:-${ROOT}/MMA}"
+# Sync mma from THIS checkout (force SRC; ignore sticky env pointing at /workspace)
+export SRC="${ROOT}/MMA"
 export MMA_RUNTIME="${MMA_RUNTIME:-/tmp/mma_runtime}"
 bash "${OEQA}/sync_mma_runtime.sh"
 export PYTHONPATH="${MMA_RUNTIME}:${ROOT}:${PEV}:${PYTHONPATH:-}"
@@ -178,15 +178,19 @@ for candidate in \
 done
 [[ -n "${QA_SRC}" ]] || { echo "ERROR: open-eqa-v0.json not found" >&2; exit 1; }
 
-FRAMES_ROOT=""
-for candidate in \
-  "${PEV}/data/open_eqa_data" \
-  "${OEQA}/data/open_eqa_data"; do
-  if [[ -d "${candidate}/hm3d-v0" || -d "${candidate}/scannet-v0" ]]; then
-    FRAMES_ROOT="${candidate}"
-    break
-  fi
-done
+# Prefer persistent /workspace data (code may live under /tmp/MMA2)
+FRAMES_ROOT="${FRAMES_ROOT:-}"
+if [[ -z "${FRAMES_ROOT}" ]]; then
+  for candidate in \
+    "${WORK_ROOT}/MMA2/MMA/public_evaluations/data/open_eqa_data" \
+    "${PEV}/data/open_eqa_data" \
+    "${OEQA}/data/open_eqa_data"; do
+    if [[ -d "${candidate}/hm3d-v0" || -d "${candidate}/scannet-v0" ]]; then
+      FRAMES_ROOT="${candidate}"
+      break
+    fi
+  done
+fi
 [[ -n "${FRAMES_ROOT}" ]] || { echo "ERROR: hm3d-v0/scannet-v0 not found" >&2; exit 1; }
 
 [[ -f "${CFG}" ]] || { echo "ERROR: missing config ${CFG}" >&2; exit 1; }
@@ -261,7 +265,18 @@ if torch.cuda.is_available():
 PY
 
 echo "=== data check ==="
-"${PY}" check_openeqa_data.py --frames_root "${FRAMES_ROOT}" --qa_json "${QA_SRC}"
+# Full corpus often incomplete on AIBox (hm3d missing / scannet LFS pointers).
+# Smoke/partial runs: warn only; make_openeqa_multimodal skips unusable episodes.
+ALLOW_PARTIAL="${OPENEQA_ALLOW_PARTIAL_DATA:-1}"
+if ! "${PY}" check_openeqa_data.py --frames_root "${FRAMES_ROOT}" --qa_json "${QA_SRC}"; then
+  if [[ "${ALLOW_PARTIAL}" == "1" ]]; then
+    echo "WARN: data incomplete; continuing (OPENEQA_ALLOW_PARTIAL_DATA=1)." >&2
+    echo "WARN: inspect real tars: ls -lh ${FRAMES_ROOT}/hm3d-v0 | head; file ${FRAMES_ROOT}/hm3d-v0/*.tar | head" >&2
+  else
+    echo "ERROR: set OPENEQA_ALLOW_PARTIAL_DATA=1 to proceed with partial tars" >&2
+    exit 1
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # 5) Build multimodal JSON (offset applied here; eval starts at row 0)
