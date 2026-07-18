@@ -22,6 +22,51 @@ def direct_episodic_enabled() -> bool:
     )
 
 
+# Forced-observation checklist for OpenEQA's 7 families (object / attribute / state /
+# localization / spatial / functional / world-knowledge cues). Question-neutral:
+# one shared store is reused for every question on the episode.
+#
+# NOTE (AIBox): memorize uses this VL caption path (OPENEQA_DIRECT_EPISODIC=1),
+# NOT memory-agent tool calling (OPENEQA_EPISODIC_TOOL_CALL=0).
+EPISODIC_CAPTION_PROMPT = """You are the episodic memory recorder for an indoor scene video frame.
+You do NOT know what questions will be asked later. Record a complete, neutral inventory.
+
+RULES:
+- Describe ONLY what is visible in this frame (or write "not visible" for a checklist item).
+- Be concrete: object names, colors, materials, shapes, counts, left/right/above/below.
+- Prefer short factual clauses over vague words like "cluttered" or "nice".
+- Never invent objects that are not visible.
+
+Reply EXACTLY in this format:
+
+SUMMARY: <one sentence: room type + 2-4 dominant objects>
+
+DETAILS:
+OBJECTS: <every distinct object/furniture/appliance/vehicle/tool; give type if clear (sedan not just car); shelf contents by level top/middle/bottom>
+ATTRIBUTES: <for each notable object: color, material, shape (round/oval/rectangular/square), size, pattern, lid color>
+STATES: <open/closed/ajar for doors, doorways, windows, bins, lids, cabinets; lights on/off or fixtures lit/unlit; room brightness; bed made/unmade; under-bed storage empty/filled/not visible>
+LOCALIZATION: <where key objects sit: which wall, which shelf level, near which door/TV/bed>
+SPATIAL: <left/right/above/below/between/next to — especially left/right of bed, above TV, between picture frames, beside sink>
+FUNCTIONAL_CUES: <hose, cooler, broom, watering can, AC/fan controls, light switches/dials and WHERE each is, recycling vs trash bins, garage door opener>
+WORLD_CUES: <room identity (garage/bathroom/bedroom/kitchen/hallway), outdoor view through doors, damage/renovation if obvious>
+NOT_VISIBLE: <items from the checklist below that you looked for but cannot see>
+
+Forced scan checklist (mention each if present, else list under NOT_VISIBLE):
+doors/doorways/garage door + open or closed; windows + blinds; light fixtures + lit?;
+switches/dials; bed + comforter/duvet color; under-bed space; radiator vs wardrobe vs bed;
+TV + what is above/beside it; mirrors + shape; sinks/toilets;
+trash/recycling bins + lid color + open/closed; cooler; hose; broom; ladder;
+shelves + top-shelf items; car/vehicle type+color; garage door opener location;
+placemats/tableware colors; AC / ceiling fan / heater and their controls.
+"""
+
+
+def episodic_caption_prompt() -> str:
+    """Allow env override without editing code."""
+    override = os.environ.get("OPENEQA_EPISODIC_CAPTION_PROMPT", "").strip()
+    return override if override else EPISODIC_CAPTION_PROMPT
+
+
 def _parse_summary_details(text: str) -> Tuple[str, str]:
     text = (text or "").strip()
     if not text:
@@ -54,8 +99,28 @@ def _entity_tags_from_text(text: str) -> List[str]:
         tags.append("entity:wood_beam_ceiling")
     if "drywall" in blob:
         tags.append("entity:drywall_ceiling")
-    if "front door" in blob:
-        tags.append("entity:front_door")
+    if "front door" in blob or "doorway" in blob:
+        tags.append("entity:door")
+    if "hose" in blob:
+        tags.append("entity:hose")
+    if "cooler" in blob:
+        tags.append("entity:cooler")
+    if "broom" in blob:
+        tags.append("entity:broom")
+    if "opener" in blob:
+        tags.append("entity:door_opener")
+    if "radiator" in blob:
+        tags.append("entity:radiator")
+    if re.search(r"\b(round|oval|circular)\s+mirror\b", blob):
+        tags.append("entity:mirror_shape")
+    if any(tok in blob for tok in ("lights on", "light is on", "lit fixture", "brightly lit")):
+        tags.append("state:lights_on")
+    if any(tok in blob for tok in ("lights off", "unlit", "dark room")):
+        tags.append("state:lights_off")
+    if re.search(r"\b(door|doorway|bin|lid)\b[^.]{0,24}\bopen\b", blob):
+        tags.append("state:open")
+    if re.search(r"\b(door|doorway|bin|lid)\b[^.]{0,24}\bclosed\b", blob):
+        tags.append("state:closed")
     return tags
 
 
@@ -87,41 +152,23 @@ def _baseline_vl_context():
 
 
 def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
+    del question  # shared episodic store must stay question-neutral
     from mma.llm_api.llm_client import LLMClient
     from mma.schemas.llm_config import LLMConfig
 
+    # Structured DETAILS sections need more tokens than a short paragraph.
+    max_tokens = int(os.environ.get("OPENEQA_EPISODIC_MAX_TOKENS", "512"))
     llm_config = LLMConfig(
         model="qwen3-vl-speculative",
         model_endpoint_type="speculative_memory",
         context_window=8192,
-        max_tokens=int(os.environ.get("OPENEQA_EPISODIC_MAX_TOKENS", "384")),
+        max_tokens=max_tokens,
     )
     client = LLMClient.create(llm_config=llm_config)
     if client is None:
         raise RuntimeError("Failed to create SpeculativeMemoryClient for episodic caption")
 
-    # Memory is recorded BEFORE any question is known; stay question-neutral but
-    # cover attributes/states/small objects needed by later OpenEQA questions.
-    prompt = (
-        "You are the episodic memory recorder for an indoor scene video. "
-        "You do not know what questions will be asked later, so record every salient "
-        "detail neutrally and completely.\n"
-        "Describe this frame only, covering ALL of the following when visible:\n"
-        "1) Objects & tools: furniture, appliances, bins/coolers/hoses/brooms/garage door openers, "
-        "shelves and what sits on each shelf (top/middle/bottom), vehicle type (sedan/SUV/truck) "
-        "and color.\n"
-        "2) Attributes: colors, materials, shapes (e.g. round vs oval mirrors), lid colors on bins.\n"
-        "3) States: doors/doorways/windows/bins open or closed; lights on or off / room brightness; "
-        "whether light fixtures appear lit; space under beds for storage.\n"
-        "4) Spatial relations: left/right/above/below/between (especially left of the bed: radiator "
-        "vs wardrobe), and relative to TVs, doors, and shelves.\n"
-        "5) Small tabletop items: placemats, tableware, cups, runners and their colors.\n"
-        "6) Controls: AC, ceiling fan, light switches/dials and WHERE they are.\n"
-        "If something is not visible in this frame, say so explicitly.\n"
-        "Reply exactly in this format:\n"
-        "SUMMARY: <one short sentence>\n"
-        "DETAILS: <detailed paragraph with object names, colors, materials, states, and spatial relations>"
-    )
+    prompt = episodic_caption_prompt()
     vl_parts: List[Tuple[str, str]] = [("text", f"user: {prompt}\n")]
     paths: List[str] = []
     for path in image_paths:

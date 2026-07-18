@@ -170,6 +170,8 @@ do
 done
 # Keep enough episodic rows in the QA prompt (gold often sat in rank 3–4).
 export OPENEQA_QA_MEMORY_TOP_K="${OPENEQA_QA_MEMORY_TOP_K:-4}"
+# Structured forced-observation captions (OBJECTS/ATTRIBUTES/STATES/...).
+export OPENEQA_EPISODIC_MAX_TOKENS="${OPENEQA_EPISODIC_MAX_TOKENS:-512}"
 
 # ---------------------------------------------------------------------------
 # 3) Locate QA JSON + frame tars
