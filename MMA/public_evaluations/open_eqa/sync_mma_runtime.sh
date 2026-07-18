@@ -8,14 +8,25 @@
 
 set -euo pipefail
 
-SRC="${SRC:-/tmp/MMA2/MMA/MMA}"
-DEST="${MMA_RUNTIME:-/tmp/mma_runtime/mma}"
+# Prefer explicit SRC= (set by run_openeqa_aibox_ltu.sh to ${ROOT}/MMA).
+# Fall back: /tmp/MMA2 (ephemeral clone) → /workspace/MMA2 (persistent).
+SRC="${SRC:-}"
+DEST="${DEST:-${MMA_RUNTIME:-/tmp/mma_runtime/mma}}"
 
-if [[ ! -f "${SRC}/__init__.py" ]]; then
-  SRC="${SRC:-/workspace/MMA2/MMA/MMA}"
+if [[ -z "${SRC}" || ! -f "${SRC}/__init__.py" ]]; then
+  for candidate in \
+    "/tmp/MMA2/MMA/MMA" \
+    "/workspace/MMA2/MMA/MMA" \
+    "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/MMA"
+  do
+    if [[ -f "${candidate}/__init__.py" ]]; then
+      SRC="${candidate}"
+      break
+    fi
+  done
 fi
-if [[ ! -f "${SRC}/__init__.py" ]]; then
-  echo "ERROR: MMA source not found. Clone/pull to /tmp/MMA2 or set SRC=" >&2
+if [[ -z "${SRC}" || ! -f "${SRC}/__init__.py" ]]; then
+  echo "ERROR: MMA source not found. Set SRC=/path/to/MMA/MMA or use /workspace/MMA2" >&2
   exit 1
 fi
 

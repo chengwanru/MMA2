@@ -238,13 +238,40 @@ python export_openeqa_official.py \
 
 ## Baidu AIBox 共享环境（`/workspace` + `/tmp`）
 
-Pod 重启后先激活共享 Python 3.11（包在 `/tmp/embench_staging`，备份在 `/workspace/conda_envs/site-packages_backup.tar`）：
+### 主线入口（对齐 LTU toolcall / trust gate）
+
+AIBox 上请用 **`run_openeqa_aibox_ltu.sh`**，与 LTU 相同链路：
+
+`make_openeqa_multimodal.py` → `run_openeqa_eval.py` → `run_openeqa_one_sample.py`（memorize 子进程 → QA 子进程）。
+
+**不会**走 `run_openeqa_direct_sd.py`（那是无 memory 的对照线）。
+
+Pod 重启后（`/tmp` 会空，环境从 workspace 备份重建）：
+
+```bash
+cd /workspace/MMA2/MMA/public_evaluations/open_eqa
+# 可选：先 dry-run 看路径与 env
+CUDA_VISIBLE_DEVICES=0 MODE=smoke DRY_RUN=1 bash run_openeqa_aibox_ltu.sh
+
+# 单样本 smoke（默认 8 帧、direct episodic、trust gate）
+CUDA_VISIBLE_DEVICES=0 MODE=smoke bash run_openeqa_aibox_ltu.sh
+
+# 10 / 20 样本；offset20 = open-eqa-v0 下标 20–39（与 LTU toolcall_20_offset20 一致）
+CUDA_VISIBLE_DEVICES=0 MODE=10 bash run_openeqa_aibox_ltu.sh
+CUDA_VISIBLE_DEVICES=0 MODE=20 bash run_openeqa_aibox_ltu.sh
+CUDA_VISIBLE_DEVICES=0 MODE=offset20 bash run_openeqa_aibox_ltu.sh
+```
+
+结果与日志写到 **`/workspace/open_eqa_runs/<RUN_NAME>/`**（持久）；帧缓存与中间 multimodal JSON 在 `/tmp`。
+
+仅保留的 AIBox 后端差异（流程仍是 LTU 主线）：`MMA_VL_NATIVE_TARGET=1`、`MMA_VL_USE_TARGET_PROCESSOR=1`、`MMA_SD_DISABLE_MEMORY_KV=1`、GPU 上不 offload 8B。
+
+手动激活环境（调试用）：
 
 ```bash
 source /workspace/MMA2/MMA/public_evaluations/open_eqa/use_mma_env.sh
-export CUDA_VISIBLE_DEVICES=0   # 选显存最多的 GPU
-cd /workspace/MMA2/MMA/public_evaluations/open_eqa
-$PY run_openeqa_eval.py ...
+bash sync_mma_runtime.sh   # SRC 默认可用 ROOT/MMA；勿依赖已清空的 /tmp/MMA2
+export CUDA_VISIBLE_DEVICES=0
 ```
 
 ## 常见报错
