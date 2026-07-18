@@ -265,15 +265,19 @@ if torch.cuda.is_available():
 PY
 
 echo "=== data check ==="
-# Full corpus often incomplete on AIBox (hm3d missing / scannet LFS pointers).
-# Smoke/partial runs: warn only; make_openeqa_multimodal skips unusable episodes.
+# AIBox often has hm3d as real .mp4 + scannet as tiny LFS pointer .tar.
+# make_openeqa_multimodal already samples PNGs from .mp4; smoke defaults to --hm3d_only.
 ALLOW_PARTIAL="${OPENEQA_ALLOW_PARTIAL_DATA:-1}"
-if ! "${PY}" check_openeqa_data.py --frames_root "${FRAMES_ROOT}" --qa_json "${QA_SRC}"; then
+CHECK_ARGS=(--frames_root "${FRAMES_ROOT}" --qa_json "${QA_SRC}")
+if [[ "${MODE}" == "smoke" || "${OPENEQA_HM3D_ONLY:-0}" == "1" ]]; then
+  CHECK_ARGS+=(--hm3d_only)
+fi
+if ! "${PY}" check_openeqa_data.py "${CHECK_ARGS[@]}"; then
   if [[ "${ALLOW_PARTIAL}" == "1" ]]; then
-    echo "WARN: data incomplete; continuing (OPENEQA_ALLOW_PARTIAL_DATA=1)." >&2
-    echo "WARN: inspect real tars: ls -lh ${FRAMES_ROOT}/hm3d-v0 | head; file ${FRAMES_ROOT}/hm3d-v0/*.tar | head" >&2
+    echo "WARN: full corpus incomplete; continuing (OPENEQA_ALLOW_PARTIAL_DATA=1)." >&2
+    echo "WARN: hm3d .mp4 is OK; scannet LFS stubs will be skipped by multimodal builder." >&2
   else
-    echo "ERROR: set OPENEQA_ALLOW_PARTIAL_DATA=1 to proceed with partial tars" >&2
+    echo "ERROR: set OPENEQA_ALLOW_PARTIAL_DATA=1 to proceed" >&2
     exit 1
   fi
 fi
