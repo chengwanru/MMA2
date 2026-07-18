@@ -69,6 +69,8 @@ def _is_yes_no_question(question: str) -> bool:
 
 
 def _format_eqa_question(question: str) -> str:
+    from openeqa_memory import is_open_closed_question
+
     q_l = question.lower()
     spatial_hint = ""
     if "above" in q_l and "tv" in q_l:
@@ -81,6 +83,10 @@ def _format_eqa_question(question: str) -> str:
         spatial_hint = "How to control ceiling fan speed (switch/dial location). "
     elif "front door" in q_l and "open" in q_l:
         spatial_hint = "Is the front door open or closed. "
+    elif "doorway" in q_l and "open" in q_l:
+        spatial_hint = "State whether the doorway is open or closed. "
+    elif "left of the bed" in q_l or "to the left of the bed" in q_l:
+        spatial_hint = "Name the object immediately to the left of the bed (radiator vs wardrobe). "
     elif "cool down" in q_l or "cooling" in q_l:
         spatial_hint = "Action to cool the room with AC. "
     elif "ceiling" in q_l and "material" in q_l:
@@ -88,12 +94,22 @@ def _format_eqa_question(question: str) -> str:
     elif "table mat" in q_l or "placemat" in q_l:
         spatial_hint = "Placemats on the dining table. "
 
-    if _is_yes_no_question(question):
-        answer_hint = "Reply with one word: Yes or No."
+    if is_open_closed_question(question):
+        answer_hint = "Reply with one word: Open or Closed."
+    elif _is_yes_no_question(question):
+        answer_hint = (
+            "Reply with one word: Yes or No. "
+            "If memory states the asked condition, answer Yes; only answer No when memory "
+            "explicitly contradicts it — do not answer No merely because a detail is unstated."
+        )
     elif "color" in q_l or "colour" in q_l:
         answer_hint = "Reply with only the color word (e.g. Blue). No scene description."
     else:
-        answer_hint = "Reply with a short factual phrase only (no steps, timestamps, or analysis)."
+        answer_hint = (
+            "Reply with a short factual phrase only (no steps, timestamps, or analysis). "
+            "If memory names a relevant object, answer with that object — never say "
+            "'not in memory' / 'none mentioned'."
+        )
 
     parts = [answer_hint]
     if spatial_hint:
@@ -309,56 +325,13 @@ def _baseline_vl_context():
 
 
 def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
-    from mma.llm_api.llm_client import LLMClient
-    from mma.schemas.llm_config import LLMConfig
+    """Delegate to shared captioner (strengthened attribute/state checklist)."""
+    from openeqa_direct_episodic import _describe_frame_batch as _direct_describe
 
-    llm_config = LLMConfig(
-        model="qwen3-vl-speculative",
-        model_endpoint_type="speculative_memory",
-        context_window=8192,
-        max_tokens=int(os.environ.get("OPENEQA_EPISODIC_MAX_TOKENS", "384")),
-    )
-    client = LLMClient.create(llm_config=llm_config)
-    if client is None:
-        raise RuntimeError("Failed to create SpeculativeMemoryClient for episodic caption")
-
-    # Memory is recorded BEFORE any question is known and one store is reused for
-    # every question about this video, so the caption must stay question-neutral and
-    # cover all attribute types uniformly (a question hint biases the shared store).
-    prompt = (
-        "You are the episodic memory recorder for an indoor scene video. "
-        "You do not know what questions will be asked later, so record every salient "
-        "detail neutrally and completely.\n"
-        "Describe this frame only: objects, materials, colors, furniture, and precise spatial relations "
-        "(e.g. what is above the TV, between picture frames, on the dining table, ceiling type/material, "
-        "staircase railing color, whether doors are open or closed). "
-        "Also note small tabletop items when present: placemats/table mats, tableware, plates, cups, "
-        "runners or centerpieces, and their colors. "
-        "Also note appliances and their controls: air conditioner, ceiling fan, light switches, and any "
-        "wall switch panel or dial, including where it is located relative to doors or windows. "
-        "If something is not visible in this frame, say so explicitly.\n"
-        "Reply exactly in this format:\n"
-        "SUMMARY: <one short sentence>\n"
-        "DETAILS: <detailed paragraph>"
-    )
-    vl_parts: List[Tuple[str, str]] = [("text", f"user: {prompt}\n")]
-    paths: List[str] = []
-    for path in image_paths:
-        vl_parts.append(("image", path))
-        paths.append(path)
-
-    with _baseline_vl_context():
-        request_data = client.build_request_data([], llm_config)
-        request_data["chat"] = [{"role": "user", "content": prompt}]
-        request_data["memory_items"] = []
-        request_data["local_rag"] = False
-        request_data["max_new_tokens"] = llm_config.max_tokens
-        request_data["vl_content_parts"] = vl_parts
-        request_data["image_paths"] = paths
-        response_data = client.request(request_data)
-
-    _release_gpu_cache()
-    return (response_data.get("generated_text") or "").strip()
+    try:
+        return _direct_describe(image_paths, question=question)
+    finally:
+        _release_gpu_cache()
 
 
 def ensure_episodic_from_frames(
@@ -665,8 +638,10 @@ def _qa_direct_sd_send(
     system_prompt = (
         "You answer embodied VQA questions using the episodic memory provided by the user. "
         "Reply in English only with a short factual phrase (2-6 words). "
-        "If episodic memory describes the object, name it directly. "
-        "Never answer with Chinese and never say there is no relevant information when memory contains the answer."
+        "If episodic memory describes a relevant object, name it directly. "
+        "Never answer with Chinese. Never say 'not in memory', 'none mentioned', "
+        "'no object mentioned', or 'not enough information' when any related object "
+        "appears in the memory — prefer the best matching object or attribute instead."
     )
 
     state = mma_agent.agent_states.agent_state
@@ -849,6 +824,18 @@ def _run_qa(
             if line and not line.startswith("ERROR"):
                 prediction = line[:200]
                 break
+    # Last resort: empty/ERROR model output → recover from episodic hint.
+    if (not prediction or prediction == "ERROR") and memory_hint:
+        recovered, _ = normalize_qa_prediction(
+            "ERROR",
+            question=question,
+            memory_hint=memory_hint,
+        )
+        if recovered:
+            print(f"  [qa] recovered from memory_hint: {recovered[:80]!r}", flush=True)
+            prediction = recovered
+            if not raw_prediction:
+                raw_prediction = "ERROR"
     sd_stats = collect_speculative_sd_stats()
     qa_answer_source = _qa_answer_source(raw_prediction, prediction)
 

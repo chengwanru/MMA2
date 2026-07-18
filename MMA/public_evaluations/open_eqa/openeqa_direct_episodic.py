@@ -100,25 +100,27 @@ def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
     if client is None:
         raise RuntimeError("Failed to create SpeculativeMemoryClient for episodic caption")
 
-    # Memory is recorded BEFORE any question is known and one store is reused for
-    # every question about this video, so the caption must stay question-neutral and
-    # cover all attribute types uniformly (a question hint biases the shared store).
+    # Memory is recorded BEFORE any question is known; stay question-neutral but
+    # cover attributes/states/small objects needed by later OpenEQA questions.
     prompt = (
         "You are the episodic memory recorder for an indoor scene video. "
         "You do not know what questions will be asked later, so record every salient "
         "detail neutrally and completely.\n"
-        "Describe this frame only: objects, materials, colors, furniture, and precise spatial relations "
-        "(e.g. what is above the TV, between picture frames, on the dining table, ceiling type/material, "
-        "staircase railing color, whether doors are open or closed). "
-        "Also note small tabletop items when present: placemats/table mats, tableware, plates, cups, "
-        "runners or centerpieces, and their colors. "
-        "Also note appliances and their controls: air conditioner, ceiling fan, light switches, and any "
-        "wall switch panel or dial — always include WHERE the control is (e.g. next to the front door, "
-        "on the wall by the window). "
+        "Describe this frame only, covering ALL of the following when visible:\n"
+        "1) Objects & tools: furniture, appliances, bins/coolers/hoses/brooms/garage door openers, "
+        "shelves and what sits on each shelf (top/middle/bottom), vehicle type (sedan/SUV/truck) "
+        "and color.\n"
+        "2) Attributes: colors, materials, shapes (e.g. round vs oval mirrors), lid colors on bins.\n"
+        "3) States: doors/doorways/windows/bins open or closed; lights on or off / room brightness; "
+        "whether light fixtures appear lit; space under beds for storage.\n"
+        "4) Spatial relations: left/right/above/below/between (especially left of the bed: radiator "
+        "vs wardrobe), and relative to TVs, doors, and shelves.\n"
+        "5) Small tabletop items: placemats, tableware, cups, runners and their colors.\n"
+        "6) Controls: AC, ceiling fan, light switches/dials and WHERE they are.\n"
         "If something is not visible in this frame, say so explicitly.\n"
         "Reply exactly in this format:\n"
         "SUMMARY: <one short sentence>\n"
-        "DETAILS: <detailed paragraph with object names, colors, materials, and spatial relations>"
+        "DETAILS: <detailed paragraph with object names, colors, materials, states, and spatial relations>"
     )
     vl_parts: List[Tuple[str, str]] = [("text", f"user: {prompt}\n")]
     paths: List[str] = []

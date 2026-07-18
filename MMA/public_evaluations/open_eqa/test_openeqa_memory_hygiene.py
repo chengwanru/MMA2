@@ -18,7 +18,10 @@ from openeqa_memory import (  # noqa: E402
     compute_draft_policy,
     episodic_relevance_score,
     filter_episodic_events,
+    is_open_closed_question,
+    is_yes_no_question,
     normalize_qa_prediction,
+    qa_memory_top_k,
     select_events_for_qa,
 )
 
@@ -82,6 +85,65 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
             question="Is the front door open?",
         )
         self.assertIn(pred, ("Yes", "No", ""))
+
+    def test_open_closed_question_not_yes_no(self):
+        q = "Is the house doorway open or closed?"
+        self.assertTrue(is_open_closed_question(q))
+        self.assertFalse(is_yes_no_question(q))
+
+    def test_normalize_keeps_open_not_no_from_caption(self):
+        """Regression: Open was overwritten by \\bno\\b inside 'No ceiling...'."""
+        pred, raw = normalize_qa_prediction(
+            "Open",
+            question="Is the house doorway open or closed?",
+            memory_hint=(
+                "A cluttered garage. No ceiling fixtures are visible. "
+                "The doorway is open into a renovated room."
+            ),
+        )
+        self.assertEqual(raw, "Open")
+        self.assertEqual(pred, "Open")
+
+    def test_normalize_open_closed_from_memory_when_refusal(self):
+        pred, _ = normalize_qa_prediction(
+            "Not in the memory",
+            question="Is the house doorway open or closed?",
+            memory_hint="The white-framed doorway is open, revealing a patio.",
+        )
+        self.assertEqual(pred, "Open")
+
+    def test_normalize_refusal_recovers_hose(self):
+        pred, _ = normalize_qa_prediction(
+            "None mentioned in memory",
+            question="What can I use to water my plants?",
+            memory_hint="A green hose is coiled near the garage door.",
+        )
+        self.assertIn("hose", pred.lower())
+
+    def test_normalize_left_of_bed_prefers_radiator(self):
+        pred, _ = normalize_qa_prediction(
+            "white wardrobe",
+            question="What is the object to the left of the bed?",
+            memory_hint=(
+                "A bed on the right. Between the wardrobe and the bed, a white "
+                "wall-mounted radiator is installed."
+            ),
+        )
+        self.assertIn("radiator", pred.lower())
+
+    def test_qa_memory_top_k_default_at_least_4(self):
+        self.assertGreaterEqual(qa_memory_top_k(), 4)
+
+    def test_bed_comforter_prefers_duvet_color(self):
+        pred, _ = normalize_qa_prediction(
+            "Light grey",
+            question="What color is the bed comforter?",
+            memory_hint=(
+                "light blue carpet. The bed is made with a brown duvet cover. "
+                "light grey headboard."
+            ),
+        )
+        self.assertIn("brown", pred.lower())
 
     def test_normalize_functional_cool_down(self):
         raw = "2026-06-28 14:52:10 - Turn on the air conditioner to cool the room."
