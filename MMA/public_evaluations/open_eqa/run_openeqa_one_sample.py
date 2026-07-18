@@ -721,8 +721,19 @@ def _qa_direct_sd_send(
             print(f"  [qa] direct_sd refusal={text!r}; treating as empty", flush=True)
             return ""
         # Broken chat-template degeneracy (AIBox text-only SD).
-        if text and re.fullmatch(r"(?is)(you are[\s\n]*)+", text):
+        # Allow a trailing incomplete "You" (common when max_tokens cuts the loop).
+        if text and re.fullmatch(r"(?is)((you are[\s\n]*)+(you)?[\s\n]*|you[\s\n]*)", text):
             print(f"  [qa] direct_sd degenerate={text[:40]!r}; treating as empty", flush=True)
+            return ""
+        you_are_lines = [
+            ln.strip() for ln in text.splitlines() if ln.strip()
+        ] if text else []
+        if (
+            len(you_are_lines) >= 3
+            and sum(1 for ln in you_are_lines if ln.lower() in ("you are", "you"))
+            >= max(3, int(0.8 * len(you_are_lines)))
+        ):
+            print(f"  [qa] direct_sd degenerate_loop={text[:40]!r}; treating as empty", flush=True)
             return ""
         if text:
             print(f"  [qa] direct_sd raw={text[:120]!r}", flush=True)

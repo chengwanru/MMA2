@@ -84,6 +84,14 @@ def _as_vl_text_content(text: str) -> List[Dict[str, str]]:
     return [{"type": "text", "text": text}]
 
 
+def _apply_chat_template_safe(fn: Any, messages: List[Dict[str, Any]], **kwargs: Any) -> Any:
+    """Call apply_chat_template; disable Qwen3 thinking when supported."""
+    try:
+        return fn(messages, enable_thinking=False, **kwargs)
+    except TypeError:
+        return fn(messages, **kwargs)
+
+
 def _chat_to_template_messages(
     chat: List[Dict[str, str]],
     tool_instructions: Optional[str] = None,
@@ -236,7 +244,8 @@ def _tokenize_text_only_chat(
         try:
             with json_dumps_set_patch():
                 with _patch_tokenizer_no_trunc(proc_tok):
-                    out = proc_tok.apply_chat_template(
+                    out = _apply_chat_template_safe(
+                        proc_tok.apply_chat_template,
                         string_messages,
                         tokenize=True,
                         add_generation_prompt=True,
@@ -272,6 +281,13 @@ def _tokenize_text_only_chat(
                         f"prompt_len={prompt_len} user_chars={user_chars}",
                         flush=True,
                     )
+                    try:
+                        tail = proc_tok.decode(
+                            prompt_ids[0, -48:], skip_special_tokens=False
+                        )
+                        print(f"[vl_tokenize] prompt_tail={tail!r}", flush=True)
+                    except Exception:
+                        pass
                 return {"input_ids": prompt_ids, "attention_mask": attention_mask}
         except Exception as exc:
             print(
@@ -286,7 +302,8 @@ def _tokenize_text_only_chat(
         try:
             with json_dumps_set_patch():
                 with _patch_tokenizer_no_trunc(proc_tok):
-                    out = processor.apply_chat_template(
+                    out = _apply_chat_template_safe(
+                        processor.apply_chat_template,
                         messages,
                         tokenize=True,
                         add_generation_prompt=True,

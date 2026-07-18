@@ -971,9 +971,16 @@ def _is_bad_answer(text: str, *, yes_no_q: bool = False) -> bool:
     if "you are a helpful assistant" in lowered:
         return True
     # Broken chat-template degeneracy (seen on AIBox text-only SD).
-    if re.fullmatch(r"(you are[\s\n]*)+", lowered):
+    if re.fullmatch(r"((you are[\s\n]*)+(you)?[\s\n]*|you[\s\n]*)", lowered):
         return True
     if lowered in {"you are", "you", "are", "assistant"}:
+        return True
+    you_lines = [ln.strip() for ln in lowered.splitlines() if ln.strip()]
+    if (
+        len(you_lines) >= 3
+        and sum(1 for ln in you_lines if ln in ("you are", "you"))
+        >= max(3, int(0.8 * len(you_lines)))
+    ):
         return True
     if _is_refusal_answer(phrase):
         return True
