@@ -5,12 +5,15 @@
 #   make_openeqa_multimodal.py → run_openeqa_eval.py → run_openeqa_one_sample.py
 #   (memorize subprocess → QA subprocess; never run_openeqa_direct_sd.py)
 #
-# Usage (on AIBox):
-#   cd /workspace/MMA2/MMA/public_evaluations/open_eqa
+# Usage (on AIBox) — pull code to /tmp (bosfs-safe), models/data stay on /workspace:
+#   cd /tmp && git clone https://gitee.com/cheng-wanru666/mma2.git MMA2   # first time
+#   cd /tmp/MMA2 && git pull
+#   cd MMA/public_evaluations/open_eqa
 #   CUDA_VISIBLE_DEVICES=0 MODE=smoke bash run_openeqa_aibox_ltu.sh
-#   CUDA_VISIBLE_DEVICES=0 MODE=10    bash run_openeqa_aibox_ltu.sh
-#   CUDA_VISIBLE_DEVICES=0 MODE=20    bash run_openeqa_aibox_ltu.sh
-#   CUDA_VISIBLE_DEVICES=0 MODE=offset20 bash run_openeqa_aibox_ltu.sh
+#
+# The script sources use_mma_env.sh and sync_mma_runtime.sh itself.
+# Manual equivalent:
+#   bash sync_mma_runtime.sh && source use_mma_env.sh
 #
 # Overrides:
 #   LIMIT=1 OFFSET=20 FRAMES_PER_EPISODE=8 OUTPUT=... RUN_NAME=... DRY_RUN=1
@@ -36,11 +39,14 @@ fi
 export PATH="$(dirname "${PY}"):${PATH}"
 
 WORK_ROOT="${WORK_ROOT:-/workspace}"
-ROOT="${ROOT:-${WORK_ROOT}/MMA2/MMA}"
-PEV="${PEV:-${ROOT}/public_evaluations}"
+# Code ROOT follows this checkout (prefer /tmp/MMA2 after git pull).
+# Models/HF/data still come from use_mma_env.sh (/workspace).
+ROOT="$(cd "${OEQA}/../.." && pwd)"
+PEV="${ROOT}/public_evaluations"
 CFG="${ROOT}/configs/mma_speculative_memory.yaml"
+export ROOT PEV
 
-# Sync mma package from workspace (do NOT require /tmp/MMA2)
+# Sync mma package from THIS checkout into /tmp/mma_runtime
 export SRC="${SRC:-${ROOT}/MMA}"
 export MMA_RUNTIME="${MMA_RUNTIME:-/tmp/mma_runtime}"
 bash "${OEQA}/sync_mma_runtime.sh"
