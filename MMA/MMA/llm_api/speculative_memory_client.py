@@ -172,9 +172,40 @@ def _chat_to_string_messages(
 
 
 def _prompt_too_short(prompt_len: int, user_chars: int) -> bool:
-    # AIBox Qwen3-VL processor text-only path often yields ~215 toks and "You are" loops
-    # while dropping the episodic memory block.
-    return prompt_len < 400 and user_chars > 200
+    """True only when token count is far below what user_chars should encode.
+
+    English OpenEQA prompts are ~3–4 chars/token. A 583-char user message → ~150–220
+    tokens is normal; the old absolute threshold (400) false-rejected valid prompts.
+    """
+    if user_chars < 80 or prompt_len <= 0:
+        return False
+    # Expect at least ~1 token per 8 chars; below half of that ⇒ content likely dropped.
+    expected_floor = max(48, user_chars // 8)
+    return prompt_len < expected_floor
+
+
+def _prompt_dropped_user_text(tokenizer: Any, prompt_ids: Any, chat: List[Dict[str, str]]) -> bool:
+    """Decode prompt and ensure distinctive user text survived the chat template."""
+    user_text = ""
+    for item in chat:
+        if (item.get("role") or "") == "user":
+            user_text = str(item.get("content") or "")
+            break
+    if len(user_text) < 40:
+        return False
+    try:
+        ids = prompt_ids[0] if hasattr(prompt_ids, "shape") and len(prompt_ids.shape) > 1 else prompt_ids
+        decoded = tokenizer.decode(ids, skip_special_tokens=True)
+    except Exception:
+        return False
+    decoded_l = decoded.lower()
+    if "episodic memory" in user_text.lower() and "episodic memory" not in decoded_l:
+        return True
+    # Mid-string snippet should appear if the user turn was kept.
+    mid = user_text[len(user_text) // 3 : len(user_text) // 3 + 32].strip()
+    if len(mid) >= 12 and mid.lower() not in decoded_l and mid not in decoded:
+        return True
+    return False
 
 
 def _tokenize_text_only_chat(
@@ -228,6 +259,11 @@ def _tokenize_text_only_chat(
                         f"tokenizer chat template prompt_len={prompt_len} "
                         f"too short for user_chars={user_chars}"
                     )
+                if _prompt_dropped_user_text(proc_tok, prompt_ids, string_messages):
+                    raise RuntimeError(
+                        f"tokenizer chat template dropped user text "
+                        f"(prompt_len={prompt_len} user_chars={user_chars})"
+                    )
                 if attention_mask is None:
                     attention_mask = torch.ones_like(prompt_ids)
                 if _vl_debug_enabled():
@@ -264,6 +300,11 @@ def _tokenize_text_only_chat(
                     raise RuntimeError(
                         f"processor chat template prompt_len={prompt_len} "
                         f"too short for user_chars={user_chars}"
+                    )
+                if _prompt_dropped_user_text(proc_tok, inputs["input_ids"], string_messages):
+                    raise RuntimeError(
+                        f"processor chat template dropped user text "
+                        f"(prompt_len={prompt_len} user_chars={user_chars})"
                     )
                 if _vl_debug_enabled():
                     print(

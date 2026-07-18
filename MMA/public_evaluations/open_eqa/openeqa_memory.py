@@ -651,6 +651,13 @@ def events_to_memory_items(events: List[Any]) -> List[Dict[str, Any]]:
 
 
 def format_episodic_block_for_qa(events: List[Any]) -> str:
+    """Compact episodic text for the QA prompt (summary + short details)."""
+    include_details = os.environ.get("OPENEQA_QA_EPISODIC_DETAILS", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+    max_details = max(80, int(os.environ.get("OPENEQA_QA_EPISODIC_DETAILS_CHARS", "280")))
     lines: List[str] = []
     for idx, event in enumerate(events):
         summary = sanitize_memory_text_for_inference(
@@ -659,7 +666,16 @@ def format_episodic_block_for_qa(events: List[Any]) -> str:
         if not summary:
             continue
         conf = _event_confidence(event)
-        lines.append(f"[{idx}] {summary} (Confidence: {conf:.2f})")
+        line = f"[{idx}] {summary} (Confidence: {conf:.2f})"
+        if include_details:
+            details = sanitize_memory_text_for_inference(
+                (getattr(event, "details", None) or "").strip()
+            )
+            if details and details.lower() not in summary.lower():
+                if len(details) > max_details:
+                    details = details[: max_details - 3].rstrip() + "..."
+                line = f"{line}\n    details: {details}"
+        lines.append(line)
     return "\n".join(lines)
 
 
