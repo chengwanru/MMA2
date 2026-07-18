@@ -252,9 +252,12 @@ fi
 "${PY}" - <<'PY'
 import sys
 print("python:", sys.executable)
+print("PYTHONPATH[0:3]:", sys.path[:3])
 try:
-    import mma  # noqa: F401
-    print("mma: import ok", getattr(mma, "__file__", "?"))
+    import mma
+    import mma.agent.app_constants as ac
+    print("mma:", getattr(mma, "__file__", "?"))
+    print("app_constants:", ac.__file__)
 except Exception as exc:
     print("mma: IMPORT FAILED:", exc)
     raise SystemExit(1)
