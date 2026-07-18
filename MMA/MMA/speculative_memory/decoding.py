@@ -88,6 +88,54 @@ def _target_kv_cache_enabled(model: Any = None) -> bool:
     return True
 
 
+def _resolve_stop_token_ids(
+    tokenizer: Any,
+    eos_token_id: Optional[int],
+) -> set:
+    """EOS / chat-end ids that must halt speculative decoding (incl. Qwen ``<|im_end|>``)."""
+    stop: set = set()
+    if eos_token_id is not None:
+        stop.add(int(eos_token_id))
+    for attr in ("eos_token_id", "pad_token_id"):
+        val = getattr(tokenizer, attr, None)
+        if isinstance(val, int):
+            stop.add(int(val))
+        elif isinstance(val, (list, tuple)):
+            stop.update(int(x) for x in val if x is not None)
+    convert = getattr(tokenizer, "convert_tokens_to_ids", None)
+    if callable(convert):
+        for name in ("<|im_end|>", "<|endoftext|>", "</s>"):
+            try:
+                tid = convert(name)
+            except Exception:
+                tid = None
+            if isinstance(tid, int) and tid >= 0 and tid != getattr(tokenizer, "unk_token_id", None):
+                stop.add(int(tid))
+    return stop
+
+
+def _resolve_chat_restart_token_ids(tokenizer: Any) -> set:
+    """Tokens that start a new chat turn; halt *without* committing them."""
+    restart: set = set()
+    convert = getattr(tokenizer, "convert_tokens_to_ids", None)
+    if callable(convert):
+        for name in ("<|im_start|>",):
+            try:
+                tid = convert(name)
+            except Exception:
+                tid = None
+            if isinstance(tid, int) and tid >= 0 and tid != getattr(tokenizer, "unk_token_id", None):
+                restart.add(int(tid))
+    for word in ("assistant", "\nassistant", "assistant\n"):
+        try:
+            ids = tokenizer.encode(word, add_special_tokens=False)
+        except Exception:
+            ids = []
+        if len(ids) == 1:
+            restart.add(int(ids[0]))
+    return restart
+
+
 def _normalize_verify_logits(logits: torch.Tensor, logits_to_keep: int) -> torch.Tensor:
     """Ensure logits are the last ``logits_to_keep`` positions (verify + bonus).
 
@@ -328,6 +376,11 @@ def generate_with_speculative_memory(
         eos_token_id = getattr(tokenizer, "eos_token_id", None)
     if ignore_eos:
         eos_token_id = None
+        stop_token_ids: set = set()
+        chat_restart_ids: set = set()
+    else:
+        stop_token_ids = _resolve_stop_token_ids(tokenizer, eos_token_id)
+        chat_restart_ids = _resolve_chat_restart_token_ids(tokenizer)
     if max_new_tokens is None:
         max_new_tokens = config.max_new_tokens
 
@@ -637,7 +690,13 @@ def generate_with_speculative_memory(
                 target_correction_token_id=int(next_token.item()),
                 no_draft_fallback=True,
             )
-            if eos_token_id is not None and next_token.item() == eos_token_id:
+            tid = int(next_token.item())
+            if stop_token_ids and tid in stop_token_ids:
+                break
+            if chat_restart_ids and tid in chat_restart_ids:
+                # Drop the restart token that was just appended.
+                current_ids = current_ids[:, :-1]
+                total_generated -= 1
                 break
             if total_generated >= max_new_tokens:
                 break
@@ -726,8 +785,25 @@ def generate_with_speculative_memory(
                 int(stats_out["draft_tokens_accepted"]) + num_accepted
             )
 
-        # Append accepted draft tokens
-        accepted_tokens = draft_result.draft_token_ids[:num_accepted]
+        # Append accepted draft tokens (stop at first EOS / chat-end; no bonus after).
+        accepted_tokens = list(draft_result.draft_token_ids[:num_accepted])
+        stopped_on_accepted_eos = False
+        stopped_on_chat_restart = False
+        if accepted_tokens and (stop_token_ids or chat_restart_ids):
+            trimmed_acc: List[int] = []
+            for tid in accepted_tokens:
+                tid_i = int(tid)
+                if tid_i in chat_restart_ids:
+                    stopped_on_chat_restart = True
+                    break
+                trimmed_acc.append(tid_i)
+                if tid_i in stop_token_ids:
+                    stopped_on_accepted_eos = True
+                    break
+            accepted_tokens = trimmed_acc
+            num_accepted = len(accepted_tokens)
+            if stopped_on_accepted_eos or stopped_on_chat_restart:
+                rejected_at = None
         if accepted_tokens:
             current_ids = torch.cat(
                 [
@@ -740,39 +816,46 @@ def generate_with_speculative_memory(
                 ],
                 dim=1,
             )
-            total_generated += num_accepted
+            total_generated += len(accepted_tokens)
 
-        # One token from target: correction at first rejected position, or bonus when all accepted
-        if (
-            rejected_at is not None
-            and getattr(accept_result, "pre_sampled_correction_token", None) is not None
-        ):
-            next_token = torch.tensor(
-                [[accept_result.pre_sampled_correction_token]],
-                dtype=torch.long,
-                device=device,
-            )
-        else:
+        next_token_id: Optional[int] = None
+        if not stopped_on_accepted_eos and not stopped_on_chat_restart:
+            # One token from target: correction at first rejected position, or bonus when all accepted
             if (
                 rejected_at is not None
-                and accept_result.target_logits_per_position is not None
+                and getattr(accept_result, "pre_sampled_correction_token", None) is not None
             ):
-                # Use logits at rejected position to sample the correction token
-                one_logits = accept_result.target_logits_per_position[
-                    rejected_at : rejected_at + 1
-                ]
+                next_token = torch.tensor(
+                    [[accept_result.pre_sampled_correction_token]],
+                    dtype=torch.long,
+                    device=device,
+                )
             else:
-                one_logits = last_position_logits
-            if one_logits.dim() == 1:
-                one_logits = one_logits.unsqueeze(0)
-            if config.do_sample:
-                probs = torch.softmax(one_logits.float(), dim=-1)
-                next_token = torch.multinomial(probs, num_samples=1)
+                if (
+                    rejected_at is not None
+                    and accept_result.target_logits_per_position is not None
+                ):
+                    # Use logits at rejected position to sample the correction token
+                    one_logits = accept_result.target_logits_per_position[
+                        rejected_at : rejected_at + 1
+                    ]
+                else:
+                    one_logits = last_position_logits
+                if one_logits.dim() == 1:
+                    one_logits = one_logits.unsqueeze(0)
+                if config.do_sample:
+                    probs = torch.softmax(one_logits.float(), dim=-1)
+                    next_token = torch.multinomial(probs, num_samples=1)
+                else:
+                    next_token = one_logits.argmax(dim=-1, keepdim=True)
+                next_token = next_token.squeeze(-1).unsqueeze(0)
+            next_token_id = int(next_token.item())
+            if chat_restart_ids and next_token_id in chat_restart_ids:
+                stopped_on_chat_restart = True
             else:
-                next_token = one_logits.argmax(dim=-1, keepdim=True)
-            next_token = next_token.squeeze(-1).unsqueeze(0)
-        current_ids = torch.cat([current_ids, next_token], dim=1)
-        total_generated += 1
+                current_ids = torch.cat([current_ids, next_token], dim=1)
+                total_generated += 1
+
         _commit_prefix_cache(
             current_ids,
             current_ids.size(1),
@@ -783,10 +866,16 @@ def generate_with_speculative_memory(
             draft_token_ids=list(draft_result.draft_token_ids),
             num_accepted=num_accepted,
             rejected_at=rejected_at,
-            target_correction_token_id=int(next_token.item()),
+            target_correction_token_id=(
+                next_token_id
+                if next_token_id is not None
+                else (int(accepted_tokens[-1]) if accepted_tokens else -1)
+            ),
         )
 
-        if eos_token_id is not None and next_token.item() == eos_token_id:
+        if stopped_on_accepted_eos or stopped_on_chat_restart:
+            break
+        if next_token_id is not None and stop_token_ids and next_token_id in stop_token_ids:
             break
         if total_generated >= max_new_tokens:
             break

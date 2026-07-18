@@ -156,6 +156,9 @@ def draft_text_is_bad(text: str, *, position: int = 0) -> bool:
     if not text or not text.strip():
         return False
     lowered = text.lower().strip()
+    # Chat-template role bleed after the model finishes the answer.
+    if lowered in ("assistant", "user", "system"):
+        return True
     if position == 0:
         if re.match(r"^(analyze|send_message|based on|looking at|according to)\b", lowered):
             return True
