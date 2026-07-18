@@ -59,12 +59,56 @@ class CudaTimer:
         self.elapsed = time.perf_counter() - self.start_time
 
 
-def _target_kv_cache_enabled() -> bool:
-    return os.environ.get("MMA_SD_TARGET_KV_CACHE", "1").strip().lower() not in (
+def _env_flag(name: str, default: str = "") -> bool:
+    return os.environ.get(name, default).strip().lower() in ("1", "true", "yes")
+
+
+def _is_mma_vendored_target(model: Any) -> bool:
+    return getattr(type(model), "__module__", "").startswith("mma.")
+
+
+def _target_kv_cache_enabled(model: Any = None) -> bool:
+    """Whether to reuse target prefix KV across speculative verify rounds.
+
+    Native HF targets (e.g. AutoModelForImageTextToText) are unsafe with the
+    raw ``model(**kwargs)`` incremental path used here: short attention masks /
+    missing ``prepare_inputs_for_generation`` can yield prompt-head logits
+    (often correcting draft → ``You``). Default off for non-mma targets unless
+    ``MMA_SD_TARGET_KV_CACHE_FORCE=1``.
+    """
+    if os.environ.get("MMA_SD_TARGET_KV_CACHE", "1").strip().lower() in (
         "0",
         "false",
         "no",
-    )
+    ):
+        return False
+    if model is not None and not _is_mma_vendored_target(model):
+        if not _env_flag("MMA_SD_TARGET_KV_CACHE_FORCE"):
+            return False
+    return True
+
+
+def _normalize_verify_logits(logits: torch.Tensor, logits_to_keep: int) -> torch.Tensor:
+    """Ensure logits are the last ``logits_to_keep`` positions (verify + bonus).
+
+    If the model ignored ``logits_to_keep`` and returned the full sequence,
+    ``logits[:num_draft]`` would incorrectly read the *prompt head* (chat
+    preamble → ``You``). Always take the tail when longer than expected.
+    """
+    if logits.dim() == 3:
+        logits = logits.squeeze(0)
+    if logits.dim() != 2:
+        raise ValueError(f"Expected 2D logits (seq, vocab), got shape {tuple(logits.shape)}")
+    keep = max(1, int(logits_to_keep))
+    if logits.size(0) > keep:
+        if _env_flag("MMA_SD_DEBUG") or _env_flag("OPENEQA_VL_DEBUG"):
+            print(
+                f"[sd_verify] logits_len={logits.size(0)} > keep={keep}; "
+                "slicing tail (model likely ignored logits_to_keep)",
+                flush=True,
+            )
+        logits = logits[-keep:]
+    return logits
 
 
 class _TargetPrefixCache:
@@ -391,7 +435,16 @@ def generate_with_speculative_memory(
     }
     memory_kv_rope_cache: Dict[int, Any] = {}
     prefix_cache = _TargetPrefixCache()
-    use_target_kv_cache = _target_kv_cache_enabled()
+    use_target_kv_cache = _target_kv_cache_enabled(target_model)
+    if stats_out is not None:
+        stats_out["target_kv_cache"] = use_target_kv_cache
+    if _env_flag("MMA_SD_DEBUG") or _env_flag("OPENEQA_VL_DEBUG"):
+        print(
+            f"[sd_target] kv_cache={use_target_kv_cache} "
+            f"vendored_mma={_is_mma_vendored_target(target_model)} "
+            f"class={type(target_model).__name__}",
+            flush=True,
+        )
 
     def _memory_kv_at(context_len: int):
         if not use_memory_kv or memory_kv_raw is None or rotary_emb is None:
@@ -417,6 +470,14 @@ def generate_with_speculative_memory(
                 kwargs["video_grid_thw"] = video_grid_thw.to(device)
         return kwargs
 
+    def _attention_mask(past_len: int, new_len: int) -> torch.Tensor:
+        """Full (past + new) mask; required when past_key_values is set."""
+        return torch.ones(
+            (1, int(past_len) + int(new_len)),
+            dtype=torch.long,
+            device=device,
+        )
+
     def _extend_prefix_cache(
         input_ids: torch.Tensor,
         upto: int,
@@ -428,13 +489,14 @@ def generate_with_speculative_memory(
             return
         if prefix_cache.cached_len > upto:
             prefix_cache.reset()
-        chunk = input_ids[:, prefix_cache.cached_len:upto]
+        past_len = prefix_cache.cached_len
+        chunk = input_ids[:, past_len:upto]
         if chunk.size(1) == 0:
             return
-        include_vl = prefix_cache.cached_len == 0
+        include_vl = past_len == 0
         forward_kwargs = {
             "input_ids": chunk,
-            "attention_mask": torch.ones_like(chunk, dtype=torch.long, device=device),
+            "attention_mask": _attention_mask(past_len, chunk.size(1)),
             "use_cache": True,
             "past_key_values": prefix_cache.past_key_values,
             **_vl_kwargs(include_vl),
@@ -475,10 +537,7 @@ def generate_with_speculative_memory(
             }
             with torch.no_grad():
                 outputs = target_model(**forward_kwargs)
-            logits = outputs.logits
-            if logits.dim() == 3:
-                logits = logits.squeeze(0)
-            return logits
+            return _normalize_verify_logits(outputs.logits, logits_to_keep)
 
         if prefix_cache.cached_len > context_len:
             prefix_cache.reset()
@@ -491,14 +550,14 @@ def generate_with_speculative_memory(
         if context_len == 0:
             new_tokens = input_ids
             include_vl = prefix_cache.cached_len == 0
+            past_len = 0
         else:
             new_tokens = input_ids[:, context_len - 1 :]
             include_vl = prefix_cache.cached_len == 0 and context_len == 1
+            past_len = prefix_cache.cached_len
         forward_kwargs = {
             "input_ids": new_tokens,
-            "attention_mask": torch.ones_like(
-                new_tokens, dtype=torch.long, device=device
-            ),
+            "attention_mask": _attention_mask(past_len, new_tokens.size(1)),
             "use_cache": True,
             "past_key_values": prefix_cache.past_key_values,
             "logits_to_keep": logits_to_keep,
@@ -511,10 +570,7 @@ def generate_with_speculative_memory(
         }
         with torch.no_grad():
             outputs = target_model(**forward_kwargs)
-        logits = outputs.logits
-        if logits.dim() == 3:
-            logits = logits.squeeze(0)
-        return logits
+        return _normalize_verify_logits(outputs.logits, logits_to_keep)
 
     def _commit_prefix_cache(
         input_ids: torch.Tensor,
@@ -617,8 +673,25 @@ def generate_with_speculative_memory(
                 )
             time_stats["target_time"] += t_target.elapsed
         # logits shape (logits_to_keep, vocab_size) -> first num_draft rows for verify, last row for bonus
+        if logits.size(0) < logits_to_keep:
+            raise RuntimeError(
+                f"SD verify got logits_len={logits.size(0)} < keep={logits_to_keep} "
+                f"(context_len={context_len}, num_draft={num_draft}, "
+                f"kv_cache={use_target_kv_cache})"
+            )
         target_logits_for_verify = logits[:num_draft]
         last_position_logits = logits[-1:]
+        if _env_flag("MMA_SD_DEBUG") or _env_flag("OPENEQA_VL_DEBUG"):
+            top1 = int(target_logits_for_verify[0].argmax(dim=-1).item())
+            draft0 = int(draft_result.draft_token_ids[0])
+            print(
+                f"[sd_verify] round={time_stats['total_rounds']} "
+                f"logits={tuple(logits.shape)} draft0={draft0} "
+                f"target_top1={top1} "
+                f"draft0_txt={_decode_token_ids([draft0])!r} "
+                f"top1_txt={_decode_token_ids([top1])!r}",
+                flush=True,
+            )
 
         # Verify
         with CudaTimer(device) as t_verify:

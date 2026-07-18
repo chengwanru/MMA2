@@ -59,6 +59,8 @@ export MMA_VL_NATIVE_TARGET="${MMA_VL_NATIVE_TARGET:-1}"
 export MMA_TARGET_DTYPE="${MMA_TARGET_DTYPE:-bfloat16}"
 # Native HF target has no memory_past_key_values; SD keeps draft memory bias + target verify.
 export MMA_SD_DISABLE_MEMORY_KV="${MMA_SD_DISABLE_MEMORY_KV:-1}"
+# Native target: decoding.py auto-disables prefix KV unless MMA_SD_TARGET_KV_CACHE_FORCE=1
+# (raw incremental forward was correcting drafts to "You").
 # Keep draft+8B on GPU (42GB free on GPU0); CPU offload breaks SD verify on AIBox.
 export MMA_SPECULATIVE_OFFLOAD_TARGET="${MMA_SPECULATIVE_OFFLOAD_TARGET:-0}"
 export OPENEQA_SD_NO_OFFLOAD="${OPENEQA_SD_NO_OFFLOAD:-1}"
