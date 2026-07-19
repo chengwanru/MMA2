@@ -461,6 +461,71 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         self.assertNotIn("switches", pred.lower())
 
+    def test_bedroom_color_ranks_bedroom_over_hallway(self):
+        hallway = _Event(
+            "Hallway with white walls and a light switch",
+            "OBJECTS: light switch, door frame",
+        )
+        bedroom = _Event(
+            "Bedroom with bed and white wardrobe",
+            "OBJECTS: bed, duvet\nATTRIBUTES: bed: brown duvet, grey pillow",
+        )
+        q = "What color is the bed comforter?"
+        self.assertGreater(
+            episodic_relevance_score(bedroom, q),
+            episodic_relevance_score(hallway, q),
+        )
+        picked = select_events_for_qa([hallway, bedroom], q)
+        self.assertIn("bedroom", (picked[0].summary or "").lower())
+
+    def test_floor_material_prefers_concrete_row(self):
+        wood_door = _Event(
+            "Garage with damaged wall and doorway",
+            "OBJECTS: doorway, wooden shelf, wooden floor near bedroom",
+        )
+        concrete = _Event(
+            "Garage with a dark sedan and two trash bins",
+            "OBJECTS: sedan, trash bins\nATTRIBUTES: floor: concrete, light gray",
+        )
+        q = "What material is the floor?"
+        self.assertGreater(
+            episodic_relevance_score(concrete, q),
+            episodic_relevance_score(wood_door, q),
+        )
+        picked = select_events_for_qa([wood_door, concrete], q)
+        blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertIn("concrete", blob)
+
+    def test_where_rejects_pose_only_and_self_landmark(self):
+        pred, _ = normalize_qa_prediction(
+            "leaning against wall",
+            question="Where is the broom?",
+            memory_hint=(
+                "OBJECTS: broom, garage door opener\n"
+                "LOCALIZATION: broom below the garage door opener"
+            ),
+        )
+        self.assertIn("below", pred.lower())
+        self.assertNotIn("leaning", pred.lower())
+
+        pred2, _ = normalize_qa_prediction(
+            "below the garage door opener",
+            question="Where is the garage opener?",
+            memory_hint=(
+                "SPATIAL: garage door opener to the left of the house doorway"
+            ),
+        )
+        self.assertIn("left", pred2.lower())
+        self.assertNotEqual(pred2.lower().strip(), "below the garage door opener")
+
+    def test_normalize_strips_note_bleed_on_color(self):
+        pred, _ = normalize_qa_prediction(
+            "grey Note: The bed comforter (",
+            question="What color is the bed comforter?",
+            memory_hint="ATTRIBUTES: bed: brown duvet cover, grey pillow",
+        )
+        self.assertIn("brown", pred.lower())
+
 
 class MemoryTextSanitizeTests(unittest.TestCase):
     def test_sanitize_strips_timestamps(self):

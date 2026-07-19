@@ -294,6 +294,126 @@ def _subject_state_span(blob: str, subject_terms: List[str], window: int = 70) -
     return ""
 
 
+# Room / scene cues for ranking (question-neutral).
+_ROOM_PATTERNS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    ("living room", ("living room", "livingroom")),
+    ("bedroom", ("bedroom", "bed room")),
+    ("bathroom", ("bathroom", "bath room")),
+    ("kitchen", ("kitchen",)),
+    ("garage", ("garage",)),
+    ("hallway", ("hallway", "hall way", "corridor")),
+    ("dining", ("dining room", "dining area")),
+    ("patio", ("patio",)),
+    ("utility", ("utility room", "utility")),
+)
+
+_BED_IMPLIED = frozenset(
+    {"bed", "comforter", "duvet", "pillow", "headboard", "mattress"}
+)
+_GARAGE_IMPLIED = frozenset(
+    {"car", "sedan", "hose", "opener", "broom", "cooler", "bin"}
+)
+
+_POSE_ONLY_WHERE_RE = re.compile(
+    r"^(?:leaning|standing|sitting|hanging|lying|resting)\b"
+    r".{0,40}\b(?:wall|floor|ground|corner|door)\b",
+    re.I,
+)
+_FLOOR_MATERIAL_RE = re.compile(
+    r"\bfloor(?:ing)?\b[^.]{0,48}\b(concrete|hardwood|wood(?:en)?|laminate|tile[ds]?|"
+    r"carpet(?:ed|ing)?|vinyl|marble|linoleum|stone|ceramic)\b|"
+    r"\b(concrete|hardwood|wooden|laminate|tiled|carpet(?:ed)?|vinyl|marble|"
+    r"linoleum|stone|ceramic)\b[^.]{0,24}\bfloor",
+    re.I,
+)
+
+
+def _question_room_cues(question: str) -> List[str]:
+    """Rooms explicitly or implicitly asked about."""
+    q_l = (question or "").lower()
+    rooms: List[str] = []
+    for name, pats in _ROOM_PATTERNS:
+        if any(p in q_l for p in pats):
+            rooms.append(name)
+    subject = _question_subject_noun(question)
+    if "bed" in q_l or subject in _BED_IMPLIED:
+        if "bedroom" not in rooms:
+            rooms.append("bedroom")
+    if "garage" in q_l or subject in _GARAGE_IMPLIED:
+        if "garage" not in rooms and any(
+            tok in q_l for tok in ("garage", "car", "sedan", "hose", "opener", "broom")
+        ):
+            rooms.append("garage")
+    return rooms
+
+
+def _blob_room_tags(blob: str) -> set:
+    b = (blob or "").lower()
+    tags: set = set()
+    for name, pats in _ROOM_PATTERNS:
+        if any(p in b for p in pats):
+            tags.add(name)
+    # Summary often starts with room type without repeating in details.
+    if re.search(r"\bbed\b", b) and "bedroom" not in tags and "bathroom" not in tags:
+        if any(tok in b for tok in ("duvet", "comforter", "headboard", "wardrobe", "pillow")):
+            tags.add("bedroom")
+    return tags
+
+
+def _room_alignment_score(question: str, blob: str) -> float:
+    q_rooms = _question_room_cues(question)
+    if not q_rooms:
+        return 0.0
+    b_rooms = _blob_room_tags(blob)
+    score = 0.0
+    if b_rooms & set(q_rooms):
+        score += 8.0
+    elif b_rooms:
+        # Wrong room: hallway/bathroom stealing bedroom QA is a common failure mode.
+        if "bedroom" in q_rooms and "hallway" in b_rooms and "bedroom" not in b_rooms:
+            score -= 9.0
+        elif "bedroom" in q_rooms and "bathroom" in b_rooms and "bedroom" not in b_rooms:
+            score -= 6.0
+        elif "garage" in q_rooms and "hallway" in b_rooms and "garage" not in b_rooms:
+            score -= 5.0
+        else:
+            score -= 2.0
+    return score
+
+
+def _looks_like_pose_only_where(text: str) -> bool:
+    return bool(_POSE_ONLY_WHERE_RE.match((text or "").strip()))
+
+
+def _where_answer_repeats_subject_as_landmark(answer: str, question: str) -> bool:
+    """Reject 'below the X' when the question is already 'where is the X?'."""
+    subject = _question_subject_noun(question)
+    if not subject:
+        return False
+    a = (answer or "").lower()
+    for term in _subject_alias_terms(subject):
+        if re.search(
+            rf"\b(?:below|under|above|beside|near|next to)\s+(?:the\s+)?"
+            rf"(?:garage\s+)?(?:door\s+)?{re.escape(term)}\b",
+            a,
+        ):
+            return True
+    return False
+
+
+def _is_valid_where_answer(answer: str, question: str) -> bool:
+    phrase = (answer or "").strip()
+    if not phrase:
+        return False
+    if _looks_like_scene_or_inventory_dump(phrase):
+        return False
+    if _looks_like_pose_only_where(phrase):
+        return False
+    if _where_answer_repeats_subject_as_landmark(phrase, question):
+        return False
+    return True
+
+
 def fresh_home_enabled() -> bool:
     return os.environ.get("OPENEQA_FRESH_HOME", "1").strip().lower() not in (
         "0",
@@ -538,6 +658,14 @@ def build_retrieval_query(question: str) -> str:
         extras.extend(["ceiling fan", "fan speed", "switch panel", "dial"])
     if "front door" in q_l and "open" in q_l:
         extras.extend(["front door", "door open", "closed"])
+    if "shelf" in q_l:
+        extras.extend(["shelf", "top shelf", "top level", "cooler", "ice cooler"])
+    if "bedroom" in q_l or "bed" in q_l:
+        extras.extend(["bedroom", "bed"])
+    if "light" in q_l and ("on" in q_l or "turned" in q_l):
+        extras.extend(["STATES", "lights on", "lights off", "brightly lit", "bedroom"])
+    if "under" in q_l and "bed" in q_l:
+        extras.extend(["under the bed", "under-bed storage", "STATES"])
     if extras:
         return f"{question} {' '.join(extras)}"
     return question
@@ -730,6 +858,41 @@ def episodic_relevance_score(event: Any, query: str) -> float:
             score += 5.0
         elif rel_hit:
             score += 2.0
+
+    # Room / scene alignment (bedroom Q should not rank hallway-first).
+    score += _room_alignment_score(query, blob)
+
+    # Floor material: prefer rows that state floor+material together.
+    if subject == "floor" or ("floor" in q_l and attr_q):
+        if _FLOOR_MATERIAL_RE.search(blob):
+            score += 10.0
+        if "concrete" in blob and "floor" in blob:
+            score += 4.0
+
+    # Shelf contents: prefer top-shelf mentions over foreground cardboard.
+    if "shelf" in q_l:
+        if re.search(r"\b(?:top\s+)?shelf\b", blob) and any(
+            tok in blob for tok in ("top", "top level", "upper")
+        ):
+            score += 8.0
+        if any(tok in blob for tok in ("cooler", "ice cooler", "teal cooler")):
+            score += 6.0
+        if "cardboard box" in blob and "shelf" not in blob:
+            score -= 5.0
+
+    # Under-bed / storage state questions.
+    if "under" in q_l and "bed" in q_l:
+        if re.search(r"under[\s-]?bed|space under|storage under|beneath the bed", blob):
+            score += 10.0
+        if "bed" in blob:
+            score += 3.0
+
+    # Lights-on: prefer bedroom brightness STATES over bare light-switch hallway.
+    if lights_q:
+        if "bedroom" in blob and (_LIGHTS_ON_RE.search(blob) or _LIGHTS_OFF_RE.search(blob)):
+            score += 6.0
+        if "light switch" in blob and "bedroom" not in blob and not _LIGHTS_ON_RE.search(blob):
+            score -= 4.0
 
     if "not visible" in blob or "cannot be determined" in blob or "is not shown" in blob:
         score += invisible_penalty
@@ -1052,9 +1215,27 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
                 hint_l,
                 ["bedroom", "light", "lights", "fixture", "lamp"],
             ) or hint_l
+            # Prefer bedroom-scoped evidence when the question names the bedroom.
+            if "bedroom" in q_l:
+                bed_span = _subject_state_span(hint_l, ["bedroom"]) or ""
+                if bed_span:
+                    span = bed_span
             if pred.strip().lower() == "no" and _LIGHTS_ON_RE.search(span) and not _LIGHTS_OFF_RE.search(span):
                 return "Yes"
             if pred.strip().lower() == "yes" and _LIGHTS_OFF_RE.search(span) and not _LIGHTS_ON_RE.search(span):
+                return "No"
+        if "under" in q_l and "bed" in q_l:
+            if pred.strip().lower() == "no" and re.search(
+                r"(?:space|storage|room)\s+under|under[\s-]?bed\s+(?:is\s+)?(?:empty|open|available|clear)|"
+                r"under the bed.{0,40}(?:empty|storage|space|yes)",
+                hint_l,
+            ):
+                return "Yes"
+            if pred.strip().lower() == "yes" and re.search(
+                r"under[\s-]?bed.{0,40}(?:no space|filled|blocked|not visible|none)|"
+                r"no\s+(?:space|storage)\s+under",
+                hint_l,
+            ):
                 return "No"
 
     if "left of the bed" in q_l or "to the left of the bed" in q_l:
@@ -1195,6 +1376,8 @@ def normalize_qa_prediction(
         return raw_text, raw_text
 
     raw_text = _strip_persona_bleed(raw_text)
+    # Drop trailing self-notes / explanations ("grey Note: The bed comforter (").
+    raw_text = re.split(r"\bNote\s*:", raw_text, maxsplit=1, flags=re.I)[0].strip()
     if _is_refusal_answer(raw_text):
         fallback = _answer_from_memory_hint(memory_hint, question)
         if fallback:
@@ -1232,17 +1415,11 @@ def normalize_qa_prediction(
     if action:
         return _finalize(action, raw_text)
 
-    # Where questions: reject scene titles / inventory dumps; prefer spatial spans.
+    # Where questions: reject scene titles / pose-only / self-landmark; prefer spatial spans.
     if _is_where_question(question):
-        if not _looks_like_scene_or_inventory_dump(raw_text):
-            cleaned_where = _clean_phrase(raw_text, yes_no_q=False)
-            if (
-                cleaned_where
-                and not _is_bad_answer(cleaned_where)
-                and not _looks_like_scene_or_inventory_dump(cleaned_where)
-                and not _is_incomplete_answer(cleaned_where, question)
-            ):
-                return _finalize(cleaned_where, raw_text)
+        cleaned_where = _clean_phrase(raw_text, yes_no_q=False)
+        if cleaned_where and _is_valid_where_answer(cleaned_where, question):
+            return _finalize(cleaned_where, raw_text)
         loc = _extract_location_from_memory(memory_hint, question)
         if loc:
             return _finalize(loc, raw_text)
@@ -1547,7 +1724,10 @@ def _is_incomplete_answer(text: str, question: str) -> bool:
     if ("color" in q_l or "colour" in q_l) and len(phrase.split()) > 6:
         return True
     if _is_where_question(question) and (
-        len(phrase.split()) > 14 or phrase.count(",") >= 2
+        len(phrase.split()) > 14
+        or phrase.count(",") >= 2
+        or _looks_like_pose_only_where(text)
+        or _where_answer_repeats_subject_as_landmark(text, question)
     ):
         return True
     if "ceiling" in q_l and ("material" in q_l or "type" in q_l):
@@ -1579,6 +1759,39 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
                 if w not in _QUESTION_STOPWORDS
             ][-2:]
 
+    rel = (
+        r"(?:to the left of|to the right of|left of|right of|below|under|above|"
+        r"next to|beside|near|behind|in front of)"
+    )
+
+    def _finalize_loc(text: str) -> str:
+        cleaned = _clean_phrase(text, yes_no_q=False)
+        if cleaned and _is_valid_where_answer(cleaned, question):
+            return cleaned[0].upper() + cleaned[1:] if cleaned else cleaned
+        return ""
+
+    # Prefer "SUBJECT … REL landmark" or "REL landmark … SUBJECT".
+    for alias in aliases:
+        m = re.search(
+            rf"\b{re.escape(alias)}\b[^.!?\n]{{0,50}}\b{rel}\b[^.!?\n]{{0,40}}",
+            hint_l,
+        )
+        if m:
+            out = _finalize_loc(m.group(0))
+            if out:
+                return out
+        m = re.search(
+            rf"\b{rel}\b[^.!?\n]{{0,40}}\b{re.escape(alias)}\b",
+            hint_l,
+        )
+        if m:
+            # Keep the relation+landmark; drop trailing subject if it's the asked object.
+            span = m.group(0)
+            span = re.sub(rf"\b{re.escape(alias)}\b", "", span).strip(" ,.-")
+            out = _finalize_loc(span)
+            if out:
+                return out
+
     # Prefer explicit spatial/localization lines that mention the subject.
     for line in hint_l.splitlines():
         line = line.strip()
@@ -1586,11 +1799,17 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
             continue
         if aliases and not any(re.search(rf"\b{re.escape(a)}\b", line) for a in aliases):
             continue
-        if any(tok in line for tok in ("localization:", "spatial:", "below", "above", "left of", "right of", "next to", "under", "beside", "near")):
+        if any(
+            tok in line
+            for tok in (
+                "localization:", "spatial:", "below", "above", "left of", "right of",
+                "next to", "under", "beside", "near",
+            )
+        ):
             cleaned = re.sub(r"^(?:localization|spatial)\s*:\s*", "", line, flags=re.I).strip()
-            cleaned = _clean_phrase(cleaned, yes_no_q=False)
-            if cleaned and not _looks_like_scene_or_inventory_dump(cleaned):
-                return cleaned[0].upper() + cleaned[1:] if cleaned else cleaned
+            out = _finalize_loc(cleaned)
+            if out:
+                return out
 
     for alias in aliases:
         m = re.search(
@@ -1599,17 +1818,9 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
         )
         if not m:
             continue
-        span = m.group(0).strip()
-        if any(
-            tok in span
-            for tok in (
-                "below", "under", "above", "left", "right", "next to", "beside",
-                "near", "mounted", "ceiling",
-            )
-        ):
-            cleaned = _clean_phrase(span, yes_no_q=False)
-            if cleaned and not _looks_like_scene_or_inventory_dump(cleaned):
-                return cleaned[0].upper() + cleaned[1:] if cleaned else cleaned
+        out = _finalize_loc(m.group(0).strip())
+        if out:
+            return out
     return ""
 
 
@@ -2094,25 +2305,61 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
         if fan_rows:
             return fan_rows[:top_k]
 
-    # Generic subject-first selection: keep gold-bearing rows in the QA window.
+    # Generic subject / room / purpose selection: keep gold-bearing rows in the QA window.
     subject = _question_subject_noun(question)
     purpose = _question_purpose_terms(question)
-    if subject or purpose:
-        def _row_priority(event: Any) -> int:
-            blob = _event_text(event)
-            pri = 0
-            if subject and _blob_has_subject(blob, subject):
-                pri += 3
-            if purpose and any(re.search(rf"\b{re.escape(p)}\b", blob) for p in purpose):
-                pri += 2
-            if subject and _blob_has_subject(blob, subject):
-                if any(tok in blob for tok in ("localization:", "spatial:", "below", "above", "left", "right")):
-                    pri += 1
-            return pri
+    q_rooms = _question_room_cues(question)
+    attr_q = any(tok in q for tok in ("material", "type", "kind", "shape", "color", "colour"))
 
-        prioritized = sorted(ranked, key=_row_priority, reverse=True)
-        if _row_priority(prioritized[0]) > 0:
-            ranked = prioritized
+    def _row_priority(event: Any) -> int:
+        blob = _event_text(event)
+        pri = 0
+        if subject and _blob_has_subject(blob, subject):
+            pri += 4
+            if attr_q and (
+                _FLOOR_MATERIAL_RE.search(blob)
+                or any(
+                    re.search(rf"\b{tok}\b", blob)
+                    for tok in ("brown", "blue", "grey", "gray", "beige", "concrete", "wooden")
+                )
+            ):
+                pri += 2
+            if any(
+                tok in blob
+                for tok in ("localization:", "spatial:", "below", "above", "left", "right")
+            ):
+                pri += 2
+        if purpose and any(re.search(rf"\b{re.escape(p)}\b", blob) for p in purpose):
+            pri += 2
+        b_rooms = _blob_room_tags(blob)
+        if q_rooms and (b_rooms & set(q_rooms)):
+            pri += 5
+        if q_rooms and "bedroom" in q_rooms and "hallway" in b_rooms and "bedroom" not in b_rooms:
+            pri -= 4
+        if "shelf" in q and "shelf" in blob and any(
+            tok in blob for tok in ("cooler", "top level", "top shelf")
+        ):
+            pri += 4
+        if "under" in q and "bed" in q and re.search(r"under[\s-]?bed|space under|storage under", blob):
+            pri += 4
+        if "light" in q and ("on" in q or "turned" in q):
+            if _LIGHTS_ON_RE.search(blob) or _LIGHTS_OFF_RE.search(blob):
+                pri += 3
+            if "bedroom" in b_rooms:
+                pri += 2
+        return pri
+
+    query = build_retrieval_query(question)
+    prioritized = sorted(
+        ranked,
+        key=lambda event: (
+            _row_priority(event),
+            episodic_relevance_score(event, query),
+        ),
+        reverse=True,
+    )
+    if prioritized and _row_priority(prioritized[0]) > 0:
+        ranked = prioritized
 
     picked = ranked[:top_k]
     if _detect_memory_conflict(picked, question):

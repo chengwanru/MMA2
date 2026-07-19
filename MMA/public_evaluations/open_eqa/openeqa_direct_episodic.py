@@ -44,7 +44,7 @@ SUMMARY: <one sentence: room type + 2-4 dominant objects>
 DETAILS:
 OBJECTS: <every distinct object/furniture/appliance/vehicle/tool; give type if clear (sedan not just car); shelf contents by level top/middle/bottom>
 ATTRIBUTES: <for each notable object: color, material, shape (round/oval/rectangular/square), size, pattern, lid color>
-STATES: <open/closed/ajar for EACH visible door/doorway/window/bin/lid/cabinet (name which one: patio door, front door, garage door, bin lid); lights on/off or fixtures lit/unlit for the room shown; room brightness; bed made/unmade; under-bed storage empty/filled/not visible>
+STATES: <open/closed/ajar for EACH visible door/doorway/window/bin/lid/cabinet (name which one: patio door, front door, garage door, bin lid); lights on/off or fixtures lit/unlit for the room shown (say bedroom/hallway/...); room brightness; bed made/unmade; under-bed storage empty/filled/space available/not visible>
 LOCALIZATION: <where key objects sit: which wall, which shelf level, near which door/TV/bed>
 SPATIAL: <left/right/above/below/between/next to — especially left/right of bed, above TV, between picture frames, beside sink>
 FUNCTIONAL_CUES: <hose, cooler, broom, watering can, AC/fan controls, light switches/dials and WHERE each is, recycling vs trash bins, garage door opener>
