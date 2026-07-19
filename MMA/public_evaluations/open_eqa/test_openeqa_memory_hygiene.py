@@ -392,6 +392,75 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         self.assertGreater(policy["memory_bias_scale"], 0.0)
 
+    def test_car_color_matches_sedan_alias(self):
+        clutter = _Event(
+            "Garage with a large cardboard box and monitor",
+            "OBJECTS: cardboard box, computer monitor, light gray wall",
+        )
+        sedan = _Event(
+            "Garage with a blue sedan and two trash bins",
+            "OBJECTS: blue sedan, trash bins\nATTRIBUTES: sedan: blue",
+        )
+        q = "What color is the car?"
+        self.assertGreater(
+            episodic_relevance_score(sedan, q),
+            episodic_relevance_score(clutter, q),
+        )
+        picked = select_events_for_qa([clutter, sedan], q)
+        self.assertIn("sedan", (picked[0].summary or "").lower())
+
+    def test_water_plants_prefers_hose_over_bucket(self):
+        bag = _Event("Garage with a crumpled plastic bag on a wooden chest")
+        util = _Event(
+            "Utility room shelf",
+            "OBJECTS: yellow plastic bucket, teal cooler\nFUNCTIONAL_CUES: bucket on floor",
+        )
+        hose = _Event(
+            "Garage with a dark sedan and two trash bins",
+            "OBJECTS: dark sedan, green garden hose, broom\n"
+            "FUNCTIONAL_CUES: green hose for watering plants",
+        )
+        q = "What can I use to water my plants?"
+        self.assertGreater(
+            episodic_relevance_score(hose, q),
+            episodic_relevance_score(util, q),
+        )
+        picked = select_events_for_qa([bag, util, hose], q)
+        blob = (picked[0].summary or "") + " " + (picked[0].details or "")
+        self.assertIn("hose", blob.lower())
+        pred, _ = normalize_qa_prediction(
+            "yellow plastic bucket",
+            question=q,
+            memory_hint=hose.details,
+        )
+        self.assertIn("hose", pred.lower())
+
+    def test_where_rejects_scene_dump_and_rescues_location(self):
+        pred, _ = normalize_qa_prediction(
+            "Garage with wooden dresser",
+            question="Where is the broom?",
+            memory_hint=(
+                "OBJECTS: broom, garage door opener\n"
+                "LOCALIZATION: broom below the garage door opener"
+            ),
+        )
+        self.assertIn("below", pred.lower())
+        self.assertNotIn("garage with", pred.lower())
+
+    def test_where_rejects_inventory_list_dump(self):
+        pred, _ = normalize_qa_prediction(
+            "O visible light switches, dials, ac/fan controls, garage door opener, trash bins",
+            question="Where is the garage opener?",
+            memory_hint=(
+                "SPATIAL: garage door opener to the left of the house doorway"
+            ),
+        )
+        self.assertTrue(
+            "left" in pred.lower() or "opener" in pred.lower(),
+            pred,
+        )
+        self.assertNotIn("switches", pred.lower())
+
 
 class MemoryTextSanitizeTests(unittest.TestCase):
     def test_sanitize_strips_timestamps(self):

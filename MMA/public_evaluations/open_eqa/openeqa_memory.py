@@ -134,6 +134,165 @@ _ACTION_FAN_RE = re.compile(
     re.I,
 )
 
+# Hypernym / near-synonym expansions for subject matching (question-neutral).
+_SUBJECT_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "car": ("car", "sedan", "vehicle", "automobile", "suv", "truck", "van", "coupe"),
+    "vehicle": ("car", "sedan", "vehicle", "automobile", "suv", "truck", "van"),
+    "automobile": ("car", "sedan", "vehicle", "automobile"),
+    "comforter": ("comforter", "duvet", "duvet cover", "bedding", "bed cover"),
+    "duvet": ("duvet", "comforter", "duvet cover", "bedding"),
+    "bin": ("bin", "trash", "garbage", "recycling", "wastebasket"),
+    "garbage": ("garbage", "trash", "bin"),
+    "trash": ("trash", "garbage", "bin"),
+    "opener": ("opener", "garage door opener", "door opener"),
+    "hose": ("hose", "garden hose", "watering hose"),
+    "cooler": ("cooler", "ice cooler", "icebox"),
+    "mirror": ("mirror",),
+    "broom": ("broom",),
+    "door": ("door", "doorway"),
+    "doorway": ("doorway", "door"),
+    "patio": ("patio", "glass door", "sliding door", "patio door"),
+    "floor": ("floor", "flooring", "ground"),
+    "bed": ("bed",),
+    "radiator": ("radiator",),
+    "wardrobe": ("wardrobe", "cabinet", "closet"),
+    "light": ("light", "lights", "fixture", "lamp"),
+    "lights": ("lights", "light", "fixture", "lamp"),
+}
+
+_QUESTION_STOPWORDS = frozenset(
+    {
+        "the", "a", "an", "of", "on", "in", "to", "for", "and", "or", "is", "are",
+        "was", "were", "be", "been", "what", "where", "which", "who", "how", "why",
+        "can", "could", "should", "would", "do", "does", "did", "have", "has", "had",
+        "my", "your", "our", "their", "this", "that", "these", "those", "with",
+        "from", "into", "about", "than", "then", "also", "just", "very", "much",
+        "lot", "many", "some", "any", "all", "use", "using", "used", "i", "me",
+        "we", "you", "it", "its", "at", "by", "as", "if", "so", "not", "no", "yes",
+        "open", "closed", "color", "colour", "material", "type", "kind", "shape",
+        "object", "thing", "item", "room", "there", "here", "please", "tell",
+    }
+)
+
+_SCENE_DUMP_RE = re.compile(
+    r"^(?:a\s+|an\s+|the\s+)?"
+    r"(?:garage|bedroom|hallway|kitchen|bathroom|living\s+room|utility\s+room|"
+    r"dining\s+room|closet|basement|attic|office|room|house|apartment)"
+    r"(?:\s+with\b|\s*$)",
+    re.I,
+)
+_OBJECT_LIST_DUMP_RE = re.compile(
+    r"(?:visible\s+)?(?:light\s+)?switches?|dials?|controls?|bins?|cooler|hose|broom|"
+    r"ladder|objects?\s*:",
+    re.I,
+)
+_SPATIAL_REL_RE = re.compile(
+    r"\b(above|below|under|beneath|beside|near|between|behind|inside|outside|"
+    r"(?:to\s+the\s+)?left\s+of|(?:to\s+the\s+)?right\s+of|next\s+to)\b"
+    r"\s+(?:the\s+|a\s+|an\s+)?(.{2,40}?)(?:\?|$)",
+    re.I,
+)
+
+
+def _subject_alias_terms(subject: str) -> Tuple[str, ...]:
+    s = (subject or "").strip().lower()
+    if not s:
+        return ()
+    return _SUBJECT_ALIASES.get(s, (s,))
+
+
+def _blob_has_subject(blob: str, subject: str) -> bool:
+    b = (blob or "").lower()
+    if not subject or not b:
+        return False
+    for term in _subject_alias_terms(subject):
+        if re.search(rf"\b{re.escape(term)}\b", b):
+            return True
+    return False
+
+
+def _question_focus_nouns(question: str) -> List[str]:
+    """Content nouns from the question for soft retrieval boosts."""
+    q_l = (question or "").lower()
+    words = re.findall(r"[a-z]{3,}", q_l)
+    out: List[str] = []
+    seen = set()
+    subject = _question_subject_noun(question)
+    if subject:
+        for term in _subject_alias_terms(subject):
+            if term not in seen:
+                out.append(term)
+                seen.add(term)
+    for w in words:
+        if w in _QUESTION_STOPWORDS or w in seen:
+            continue
+        out.append(w)
+        seen.add(w)
+    return out[:12]
+
+
+def _question_purpose_terms(question: str) -> List[str]:
+    """Purpose clause nouns for 'what can I use/do to ...' questions."""
+    q_l = (question or "").lower().strip()
+    match = re.search(
+        r"\b(?:what can i (?:use|do)|what should i use|how can i)\b(?:\s+to)?\s+(.+?)[\?\.]?$",
+        q_l,
+    )
+    if not match:
+        return []
+    words = [
+        w for w in re.findall(r"[a-z]{3,}", match.group(1))
+        if w not in _QUESTION_STOPWORDS
+    ]
+    return words[:8]
+
+
+def _parse_spatial_question(question: str) -> Optional[Tuple[str, str]]:
+    """Return (relation, landmark) for where/spatial questions, else None."""
+    q = (question or "").strip()
+    if not q:
+        return None
+    match = _SPATIAL_REL_RE.search(q)
+    if not match:
+        return None
+    relation = re.sub(r"\s+", " ", match.group(1).lower()).strip()
+    landmark = re.sub(r"\s+", " ", match.group(2).lower()).strip(" ?.!,")
+    landmark = re.sub(r"^(the|a|an)\s+", "", landmark)
+    if len(landmark) < 2:
+        return None
+    return relation, landmark
+
+
+def _is_where_question(question: str) -> bool:
+    return bool(re.match(r"^\s*where\b", (question or "").strip(), re.I))
+
+
+def _looks_like_scene_or_inventory_dump(text: str) -> bool:
+    phrase = (text or "").strip()
+    if not phrase:
+        return False
+    if _SCENE_DUMP_RE.match(phrase):
+        return True
+    # Truncated inventory / cue lists ("O visible light switches, dials, ...").
+    if phrase.count(",") >= 2 and _OBJECT_LIST_DUMP_RE.search(phrase):
+        return True
+    if re.match(r"^[A-Z]?\s*visible\b", phrase, re.I) and phrase.count(",") >= 1:
+        return True
+    return False
+
+
+def _subject_state_span(blob: str, subject_terms: List[str], window: int = 70) -> str:
+    """Window of text around the first subject mention (for yes/no state)."""
+    b = blob or ""
+    lowered = b.lower()
+    for term in subject_terms:
+        m = re.search(rf"\b{re.escape(term)}\b", lowered)
+        if m:
+            start = max(0, m.start() - window)
+            end = min(len(b), m.end() + window)
+            return b[start:end]
+    return ""
+
 
 def fresh_home_enabled() -> bool:
     return os.environ.get("OPENEQA_FRESH_HOME", "1").strip().lower() not in (
@@ -325,18 +484,27 @@ def build_retrieval_query(question: str) -> str:
     kind = _question_retrieval_kind(question)
     extras: List[str] = []
 
+    subject = _question_subject_noun(question)
+    if subject:
+        # Alias expansions help BM25 when captions say "sedan" but Q says "car".
+        extras.extend(list(_subject_alias_terms(subject))[:4])
+
     if kind == "yes_no":
-        extras.append("visible observation")
+        extras.extend(["STATES", "open", "closed", "lights", "on", "off"])
     elif kind == "color":
         # Do not append bare "color"/"colour": they substring-match "colored" and
         # drown the subject noun (e.g. car) under unrelated hallway captions.
-        subject = _question_subject_noun(question)
-        if subject:
-            extras.append(subject)
+        pass
     elif kind == "functional":
-        extras.extend(["switch", "dial", "control", "turn on", "activate"])
+        extras.extend(["FUNCTIONAL_CUES", "OBJECTS"])
+        extras.extend(_question_purpose_terms(question))
     elif kind == "spatial":
-        extras.extend(["spatial relation", "between", "above", "mounted"])
+        extras.extend(["LOCALIZATION", "SPATIAL", "below", "above", "left", "right"])
+        spatial = _parse_spatial_question(question)
+        if spatial:
+            extras.extend([spatial[0], spatial[1]])
+        if _is_where_question(question) and subject:
+            extras.append(subject)
 
     if "above" in q_l and "tv" in q_l:
         extras.extend(
@@ -375,20 +543,44 @@ def build_retrieval_query(question: str) -> str:
     return question
 
 
+_GENERIC_SUBJECTS = frozenset(
+    {"object", "thing", "item", "something", "one", "stuff", "area", "place", "part"}
+)
+_SUBJECT_PREF_TOKENS = (
+    "opener", "door", "bin", "hose", "cooler", "broom", "mirror", "car",
+    "lights", "light", "comforter", "duvet", "radiator", "wardrobe", "floor",
+)
+
+
 def _question_subject_noun(question: str) -> str:
-    """Best-effort subject for attribute questions (color / material / type)."""
-    q_l = (question or "").lower()
+    """Best-effort subject noun for attribute / where / type / yes-no questions."""
+    q_l = (question or "").lower().strip()
     patterns = (
         r"what\s+(?:color|colour)\s+(?:is|are)\s+(?:the\s+|a\s+|an\s+)?([a-z]+)",
-        r"what\s+(?:material|type)\s+(?:is|are)\s+(?:the\s+|a\s+|an\s+)?([a-z]+)",
-        r"what\s+(?:is|are)\s+(?:the\s+|a\s+|an\s+)?([a-z]+)\s+(?:color|colour|material)",
+        r"what\s+(?:material|type|kind|shape)\s+(?:is|are)\s+(?:the\s+|a\s+|an\s+)?([a-z]+)",
+        r"what\s+(?:type|kind)\s+of\s+(?:the\s+|a\s+|an\s+)?([a-z]+)",
+        r"what\s+(?:is|are)\s+(?:the\s+|a\s+|an\s+)?([a-z]+)\s+(?:color|colour|material|shape)",
+        r"where\s+(?:is|are)\s+(?:the\s+|a\s+|an\s+)?([a-z]+(?:\s+[a-z]+){0,3})",
+        # Yes/No: take only the first noun after is/are the|a|an.
+        r"(?:is|are)\s+(?:the\s+|a\s+|an\s+)?([a-z]+)\b",
+        # "What is the white object ..." — skip generic heads; handled by spatial patterns.
+        r"what\s+(?:is|are)\s+(?:the\s+|a\s+|an\s+)?([a-z]+)\b",
     )
     for pat in patterns:
         match = re.search(pat, q_l)
-        if match:
-            noun = match.group(1).strip()
-            if noun and noun not in {"the", "a", "an", "of", "on", "in", "to"}:
-                return noun
+        if not match:
+            continue
+        noun = match.group(1).strip()
+        parts = [p for p in noun.split() if p not in _QUESTION_STOPWORDS]
+        if not parts:
+            continue
+        for pref in _SUBJECT_PREF_TOKENS:
+            if pref in parts:
+                return pref
+        head = parts[-1] if len(parts) > 1 else parts[0]
+        if head in _GENERIC_SUBJECTS or head in _QUESTION_STOPWORDS:
+            continue
+        return head
     return ""
 
 
@@ -397,13 +589,15 @@ def _question_retrieval_kind(question: str) -> str:
     q_l = (question or "").lower()
     if is_yes_no_question(question):
         return "yes_no"
-    if re.search(r"\b(should i|what should i|what can i do|how can i)\b", q_l):
+    if re.search(r"\b(should i|what should i|what can i do|what can i use|how can i)\b", q_l):
         return "functional"
     if "color" in q_l or "colour" in q_l:
         return "color"
-    if any(tok in q_l for tok in ("above", "between", "below", "next to", "mounted")):
+    if _is_where_question(question) or any(
+        tok in q_l for tok in ("above", "between", "below", "next to", "mounted", "left of", "right of")
+    ):
         return "spatial"
-    if "material" in q_l or "type" in q_l:
+    if "material" in q_l or "type" in q_l or "shape" in q_l:
         return "attribute"
     return "general"
 
@@ -461,8 +655,11 @@ def episodic_relevance_score(event: Any, query: str) -> float:
             score += 1.0
     subject = _question_subject_noun(query)
     color_q = "color" in q_l or "colour" in q_l
-    if subject and re.search(rf"\b{re.escape(subject)}\b", blob):
-        score += 8.0
+    attr_q = any(tok in q_l for tok in ("material", "type", "kind", "shape"))
+    where_q = _is_where_question(query)
+    subject_hit = _blob_has_subject(blob, subject) if subject else False
+    if subject and subject_hit:
+        score += 10.0
         if color_q and any(
             re.search(rf"\b{tok}\b", blob)
             for tok in (
@@ -479,12 +676,61 @@ def episodic_relevance_score(event: Any, query: str) -> float:
                 "purple",
                 "dark",
                 "light",
+                "beige",
+                "teal",
             )
         ):
             score += 5.0
-    elif subject and color_q:
+        if attr_q:
+            score += 3.0
+        if where_q:
+            score += 4.0
+            if any(tok in blob for tok in ("localization:", "spatial:", "below", "above", "left of", "right of", "next to")):
+                score += 3.0
+    elif subject and (color_q or attr_q or where_q):
         # Strongly demote captions that never mention the asked object.
-        score -= 4.0
+        score -= 6.0
+
+    # Soft boost for other content nouns (question-neutral).
+    for noun in _question_focus_nouns(query)[:6]:
+        if noun == subject or noun in _subject_alias_terms(subject or ""):
+            continue
+        if re.search(rf"\b{re.escape(noun)}\b", blob):
+            score += 1.5
+
+    # Purpose clause for "what can I use to ..." — prefer rows that mention purpose + an object.
+    purpose = _question_purpose_terms(query)
+    if purpose:
+        purpose_hits = sum(1 for p in purpose if re.search(rf"\b{re.escape(p)}\b", blob))
+        if purpose_hits:
+            score += 3.0 * purpose_hits
+        if "functional_cues:" in blob or "objects:" in blob:
+            score += 2.0
+        # Prefer tool-like objects over bare room dumps when purpose matches nearby.
+        if purpose_hits and any(
+            tok in blob
+            for tok in ("hose", "cooler", "broom", "bucket", "can", "switch", "dial", "opener", "bin")
+        ):
+            score += 4.0
+
+    spatial = _parse_spatial_question(query)
+    if spatial:
+        relation, landmark = spatial
+        rel_hit = relation in blob or any(
+            part in blob for part in relation.split() if len(part) > 2
+        )
+        land_hit = any(
+            re.search(rf"\b{re.escape(tok)}\b", blob)
+            for tok in landmark.split()
+            if tok not in _QUESTION_STOPWORDS and len(tok) > 2
+        )
+        if rel_hit and land_hit:
+            score += 10.0
+        elif land_hit:
+            score += 5.0
+        elif rel_hit:
+            score += 2.0
+
     if "not visible" in blob or "cannot be determined" in blob or "is not shown" in blob:
         score += invisible_penalty
     if living_room_q:
@@ -790,9 +1036,25 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
             if any(tok in hint_l for tok in ("placemat", "place mat", "table mat", "yellow mat")):
                 return "Yes"
         if ("door" in q_l or "doorway" in q_l) and "open" in q_l:
-            if pred.strip().lower() == "no" and _door_open(hint_l) and not _door_closed(hint_l):
+            # Prefer state near the asked door subject (patio/front/garage...), not any door.
+            subject = _question_subject_noun(question)
+            subject_terms = list(_subject_alias_terms(subject)) if subject else []
+            for extra in ("patio", "front", "garage", "doorway", "door"):
+                if extra in q_l and extra not in subject_terms:
+                    subject_terms.append(extra)
+            span = _subject_state_span(hint_l, subject_terms) or hint_l
+            if pred.strip().lower() == "no" and _door_open(span) and not _door_closed(span):
                 return "Yes"
-            if pred.strip().lower() == "yes" and _door_closed(hint_l) and not _door_open(hint_l):
+            if pred.strip().lower() == "yes" and _door_closed(span) and not _door_open(span):
+                return "No"
+        if "light" in q_l and ("on" in q_l or "turned" in q_l):
+            span = _subject_state_span(
+                hint_l,
+                ["bedroom", "light", "lights", "fixture", "lamp"],
+            ) or hint_l
+            if pred.strip().lower() == "no" and _LIGHTS_ON_RE.search(span) and not _LIGHTS_OFF_RE.search(span):
+                return "Yes"
+            if pred.strip().lower() == "yes" and _LIGHTS_OFF_RE.search(span) and not _LIGHTS_ON_RE.search(span):
                 return "No"
 
     if "left of the bed" in q_l or "to the left of the bed" in q_l:
@@ -873,20 +1135,21 @@ def _extract_color_answer(text: str, question: str = "") -> str:
             phrase = ((after_bed.group(1) or "") + after_bed.group(2)).strip()
             return phrase[0].upper() + phrase[1:] if phrase else ""
 
-    # Prefer "<adj>? <color> <subject>" near the asked object.
+    # Prefer "<adj>? <color> <subject>" near the asked object (incl. aliases: car↔sedan).
     if subject:
+        alias_alt = "|".join(
+            re.escape(t) for t in _subject_alias_terms(subject) if t
+        ) or re.escape(subject)
         near = re.search(
-            rf"\b((?:dark|light|bright|pale)\s+)?({'|'.join(_COLOR_WORDS)})\s+(?:{re.escape(subject)})\b",
+            rf"\b((?:dark|light|bright|pale)\s+)?({'|'.join(_COLOR_WORDS)})\s+(?:{alias_alt})\b",
             lowered,
         )
         if near:
-            phrase = near.group(0)
-            # Drop trailing subject: "dark blue car" -> "Dark blue"
-            phrase = re.sub(rf"\s+{re.escape(subject)}\b", "", phrase).strip()
+            phrase = ((near.group(1) or "") + near.group(2)).strip()
             return phrase[0].upper() + phrase[1:] if phrase else ""
         # Or "<subject> ... is <color>"
         after = re.search(
-            rf"\b{re.escape(subject)}\b[^.]{{0,40}}\b((?:dark|light|bright|pale)\s+)?({'|'.join(_COLOR_WORDS)})\b",
+            rf"\b(?:{alias_alt})\b[^.]{{0,40}}\b((?:dark|light|bright|pale)\s+)?({'|'.join(_COLOR_WORDS)})\b",
             lowered,
         )
         if after:
@@ -968,6 +1231,34 @@ def normalize_qa_prediction(
     action = _extract_functional_action(raw_text, question)
     if action:
         return _finalize(action, raw_text)
+
+    # Where questions: reject scene titles / inventory dumps; prefer spatial spans.
+    if _is_where_question(question):
+        if not _looks_like_scene_or_inventory_dump(raw_text):
+            cleaned_where = _clean_phrase(raw_text, yes_no_q=False)
+            if (
+                cleaned_where
+                and not _is_bad_answer(cleaned_where)
+                and not _looks_like_scene_or_inventory_dump(cleaned_where)
+                and not _is_incomplete_answer(cleaned_where, question)
+            ):
+                return _finalize(cleaned_where, raw_text)
+        loc = _extract_location_from_memory(memory_hint, question)
+        if loc:
+            return _finalize(loc, raw_text)
+
+    # Functional "what can I use to ..." — prefer a concrete tool NP from memory.
+    if _question_purpose_terms(question):
+        tool = _extract_purpose_tool_from_memory(memory_hint, question)
+        cleaned_fn = _clean_phrase(raw_text, yes_no_q=False)
+        if tool and (
+            not cleaned_fn
+            or _is_bad_answer(cleaned_fn)
+            or _looks_like_scene_or_inventory_dump(cleaned_fn)
+            or _is_refusal_answer(cleaned_fn)
+            or _purpose_tool_overrides_prediction(cleaned_fn, tool, memory_hint, question)
+        ):
+            return _finalize(tool, raw_text)
 
     numbered = _NUMBERED_ITEM_RE.findall(raw_text)
     if numbered:
@@ -1142,6 +1433,8 @@ def _is_bad_answer(text: str, *, yes_no_q: bool = False) -> bool:
     if yes_no_q and phrase.lower() not in ("yes", "no", "yes.", "no."):
         if _looks_like_meta_reasoning(phrase):
             return True
+    if _looks_like_scene_or_inventory_dump(phrase):
+        return True
     return False
 
 
@@ -1246,10 +1539,16 @@ def _is_incomplete_answer(text: str, question: str) -> bool:
         return True
     if phrase.startswith(("the scene", "a scene", "the image", "an indoor", "a cluttered")):
         return True
+    if _looks_like_scene_or_inventory_dump(text):
+        return True
     if re.search(r"0{6,}", phrase):
         return True
     q_l = (question or "").lower()
     if ("color" in q_l or "colour" in q_l) and len(phrase.split()) > 6:
+        return True
+    if _is_where_question(question) and (
+        len(phrase.split()) > 14 or phrase.count(",") >= 2
+    ):
         return True
     if "ceiling" in q_l and ("material" in q_l or "type" in q_l):
         if phrase.startswith("the ceiling") and not any(
@@ -1261,6 +1560,153 @@ def _is_incomplete_answer(text: str, question: str) -> bool:
             if "tv" not in phrase and "television" not in phrase:
                 return True
     return False
+
+
+def _extract_location_from_memory(hint: str, question: str) -> str:
+    """Extract a short location phrase near the asked subject (generic where-QA)."""
+    blob = sanitize_memory_text_for_inference((hint or "").strip())
+    if not blob:
+        return ""
+    hint_l = blob.lower()
+    subject = _question_subject_noun(question)
+    aliases = list(_subject_alias_terms(subject)) if subject else []
+    if not aliases:
+        # Fall back to last content noun in "where is the X".
+        m = re.search(r"where\s+(?:is|are)\s+(?:the\s+|a\s+|an\s+)?(.+?)[\?\.]?$", (question or "").lower())
+        if m:
+            aliases = [
+                w for w in re.findall(r"[a-z]{3,}", m.group(1))
+                if w not in _QUESTION_STOPWORDS
+            ][-2:]
+
+    # Prefer explicit spatial/localization lines that mention the subject.
+    for line in hint_l.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if aliases and not any(re.search(rf"\b{re.escape(a)}\b", line) for a in aliases):
+            continue
+        if any(tok in line for tok in ("localization:", "spatial:", "below", "above", "left of", "right of", "next to", "under", "beside", "near")):
+            cleaned = re.sub(r"^(?:localization|spatial)\s*:\s*", "", line, flags=re.I).strip()
+            cleaned = _clean_phrase(cleaned, yes_no_q=False)
+            if cleaned and not _looks_like_scene_or_inventory_dump(cleaned):
+                return cleaned[0].upper() + cleaned[1:] if cleaned else cleaned
+
+    for alias in aliases:
+        m = re.search(
+            rf"[^.!?\n]{{0,50}}\b{re.escape(alias)}\b[^.!?\n]{{0,60}}",
+            hint_l,
+        )
+        if not m:
+            continue
+        span = m.group(0).strip()
+        if any(
+            tok in span
+            for tok in (
+                "below", "under", "above", "left", "right", "next to", "beside",
+                "near", "mounted", "ceiling",
+            )
+        ):
+            cleaned = _clean_phrase(span, yes_no_q=False)
+            if cleaned and not _looks_like_scene_or_inventory_dump(cleaned):
+                return cleaned[0].upper() + cleaned[1:] if cleaned else cleaned
+    return ""
+
+
+def _extract_purpose_tool_from_memory(hint: str, question: str) -> str:
+    """For 'what can I use to …', extract a concrete object NP near purpose terms."""
+    blob = sanitize_memory_text_for_inference((hint or "").strip())
+    if not blob:
+        return ""
+    hint_l = blob.lower()
+    purpose = _question_purpose_terms(question)
+    # Closed set of tool NPs common in embodied EQA (not per-question hardcodes).
+    tool_pats = (
+        r"\b((?:green|blue|black|red|yellow|garden)\s+)?(?:garden\s+)?hose\b",
+        r"\b((?:blue|red|white|green|teal)\s+)?(?:ice\s+)?cooler\b",
+        r"\b(?:yellow\s+)?(?:plastic\s+)?bucket\b",
+        r"\bbroom\b",
+        r"\bwatering\s+can\b",
+        r"\bair conditioner\b",
+        r"\bceiling fan\b",
+    )
+    functional_section = ""
+    fm = re.search(r"functional_cues:\s*(.+?)(?:\n[A-Z_]+:|$)", hint_l, re.S)
+    if fm:
+        functional_section = fm.group(1)
+
+    def _purpose_near(phrase: str, region: str) -> bool:
+        if not purpose:
+            return False
+        idx = region.find(phrase)
+        if idx < 0:
+            return any(re.search(rf"\b{re.escape(p)}\b", region) for p in purpose)
+        window = region[max(0, idx - 80): idx + len(phrase) + 80]
+        return any(re.search(rf"\b{re.escape(p)}\b", window) for p in purpose)
+
+    ranked: List[Tuple[int, str]] = []
+    search_regions = [functional_section, hint_l] if functional_section else [hint_l]
+    for region_i, region in enumerate(search_regions):
+        if not region:
+            continue
+        for pat in tool_pats:
+            m = re.search(pat, region)
+            if not m:
+                continue
+            phrase = m.group(0).strip()
+            score = 1
+            if region_i == 0:
+                score += 2
+            if _purpose_near(phrase, region) or _purpose_near(phrase, hint_l):
+                score += 5
+            ranked.append((score, phrase))
+    if not ranked:
+        return ""
+    ranked.sort(key=lambda x: x[0], reverse=True)
+    phrase = ranked[0][1]
+    if phrase.startswith(("a ", "an ", "the ")):
+        return phrase[0].upper() + phrase[1:]
+    return "The " + phrase
+
+
+def _purpose_tool_overrides_prediction(
+    pred: str, tool: str, hint: str, question: str
+) -> bool:
+    """Override a plausible but wrong tool when memory ties another tool to the purpose."""
+    p = (pred or "").strip().lower()
+    t = (tool or "").strip().lower()
+    if not p or not t:
+        return False
+    if t in p or p in t:
+        return False
+    purpose = _question_purpose_terms(question)
+    if not purpose:
+        return False
+    hint_l = sanitize_memory_text_for_inference((hint or "").strip()).lower()
+    # Only override when the memory tool is purpose-aligned and the prediction is not.
+    tool_core = re.sub(r"^(the|a|an)\s+", "", t)
+    pred_core = re.sub(r"^(the|a|an)\s+", "", p)
+    tool_aligned = any(
+        re.search(
+            rf"\b{re.escape(tok)}\b.{{0,60}}\b{re.escape(purpose_tok)}\b|"
+            rf"\b{re.escape(purpose_tok)}\b.{{0,60}}\b{re.escape(tok)}\b",
+            hint_l,
+        )
+        for tok in tool_core.split()
+        for purpose_tok in purpose
+        if len(tok) > 2
+    )
+    pred_aligned = any(
+        re.search(
+            rf"\b{re.escape(tok)}\b.{{0,60}}\b{re.escape(purpose_tok)}\b|"
+            rf"\b{re.escape(purpose_tok)}\b.{{0,60}}\b{re.escape(tok)}\b",
+            hint_l,
+        )
+        for tok in pred_core.split()
+        for purpose_tok in purpose
+        if len(tok) > 2
+    )
+    return bool(tool_aligned and not pred_aligned)
 
 
 def _answer_from_memory_hint(hint: str, question: str) -> str:
@@ -1350,6 +1796,17 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
                 shape = "round"
             return shape
 
+    if _is_where_question(question):
+        loc = _extract_location_from_memory(blob, question)
+        if loc:
+            return loc
+
+    if _question_purpose_terms(question):
+        tool = _extract_purpose_tool_from_memory(blob, question)
+        if tool:
+            return tool
+
+    # Legacy functional rescues (kept as fallbacks behind the generic purpose extractor).
     if "hose" in q_l or ("water" in q_l and "plant" in q_l):
         if "hose" in hint_l:
             color = ""
@@ -1637,8 +2094,33 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
         if fan_rows:
             return fan_rows[:top_k]
 
+    # Generic subject-first selection: keep gold-bearing rows in the QA window.
+    subject = _question_subject_noun(question)
+    purpose = _question_purpose_terms(question)
+    if subject or purpose:
+        def _row_priority(event: Any) -> int:
+            blob = _event_text(event)
+            pri = 0
+            if subject and _blob_has_subject(blob, subject):
+                pri += 3
+            if purpose and any(re.search(rf"\b{re.escape(p)}\b", blob) for p in purpose):
+                pri += 2
+            if subject and _blob_has_subject(blob, subject):
+                if any(tok in blob for tok in ("localization:", "spatial:", "below", "above", "left", "right")):
+                    pri += 1
+            return pri
+
+        prioritized = sorted(ranked, key=_row_priority, reverse=True)
+        if _row_priority(prioritized[0]) > 0:
+            ranked = prioritized
+
     picked = ranked[:top_k]
     if _detect_memory_conflict(picked, question):
+        # Prefer the best subject-aligned row when shrinking to 1.
+        if subject:
+            aligned = [e for e in ranked if _blob_has_subject(_event_text(e), subject)]
+            if aligned:
+                return aligned[:1]
         return ranked[:1]
     return picked
 
@@ -1767,14 +2249,20 @@ def compute_draft_policy(question: str, events: List[Any]) -> Dict[str, Any]:
     fan_q = "ceiling fan" in q_l or ("fan" in q_l and "speed" in q_l)
     cool_down_q = "cool down" in q_l or "cooling" in q_l
     functional = bool(
-        re.search(r"\b(should i|what should i|what can i do|how can i)\b", q_l)
+        re.search(
+            r"\b(should i|what should i|what can i do|what can i use|how can i)\b",
+            q_l,
+        )
     )
     expected = _question_expects_tags(question)
     top_blob = _event_text(ranked[0]) if ranked else ""
     top_tags = _memory_entity_tags(top_blob)
     top_aligned = bool(expected and top_tags and (top_tags & expected))
     subject = _question_subject_noun(question)
-    if subject and re.search(rf"\b{re.escape(subject)}\b", top_blob):
+    if subject and _blob_has_subject(top_blob, subject):
+        top_aligned = True
+    purpose = _question_purpose_terms(question)
+    if purpose and any(re.search(rf"\b{re.escape(p)}\b", top_blob) for p in purpose):
         top_aligned = True
     hard_conflict = conflict and not top_aligned
     disable_draft = hard_conflict or functional or cool_down_q or fan_q

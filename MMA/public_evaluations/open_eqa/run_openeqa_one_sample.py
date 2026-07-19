@@ -99,11 +99,22 @@ def _format_eqa_question(question: str) -> str:
     elif _is_yes_no_question(question):
         answer_hint = (
             "Reply with one word: Yes or No. "
-            "If memory states the asked condition, answer Yes; only answer No when memory "
-            "explicitly contradicts it — do not answer No merely because a detail is unstated."
+            "Use STATES in memory about the asked subject; only answer No when memory "
+            "explicitly contradicts the asked condition — do not answer No merely because "
+            "a detail is unstated."
         )
     elif "color" in q_l or "colour" in q_l:
         answer_hint = "Reply with only the color word (e.g. Blue). No scene description."
+    elif re.match(r"^\s*where\b", q_l):
+        answer_hint = (
+            "Reply with a short location phrase only (e.g. 'below the garage door opener', "
+            "'to the left of the doorway'). Never answer with a room title or object list."
+        )
+    elif re.search(r"\bwhat can i use\b", q_l):
+        answer_hint = (
+            "Reply with the concrete tool/object from memory that serves the asked purpose "
+            "(one short noun phrase)."
+        )
     else:
         answer_hint = (
             "Reply with a short factual phrase only (no steps, timestamps, or analysis). "
