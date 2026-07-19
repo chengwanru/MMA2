@@ -120,6 +120,40 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         self.assertIn("hose", pred.lower())
 
+    def test_refusal_regex_variants(self):
+        from openeqa_memory import _is_refusal_answer
+
+        for phrase in (
+            "Not specified in memory",
+            "No car mentioned",
+            "No object mentioned on the shelf",
+            "not described in the memory",
+            "Cannot determine from memory",
+            "No relevant information",
+            "Nothing mentioned",
+        ):
+            self.assertTrue(_is_refusal_answer(phrase), phrase)
+
+    def test_refusal_regex_does_not_nuke_valid_short_answers(self):
+        from openeqa_memory import _is_refusal_answer
+
+        for phrase in (
+            "A radiator",
+            "Air conditioning unit",
+            "Blue",
+            "The blue cooler",
+            "On the bed in the bedroom",
+        ):
+            self.assertFalse(_is_refusal_answer(phrase), phrase)
+
+    def test_floor_material_refusal_recovers_from_memory(self):
+        pred, _ = normalize_qa_prediction(
+            "Not specified in memory",
+            question="What material is the floor?",
+            memory_hint="The floor is polished concrete throughout the garage.",
+        )
+        self.assertIn("concrete", pred.lower())
+
     def test_normalize_left_of_bed_prefers_radiator(self):
         pred, _ = normalize_qa_prediction(
             "white wardrobe",

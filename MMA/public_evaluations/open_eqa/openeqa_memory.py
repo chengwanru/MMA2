@@ -69,6 +69,19 @@ _POLLUTED_MEMORY_MARKERS = (
     "shared a new screenshot",
     "openeqa scene memory",
 )
+# Generalized model-refusal phrasing (short answers only; not applied to long captions).
+_REFUSAL_RE = re.compile(
+    r"\b(?:"
+    r"no\s+\w+(?:\s+\w+){0,3}\s+(?:mentioned|listed|described|visible|shown|present|found)"
+    r"|not\s+(?:specified|mentioned|described|listed|shown|stated|clear|visible|available|provided)"
+    r"|nothing\s+(?:mentioned|listed|described|on|in|is\s+mentioned)"
+    r"|(?:not|isn't|is\s+not)\s+(?:in|part\s+of)\s+(?:the\s+)?(?:memory|episodic|context|record)"
+    r"|no\s+(?:relevant\s+)?(?:information|object|item|mention|record|detail)s?\b"
+    r"|(?:can(?:not|'t)|unable\s+to)\s+(?:determine|tell|find|answer|say)"
+    r"|no\s+such\s+\w+"
+    r")\b",
+    re.I,
+)
 _USER_TURN_BLEED_RE = re.compile(r"\n\nuser\s*:", re.I)
 _TIMESTAMP_LEAD_RE = re.compile(
     r"^(?:\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}(?::\d{2})?\s*[-–—:]\s*)+",
@@ -1055,6 +1068,11 @@ def _is_refusal_answer(text: str) -> bool:
     lowered = phrase.lower()
     if any(marker in phrase or marker in lowered for marker in _REFUSAL_ANSWER_MARKERS):
         return True
+    # Generalized refusal wording the model invents ("Not specified in memory",
+    # "No car mentioned", "not described", "nothing on the shelf in memory").
+    # Guard by length so a long, otherwise-valid answer is not nuked.
+    if len(phrase) <= 80 and _REFUSAL_RE.search(lowered):
+        return True
     # OpenEQA gold answers are English; short Chinese-only replies are refusals/hallucinations.
     if re.search(r"[\u4e00-\u9fff]", phrase) and not re.search(r"[a-zA-Z]{2,}", phrase):
         return len(phrase) <= 24
@@ -1372,6 +1390,27 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
         cleaned = _clean_phrase(blob, yes_no_q=False)
         if cleaned and not _is_bad_answer(cleaned):
             return cleaned
+
+    if "floor" in q_l and ("material" in q_l or "made" in q_l or "type" in q_l):
+        m = re.search(
+            r"\bfloor(?:ing)?\b[^.]{0,40}?\b("
+            r"concrete|hardwood|wood(?:en)?|laminate|tile[ds]?|tiled|carpet(?:ed|ing)?|"
+            r"vinyl|marble|linoleum|stone|ceramic)\b",
+            hint_l,
+        )
+        if not m:
+            m = re.search(
+                r"\b(concrete|hardwood|wooden|laminate|tiled|carpet(?:ed)?|vinyl|marble|"
+                r"linoleum|stone|ceramic)\b[^.]{0,20}\bfloor",
+                hint_l,
+            )
+        if m:
+            mat = m.group(1)
+            mat = {
+                "wood": "wooden", "tiles": "tile", "tiled": "tile",
+                "carpeted": "carpet", "carpeting": "carpet",
+            }.get(mat, mat)
+            return mat.capitalize()
 
     if "color" in q_l or "colour" in q_l:
         color = _extract_color_answer(blob, question)
