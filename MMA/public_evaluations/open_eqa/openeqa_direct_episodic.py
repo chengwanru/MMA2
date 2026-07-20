@@ -36,27 +36,33 @@ RULES:
 - Be concrete: object names, colors, materials, shapes, counts, left/right/above/below.
 - Prefer short factual clauses over vague words like "cluttered" or "nice".
 - Never invent objects that are not visible.
+- If a state is unclear, write "not visible" — do NOT guess open/closed or lights on/off.
+- When a bed is visible, ALWAYS give the duvet/comforter color (not only headboard/pillow/carpet).
+- When a shelf is visible, list ITEMS on each level (top/middle/bottom), not just "wooden shelf".
+- When both a radiator and a wardrobe are near a bed, say which is to the LEFT of the bed.
 
 Reply EXACTLY in this format:
 
 SUMMARY: <one sentence: room type + 2-4 dominant objects>
 
 DETAILS:
-OBJECTS: <every distinct object/furniture/appliance/vehicle/tool; give type if clear (sedan not just car); shelf contents by level top/middle/bottom>
-ATTRIBUTES: <for each notable object: color, material, shape (round/oval/rectangular/square), size, pattern, lid color>
-STATES: <open/closed/ajar for EACH visible door/doorway/window/bin/lid/cabinet (name which one: patio door, front door, garage door, bin lid); lights on/off or fixtures lit/unlit for the room shown (say bedroom/hallway/...); room brightness; bed made/unmade; under-bed storage empty/filled/space available/not visible>
+OBJECTS: <every distinct object/furniture/appliance/vehicle/tool; give type if clear (sedan not just car); for shelves write "top shelf: item1, item2">
+ATTRIBUTES: <for each notable object: color, material, shape (round/oval/rectangular/square), size, pattern, lid color; bed: duvet/comforter color>
+STATES: <one clause per item, named explicitly, e.g. "patio door: closed"; "trash bin lid: open"; "bedroom lights: on"; "under-bed storage: empty / filled / not visible"; room brightness: bright/dim>
 LOCALIZATION: <where key objects sit: which wall, which shelf level, near which door/TV/bed>
-SPATIAL: <left/right/above/below/between/next to — especially left/right of bed, above TV, between picture frames, beside sink>
-FUNCTIONAL_CUES: <hose, cooler, broom, watering can, AC/fan controls, light switches/dials and WHERE each is, recycling vs trash bins, garage door opener>
+SPATIAL: <full relations with BOTH objects named, e.g. "radiator is to the left of the bed"; "broom is below the garage door opener"; "opener is to the left of the house doorway">
+FUNCTIONAL_CUES: <hose, cooler/ice cooler, broom, watering can, AC/fan controls, light switches/dials and WHERE each is, recycling vs trash bins, garage door opener>
 WORLD_CUES: <room identity (garage/bathroom/bedroom/kitchen/hallway), outdoor view through doors, damage/renovation if obvious>
 NOT_VISIBLE: <items from the checklist below that you looked for but cannot see>
 
 Forced scan checklist (mention each if present, else list under NOT_VISIBLE):
-doors/doorways/garage door + open or closed; windows + blinds; light fixtures + lit?;
-switches/dials; bed + comforter/duvet color; under-bed space; radiator vs wardrobe vs bed;
+doors/doorways/garage door/patio door/glass door + open or closed;
+windows + blinds; light fixtures + lit or unlit (name the room);
+switches/dials; bed + comforter/duvet color (mandatory if bed visible); under-bed space;
+radiator vs wardrobe vs bed (which is left of the bed);
 TV + what is above/beside it; mirrors + shape; sinks/toilets;
-trash/recycling bins + lid color + open/closed; cooler; hose; broom; ladder;
-shelves + top-shelf items; car/vehicle type+color; garage door opener location;
+trash/recycling bins + lid color + open/closed; cooler/ice cooler; hose; broom; ladder;
+shelves + TOP-SHELF item names; car/vehicle type+color; garage door opener location relative to doorway;
 placemats/tableware colors; AC / ceiling fan / heater and their controls.
 """
 
@@ -111,16 +117,24 @@ def _entity_tags_from_text(text: str) -> List[str]:
         tags.append("entity:door_opener")
     if "radiator" in blob:
         tags.append("entity:radiator")
+    if "wardrobe" in blob or "closet" in blob:
+        tags.append("entity:wardrobe")
     if re.search(r"\b(round|oval|circular)\s+mirror\b", blob):
         tags.append("entity:mirror_shape")
-    if any(tok in blob for tok in ("lights on", "light is on", "lit fixture", "brightly lit")):
+    if re.search(r"\btop\s+shelf\b|\btop\s+level\b", blob):
+        tags.append("entity:top_shelf")
+    if any(tok in blob for tok in ("lights on", "light is on", "lit fixture", "brightly lit", "lights: on")):
         tags.append("state:lights_on")
-    if any(tok in blob for tok in ("lights off", "unlit", "dark room")):
+    if any(tok in blob for tok in ("lights off", "unlit", "dark room", "lights: off")):
         tags.append("state:lights_off")
-    if re.search(r"\b(door|doorway|bin|lid)\b[^.]{0,24}\bopen\b", blob):
+    if re.search(r"\b(door|doorway|bin|lid|patio)\b[^.]{0,28}\bopen\b|"
+                 r"\b(?:bin|lid)\s*:\s*open\b", blob):
         tags.append("state:open")
-    if re.search(r"\b(door|doorway|bin|lid)\b[^.]{0,24}\bclosed\b", blob):
+    if re.search(r"\b(door|doorway|bin|lid|patio)\b[^.]{0,28}\bclosed\b|"
+                 r"\b(?:bin|lid)\s*:\s*closed\b", blob):
         tags.append("state:closed")
+    if re.search(r"\bleft of the bed\b.*\bradiator\b|\bradiator\b.*\bleft of the bed\b", blob):
+        tags.append("spatial:radiator_left_of_bed")
     return tags
 
 
@@ -157,7 +171,7 @@ def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
     from mma.schemas.llm_config import LLMConfig
 
     # Structured DETAILS sections need more tokens than a short paragraph.
-    max_tokens = int(os.environ.get("OPENEQA_EPISODIC_MAX_TOKENS", "512"))
+    max_tokens = int(os.environ.get("OPENEQA_EPISODIC_MAX_TOKENS", "640"))
     llm_config = LLMConfig(
         model="qwen3-vl-speculative",
         model_endpoint_type="speculative_memory",

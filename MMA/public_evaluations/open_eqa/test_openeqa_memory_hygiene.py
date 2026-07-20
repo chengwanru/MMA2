@@ -526,6 +526,70 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         self.assertIn("brown", pred.lower())
 
+    def test_where_rejects_truncated_visible_garbage(self):
+        # Regression: self-landmark reject left "T visible" as the answer.
+        pred, raw = normalize_qa_prediction(
+            "T visible",
+            question="Where is the garage opener?",
+            memory_hint=(
+                "SPATIAL: garage door opener to the left of the house doorway"
+            ),
+        )
+        self.assertNotIn("visible", pred.lower())
+        self.assertIn("left", pred.lower())
+        self.assertIn("doorway", pred.lower())
+        self.assertEqual(raw, "T visible")
+
+        pred_empty, _ = normalize_qa_prediction(
+            "T visible",
+            question="Where is the garage opener?",
+            memory_hint="OBJECTS: broom, shelf",
+        )
+        self.assertEqual(pred_empty, "")
+
+    def test_shelf_content_not_wooden_shelf(self):
+        pred, _ = normalize_qa_prediction(
+            "wooden shelf",
+            question="What is on the top shelf to the right side of the garage?",
+            memory_hint=(
+                "OBJECTS: wooden shelf, teal cooler\n"
+                "LOCALIZATION: top shelf: teal ice cooler, cardboard box"
+            ),
+        )
+        self.assertIn("cooler", pred.lower())
+        self.assertNotIn("wooden shelf", pred.lower())
+
+    def test_cold_drinks_prefers_cooler_over_bucket(self):
+        pred, _ = normalize_qa_prediction(
+            "yellow plastic bucket",
+            question="What can I use to keep drinks cold for a picnic?",
+            memory_hint=(
+                "OBJECTS: yellow plastic bucket, teal cooler\n"
+                "FUNCTIONAL_CUES: teal cooler for cold drinks / picnic"
+            ),
+        )
+        self.assertIn("cooler", pred.lower())
+        self.assertNotIn("bucket", pred.lower())
+
+    def test_left_of_bed_ranks_radiator_row(self):
+        wardrobe = _Event(
+            "Bedroom with white wardrobe near window",
+            "OBJECTS: white wardrobe, bed\nSPATIAL: wardrobe against the far wall",
+        )
+        radiator = _Event(
+            "Bedroom with bed and radiator",
+            "OBJECTS: bed, radiator, wardrobe\n"
+            "SPATIAL: radiator is to the left of the bed; between wardrobe and bed",
+        )
+        q = "What is the object to the left of the bed?"
+        self.assertGreater(
+            episodic_relevance_score(radiator, q),
+            episodic_relevance_score(wardrobe, q),
+        )
+        picked = select_events_for_qa([wardrobe, radiator], q)
+        blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertIn("radiator", blob)
+
 
 class MemoryTextSanitizeTests(unittest.TestCase):
     def test_sanitize_strips_timestamps(self):
