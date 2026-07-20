@@ -842,7 +842,7 @@ def _run_qa(
             question=question,
             memory_hint=memory_hint,
         )
-        if recovered:
+        if recovered and recovered.strip().upper() != "ERROR":
             print(f"  [qa] recovered from memory_hint: {recovered[:80]!r}", flush=True)
             prediction = recovered
             if not raw_prediction:

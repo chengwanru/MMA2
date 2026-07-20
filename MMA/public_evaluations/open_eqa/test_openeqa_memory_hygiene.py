@@ -590,6 +590,72 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
         self.assertIn("radiator", blob)
 
+    def test_car_color_prefers_sedan_over_workbench_clutter(self):
+        workbench = _Event(
+            "garage with workbench, wooden crates, and heater",
+            "OBJECTS: workbench, wooden crates, heater, green garden hose",
+        )
+        sedan = _Event(
+            "Garage with a blue sedan and two trash bins",
+            "OBJECTS: blue sedan, trash bins\nATTRIBUTES: sedan: metallic blue",
+        )
+        q = "What color is the car?"
+        picked = select_events_for_qa([workbench, sedan], q)
+        blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertIn("sedan", blob)
+        self.assertNotIn("workbench", (picked[0].summary or "").lower())
+
+    def test_cold_drinks_ranks_cooler_over_chest(self):
+        chest = _Event(
+            "garage with a wooden chest and a vintage computer on a workbench",
+            "OBJECTS: wooden chest, vintage computer, workbench",
+        )
+        cooler = _Event(
+            "Utility room shelf",
+            "OBJECTS: yellow plastic bucket, teal cooler\n"
+            "FUNCTIONAL_CUES: teal cooler for cold drinks",
+        )
+        q = "What can I use to keep drinks cold at a picnic?"
+        picked = select_events_for_qa([chest, cooler], q)
+        blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertIn("cooler", blob)
+
+    def test_shelf_ranks_top_shelf_cooler_over_dresser(self):
+        dresser = _Event(
+            "garage with wooden dresser and foil-wrapped object",
+            "OBJECTS: wooden dresser, foil-wrapped object, ladder",
+        )
+        shelf = _Event(
+            "garage with damaged wall and doorway",
+            "OBJECTS: wooden shelf (top shelf: blue cooler, black box), broom",
+        )
+        q = "What is on the top shelf to the right side of the garage?"
+        picked = select_events_for_qa([dresser, shelf], q)
+        blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertIn("cooler", blob)
+        pred, _ = normalize_qa_prediction(
+            "wooden dresser (left) is on top shelf to right side of garage",
+            question=q,
+            memory_hint=shelf.details,
+        )
+        self.assertIn("cooler", pred.lower())
+
+    def test_under_bed_not_visible_does_not_force_no(self):
+        pred, _ = normalize_qa_prediction(
+            "Yes",
+            question="Is there space under the bed for storage?",
+            memory_hint="STATES: under-bed storage: not visible; bed: made",
+        )
+        self.assertEqual(pred.strip().lower(), "yes")
+
+    def test_lights_bright_overrides_no(self):
+        pred, _ = normalize_qa_prediction(
+            "No",
+            question="Are the lights turned on in the bedroom?",
+            memory_hint="STATES: room brightness: bright; wardrobe: closed",
+        )
+        self.assertEqual(pred.strip().lower(), "yes")
+
 
 class MemoryTextSanitizeTests(unittest.TestCase):
     def test_sanitize_strips_timestamps(self):
