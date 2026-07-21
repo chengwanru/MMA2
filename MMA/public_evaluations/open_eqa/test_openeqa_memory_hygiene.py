@@ -656,6 +656,52 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         self.assertEqual(pred.strip().lower(), "yes")
 
+    def test_where_prefers_memory_landmark_over_model_invention(self):
+        # Model invents "right of the workbench"; memory ties broom to the opener.
+        pred, _ = normalize_qa_prediction(
+            "to the right of the workbench",
+            question="Where is the broom?",
+            memory_hint=(
+                "OBJECTS: broom, garage door opener\n"
+                "LOCALIZATION: broom is below the garage door opener"
+            ),
+        )
+        self.assertIn("opener", pred.lower())
+        self.assertNotIn("workbench", pred.lower())
+
+    def test_where_opener_prefers_doorway_landmark(self):
+        pred, _ = normalize_qa_prediction(
+            "to the right of the door",
+            question="Where is the garage opener?",
+            memory_hint=(
+                "SPATIAL: garage door opener is to the left of the house doorway"
+            ),
+        )
+        self.assertIn("left", pred.lower())
+        self.assertIn("doorway", pred.lower())
+
+    def test_where_keeps_model_when_landmark_corroborated(self):
+        pred, _ = normalize_qa_prediction(
+            "below the garage door opener",
+            question="Where is the broom?",
+            memory_hint="LOCALIZATION: broom is below the garage door opener",
+        )
+        self.assertIn("opener", pred.lower())
+
+    def test_doorway_selection_prefers_doorway_open_row(self):
+        garage_closed = _Event(
+            "garage with workbench and heater",
+            "OBJECTS: workbench, garage door\nSTATES: garage door: closed",
+        )
+        doorway_open = _Event(
+            "garage with a house doorway to the yard",
+            "OBJECTS: house doorway\nSTATES: house doorway: open",
+        )
+        q = "Is the house doorway open or closed?"
+        picked = select_events_for_qa([garage_closed, doorway_open], q)
+        blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertIn("doorway", blob)
+
 
 class MemoryTextSanitizeTests(unittest.TestCase):
     def test_sanitize_strips_timestamps(self):

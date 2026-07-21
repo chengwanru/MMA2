@@ -414,6 +414,33 @@ def _where_answer_repeats_subject_as_landmark(answer: str, question: str) -> boo
     return False
 
 
+_WHERE_REL_RE = re.compile(
+    r"(?:to the left of|to the right of|left of|right of|below|underneath|under|above|"
+    r"on top of|next to|beside|near|behind|in front of)\s+(?:the\s+|a\s+|an\s+)?([a-z][a-z ]{1,40})",
+    re.I,
+)
+
+
+def _where_landmark_tokens(phrase: str) -> set:
+    """Landmark nouns after a spatial relation word."""
+    toks: set = set()
+    for grp in _WHERE_REL_RE.findall((phrase or "").lower()):
+        for w in re.findall(r"[a-z]{3,}", grp):
+            if w not in _QUESTION_STOPWORDS:
+                toks.add(w)
+    return toks
+
+
+def _where_landmark_corroborated(model_answer: str, memory_loc: str) -> bool:
+    """True when the model's landmark overlaps the memory's landmark."""
+    m_toks = _where_landmark_tokens(model_answer)
+    mem_toks = _where_landmark_tokens(memory_loc)
+    if not m_toks or not mem_toks:
+        # No comparable landmark on one side: don't claim corroboration.
+        return False
+    return bool(m_toks & mem_toks)
+
+
 def _is_valid_where_answer(answer: str, question: str) -> bool:
     phrase = (answer or "").strip()
     if not phrase:
@@ -1498,11 +1525,21 @@ def normalize_qa_prediction(
     # Where questions: reject scene titles / pose-only / self-landmark; prefer spatial spans.
     if _is_where_question(question):
         cleaned_where = _clean_phrase(raw_text, yes_no_q=False)
-        if cleaned_where and _is_valid_where_answer(cleaned_where, question):
-            return _finalize(cleaned_where, raw_text)
         loc = _extract_location_from_memory(memory_hint, question)
-        if loc and _is_valid_where_answer(loc, question):
-            return _finalize(loc, raw_text)
+        model_ok = bool(cleaned_where and _is_valid_where_answer(cleaned_where, question))
+        loc_ok = bool(loc and _is_valid_where_answer(loc, question))
+        # In episodic EQA the memory is ground truth. The model often invents a
+        # plausible-but-wrong landmark ("right of the workbench"). Prefer the memory
+        # location whenever it exists and the model's landmark is not corroborated
+        # by memory.
+        if loc_ok:
+            if not model_ok:
+                return _finalize(loc, raw_text)
+            if not _where_landmark_corroborated(cleaned_where, loc):
+                return _finalize(loc, raw_text)
+            return _finalize(cleaned_where, raw_text)
+        if model_ok:
+            return _finalize(cleaned_where, raw_text)
         # Invalid model answer and no good rescue → keep empty so eval marks miss
         # rather than emitting truncated garbage like "T visible".
         return "", raw_text
@@ -2417,6 +2454,15 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
             if _door_open(_event_text(event)) or _door_closed(_event_text(event))
         ]
         if stated:
+            # Prefer rows that describe the DOORWAY specifically (not just a
+            # garage door on a clutter frame), so the asked door's state wins.
+            def _doorway_rank(event: Any) -> tuple:
+                b = _event_text(event).lower()
+                mentions_doorway = "doorway" in b
+                doorway_open = mentions_doorway and _door_open(b)
+                return (doorway_open, mentions_doorway)
+
+            stated.sort(key=_doorway_rank, reverse=True)
             return stated[:top_k]
 
     if "left of the bed" in q or "to the left of the bed" in q:
@@ -2714,7 +2760,25 @@ def _detect_memory_conflict(events: List[Any], question: str) -> bool:
 def compute_draft_policy(question: str, events: List[Any]) -> Dict[str, Any]:
     """Per-question draft/bias settings: more 8B when retrieval is ambiguous."""
     query = build_retrieval_query(question)
+    # IMPORTANT: `events` is normally already ordered by select_events_for_qa
+    # (subject/evidence first). Keep that order for the top hint the QA + normalize
+    # actually consume; only use relevance re-ranking for margin/conflict scoring.
+    # Idempotently float subject/evidence rows first so this is robust even when
+    # called with a raw (unordered) event list.
+    subject = _question_subject_noun(question)
+
+    def _hint_key(event: Any) -> int:
+        blob = _event_text(event)
+        if subject and _blob_has_subject(blob, subject):
+            return 2
+        if _blob_has_qa_evidence(blob, question):
+            return 1
+        return 0
+
     ranked = rerank_episodic_for_question(list(events or []), query)
+    # Float subject/evidence rows first, using relevance order as the stable base so
+    # a row that merely says "no car visible" cannot outrank the real car row.
+    selected = sorted(ranked, key=_hint_key, reverse=True)
     scores = [episodic_relevance_score(event, query) for event in ranked[:5]]
     margin = (scores[0] - scores[1]
               ) if len(scores) >= 2 else (scores[0] if scores else 0.0)
@@ -2733,10 +2797,11 @@ def compute_draft_policy(question: str, events: List[Any]) -> Dict[str, Any]:
         )
     )
     expected = _question_expects_tags(question)
-    top_blob = _event_text(ranked[0]) if ranked else ""
+    top_blob = _event_text(selected[0]) if selected else (
+        _event_text(ranked[0]) if ranked else ""
+    )
     top_tags = _memory_entity_tags(top_blob)
     top_aligned = bool(expected and top_tags and (top_tags & expected))
-    subject = _question_subject_noun(question)
     if subject and _blob_has_subject(top_blob, subject):
         top_aligned = True
     purpose = _question_purpose_terms(question)
@@ -2778,11 +2843,12 @@ def compute_draft_policy(question: str, events: List[Any]) -> Dict[str, Any]:
 
     top_preview = ""
     top_hint = ""
-    if ranked:
+    hint_source = selected or ranked
+    if hint_source:
         top_preview = sanitize_memory_text_for_inference(
-            (getattr(ranked[0], "summary", None) or "")[:200]
+            (getattr(hint_source[0], "summary", None) or "")[:200]
         )[:120]
-        top_hint = memory_hint_from_events(ranked)
+        top_hint = memory_hint_from_events(hint_source)
 
     if os.environ.get("OPENEQA_SD_SPEED", "").strip().lower() in ("1", "true", "yes"):
         if not hard_conflict and max_draft_steps < 3 and margin >= 1.5:
