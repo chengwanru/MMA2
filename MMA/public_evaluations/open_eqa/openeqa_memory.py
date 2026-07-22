@@ -111,10 +111,17 @@ _LIGHTS_ON_RE = re.compile(
     r"\b(?:lights?\s+(?:are\s+)?(?:on|lit)|(?:brightly|well)\s+lit|illuminated|light\s+fixture[^. ]{0,20}\bon)\b",
     re.I,
 )
+# Do NOT match bare "unlit" — it appears in NOT_VISIBLE checklists ("lit or unlit").
 _LIGHTS_OFF_RE = re.compile(
-    r"\b(?:lights?\s+(?:are\s+)?(?:off|out)|dark\s+room|unlit|lights?\s+turned\s+off)\b",
+    r"\b(?:lights?\s+(?:are\s+)?(?:off|out)|dark\s+room|lights?\s+turned\s+off|"
+    r"light\s+fixture[^. ]{0,20}\bunlit|fixtures?\s+unlit)\b",
     re.I,
 )
+
+
+def _strip_not_visible_section(text: str) -> str:
+    """Drop the NOT_VISIBLE checklist so template words cannot fake states."""
+    return re.split(r"\bNOT_VISIBLE\s*:", text or "", maxsplit=1, flags=re.I)[0]
 
 
 def _door_closed(blob: str) -> bool:
@@ -592,13 +599,23 @@ def _extract_frame_key(event: Any) -> Optional[str]:
     return None
 
 
-def filter_episodic_events(events: List[Any]) -> List[Any]:
-    """Keep top-ranked, de-duplicated per-frame episodic rows for OpenEQA QA."""
+def filter_episodic_events(
+    events: List[Any],
+    *,
+    query: str = "",
+    max_items: Optional[int] = None,
+) -> List[Any]:
+    """Keep top-ranked, de-duplicated per-frame episodic rows for OpenEQA QA.
+
+    When ``query`` is set, relevance-rerank BEFORE truncating so BM25's noisy
+    clutter order cannot drop the subject-bearing row outside the window.
+    """
     if not events or not episodic_filter_enabled():
         return events
 
-    max_items = max(1, int(os.environ.get(
-        "OPENEQA_MAX_EPISODIC_RETRIEVAL", "8")))
+    limit = max_items if max_items is not None else max(
+        1, int(os.environ.get("OPENEQA_MAX_EPISODIC_RETRIEVAL", "8"))
+    )
     scene_only = os.environ.get("OPENEQA_SCENE_TREE_ONLY", "1").strip().lower() not in (
         "0",
         "false",
@@ -626,7 +643,9 @@ def filter_episodic_events(events: List[Any]) -> List[Any]:
         seen_frames.add(frame_key)
         deduped.append(event)
 
-    return deduped[:max_items]
+    if (query or "").strip():
+        deduped = rerank_episodic_for_question(deduped, query)
+    return deduped[:limit]
 
 
 def _event_text(event: Any) -> str:
@@ -1271,13 +1290,15 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
             if pred.strip().lower() == "yes" and _door_closed(span) and not _door_open(span):
                 return "No"
         if "light" in q_l and ("on" in q_l or "turned" in q_l):
+            # Ignore NOT_VISIBLE checklist boilerplate ("lit or unlit").
+            state_hint = _strip_not_visible_section(hint_l)
             span = _subject_state_span(
-                hint_l,
+                state_hint,
                 ["bedroom", "light", "lights", "fixture", "lamp"],
-            ) or hint_l
+            ) or state_hint
             # Prefer bedroom-scoped evidence when the question names the bedroom.
             if "bedroom" in q_l:
-                bed_span = _subject_state_span(hint_l, ["bedroom"]) or ""
+                bed_span = _subject_state_span(state_hint, ["bedroom"]) or ""
                 if bed_span:
                     span = bed_span
             if pred.strip().lower() == "no" and _LIGHTS_ON_RE.search(span) and not _LIGHTS_OFF_RE.search(span):
@@ -1287,8 +1308,8 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
             # Bright room without explicit lights-off → prefer Yes.
             if pred.strip().lower() == "no" and re.search(
                 r"room brightness:\s*bright|brightly lit",
-                hint_l,
-            ) and not _LIGHTS_OFF_RE.search(hint_l):
+                state_hint,
+            ) and not _LIGHTS_OFF_RE.search(state_hint):
                 return "Yes"
         if "under" in q_l and "bed" in q_l:
             if pred.strip().lower() == "no" and re.search(
@@ -1527,11 +1548,14 @@ def normalize_qa_prediction(
         cleaned_where = _clean_phrase(raw_text, yes_no_q=False)
         loc = _extract_location_from_memory(memory_hint, question)
         model_ok = bool(cleaned_where and _is_valid_where_answer(cleaned_where, question))
-        loc_ok = bool(loc and _is_valid_where_answer(loc, question))
-        # In episodic EQA the memory is ground truth. The model often invents a
-        # plausible-but-wrong landmark ("right of the workbench"). Prefer the memory
-        # location whenever it exists and the model's landmark is not corroborated
-        # by memory.
+        subject = _question_subject_noun(question)
+        # Only trust a memory location when the hint actually mentions the asked subject.
+        # Otherwise clutter frames invent landmarks ("in front of the chest").
+        loc_ok = bool(
+            loc
+            and _is_valid_where_answer(loc, question)
+            and (not subject or _blob_has_subject(memory_hint, subject))
+        )
         if loc_ok:
             if not model_ok:
                 return _finalize(loc, raw_text)
@@ -2937,6 +2961,25 @@ def prepare_draft_policy_for_agent(mma_agent: Any, question: str) -> Dict[str, A
     apply_draft_policy_to_env(policy)
     _qa_session.update(question=question,
                        ranked_events=selected, policy=policy)
+    # Runtime visibility: prove whether subject rows actually won the QA window.
+    if selected and os.environ.get("OPENEQA_DEBUG", "1").strip().lower() not in (
+        "0", "false", "no",
+    ):
+        top = selected[0]
+        top_sum = (getattr(top, "summary", None) or "")[:100]
+        query = build_retrieval_query(question)
+        scores = [
+            (
+                round(episodic_relevance_score(ev, query), 2),
+                (getattr(ev, "summary", None) or "")[:60],
+            )
+            for ev in (all_events or [])[:5]
+        ]
+        print(
+            f"  [qa] selected_top={top_sum!r} pool={len(all_events)} "
+            f"selected={len(selected)} scores={scores}",
+            flush=True,
+        )
     return policy
 
 
@@ -3050,21 +3093,20 @@ def list_reranked_episodic_for_question(mma_agent: Any, question: str) -> List[A
     def _search(q: str, lim: int) -> List[Any]:
         if not (q or "").strip():
             return []
-        return filter_episodic_events(
-            mgr.list_episodic_memory(
-                agent_state=episodic_state,
-                query=q,
-                search_field="details",
-                search_method=method,
-                limit=lim,
-                timezone_str=tz,
-            )
-            or []
-        )
+        # Fetch a wide BM25 pool, then relevance-rerank before truncating.
+        raw = mgr.list_episodic_memory(
+            agent_state=episodic_state,
+            query=q,
+            search_field="details",
+            search_method=method,
+            limit=max(lim, 24),
+            timezone_str=tz,
+        ) or []
+        return filter_episodic_events(raw, query=q, max_items=lim)
 
     primary = _search(query, limit)
     secondary_groups: List[List[Any]] = []
     for sq in _evidence_search_queries(question):
-        secondary_groups.append(_search(sq, min(8, limit)))
+        secondary_groups.append(_search(sq, min(12, limit)))
     merged = _merge_events_by_id(primary, *secondary_groups)
     return rerank_episodic_for_question(merged, query)

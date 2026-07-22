@@ -80,11 +80,12 @@ def collect_episodic_debug(mma_agent, question: str = "") -> Dict[str, Any]:
                 query=query,
                 search_field="details",
                 search_method=search_method,
-                limit=10,
+                limit=24,
                 timezone_str=tz,
-            )
+            ),
+            query=query,
+            max_items=10,
         )
-        bm25_hits = rerank_episodic_for_question(bm25_hits, query)
 
     memory_items: List[Dict[str, Any]] = []
     seen: set = set()

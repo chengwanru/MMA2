@@ -656,6 +656,17 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         self.assertEqual(pred.strip().lower(), "yes")
 
+    def test_lights_ignores_unlit_in_not_visible_checklist(self):
+        pred, _ = normalize_qa_prediction(
+            "No",
+            question="Are the lights turned on in the bedroom?",
+            memory_hint=(
+                "STATES: room brightness: bright\n"
+                "NOT_VISIBLE: light fixtures + lit or unlit (name the room)"
+            ),
+        )
+        self.assertEqual(pred.strip().lower(), "yes")
+
     def test_where_prefers_memory_landmark_over_model_invention(self):
         # Model invents "right of the workbench"; memory ties broom to the opener.
         pred, _ = normalize_qa_prediction(
