@@ -23,6 +23,7 @@ from openeqa_memory import (  # noqa: E402
     normalize_qa_prediction,
     qa_memory_top_k,
     select_events_for_qa,
+    _yes_no_memory_override,
 )
 
 
@@ -604,6 +605,44 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
         self.assertIn("sedan", blob)
         self.assertNotIn("workbench", (picked[0].summary or "").lower())
+
+    def test_car_color_sedan_summary_beats_sedan_only_in_clutter_details(self):
+        """AIBox: clutter summary wins _row_priority when details mention the car."""
+        clutter = _Event(
+            "garage with workbench, wooden crates, and heater",
+            "OBJECTS: workbench, blue sedan, trash bins\nATTRIBUTES: sedan: blue",
+        )
+        sedan = _Event(
+            "Garage with a blue sedan, two trash bins, a round table, and",
+            "OBJECTS: blue sedan, trash bins\nATTRIBUTES: sedan: blue",
+        )
+        q = "What color is the car?"
+        picked = select_events_for_qa([clutter, sedan], q)
+        self.assertIn("sedan", (picked[0].summary or "").lower())
+
+    def test_broom_question_prefers_broom_row_when_scores_tie(self):
+        workbench = _Event(
+            "garage with workbench, heater, and storage bins",
+            "OBJECTS: workbench, heater, storage bins",
+        )
+        broom = _Event(
+            "Garage with a dark sedan, a work table, and two trash bins",
+            "OBJECTS: broom, garage door opener\n"
+            "LOCALIZATION: broom below the garage door opener",
+        )
+        q = "Where is the broom?"
+        picked = select_events_for_qa([workbench, broom], q)
+        blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertIn("broom", blob)
+
+    def test_patio_door_no_override_from_unrelated_open_door(self):
+        q = "Is the patio door open?"
+        hint = (
+            "STATES: garage door: open; patio door: closed\n"
+            "Bedroom with glass patio door and bright room brightness: bright"
+        )
+        pred = _yes_no_memory_override("Yes", hint, q)
+        self.assertEqual(pred.strip().lower(), "no")
 
     def test_cold_drinks_ranks_cooler_over_chest(self):
         chest = _Event(

@@ -218,6 +218,48 @@ def _blob_has_subject(blob: str, subject: str) -> bool:
     return False
 
 
+def _subject_prominence_tier(event: Any, question: str) -> int:
+    """How strongly an episodic row is *about* the asked subject (summary > details > tail)."""
+    subject = _question_subject_noun(question)
+    if not subject:
+        return 0
+    summary = (getattr(event, "summary", None) or "").lower()
+    if summary and _blob_has_subject(summary, subject):
+        return 3
+    details = (getattr(event, "details", None) or "").lower()
+    if details and _blob_has_subject(details, subject):
+        if re.search(r"(?:^|\n)\s*(?:objects|attributes|states|spatial)\s*:", details, re.I):
+            return 2
+    blob = _event_text(event)
+    if _blob_has_subject(blob, subject):
+        return 1
+    if _blob_has_qa_evidence(blob, question):
+        return 1
+    return 0
+
+
+def _order_qa_events(events: List[Any], question: str, row_priority: Any = None) -> List[Any]:
+    """Canonical QA window order: subject prominence, then relevance, then soft priors."""
+    if not events:
+        return []
+    query = build_retrieval_query(question)
+
+    def _pri(event: Any) -> int:
+        if row_priority is not None:
+            return int(row_priority(event))
+        return 0
+
+    return sorted(
+        events,
+        key=lambda event: (
+            _subject_prominence_tier(event, question),
+            episodic_relevance_score(event, query),
+            _pri(event),
+        ),
+        reverse=True,
+    )
+
+
 def _question_focus_nouns(question: str) -> List[str]:
     """Content nouns from the question for soft retrieval boosts."""
     q_l = (question or "").lower()
@@ -302,6 +344,19 @@ def _subject_state_span(blob: str, subject_terms: List[str], window: int = 70) -
             start = max(0, m.start() - window)
             end = min(len(b), m.end() + window)
             return b[start:end]
+    return ""
+
+
+def _state_clause_for_terms(blob: str, subject_terms: List[str]) -> str:
+    """STATES / semicolon clause that names the asked door or object (avoids cross-door bleed)."""
+    if not blob or not subject_terms:
+        return ""
+    for part in re.split(r"[;\n]", blob):
+        pl = part.lower()
+        if not any(re.search(rf"\b{re.escape(t)}\b", pl) for t in subject_terms):
+            continue
+        if re.search(r"\b(open|closed|ajar|on|off)\b", pl):
+            return part.strip()
     return ""
 
 
@@ -1284,7 +1339,20 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
             for extra in ("patio", "front", "garage", "doorway", "door"):
                 if extra in q_l and extra not in subject_terms:
                     subject_terms.append(extra)
-            span = _subject_state_span(hint_l, subject_terms) or hint_l
+            span = _subject_state_span(hint_l, subject_terms)
+            if "patio" in q_l and ("door" in q_l or "doorway" in q_l):
+                patio_terms = ["patio", "patio door", "glass door", "sliding door"]
+                patio_clause = _state_clause_for_terms(hint_l, patio_terms)
+                if patio_clause:
+                    span = patio_clause
+                else:
+                    patio_span = _subject_state_span(hint_l, patio_terms)
+                    if patio_span:
+                        span = patio_span
+                    elif not span:
+                        return pred
+            if not span:
+                span = hint_l
             if pred.strip().lower() == "no" and _door_open(span) and not _door_closed(span):
                 return "Yes"
             if pred.strip().lower() == "yes" and _door_closed(span) and not _door_open(span):
@@ -2478,6 +2546,14 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
             if _door_open(_event_text(event)) or _door_closed(_event_text(event))
         ]
         if stated:
+            if "house doorway" in q:
+                house = [
+                    event
+                    for event in stated
+                    if "house doorway" in _event_text(event)
+                ]
+                if house:
+                    stated = house
             # Prefer rows that describe the DOORWAY specifically (not just a
             # garage door on a clutter frame), so the asked door's state wins.
             def _doorway_rank(event: Any) -> tuple:
@@ -2487,7 +2563,7 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
                 return (doorway_open, mentions_doorway)
 
             stated.sort(key=_doorway_rank, reverse=True)
-            return stated[:top_k]
+            return _order_qa_events(stated, question)[:top_k]
 
     if "left of the bed" in q or "to the left of the bed" in q:
         rad = [
@@ -2642,33 +2718,19 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
                 pri += 4
         return pri
 
-    query = build_retrieval_query(question)
-    prioritized = sorted(
-        ranked,
-        key=lambda event: (
-            _row_priority(event),
-            episodic_relevance_score(event, query),
-        ),
-        reverse=True,
-    )
-    if prioritized and _row_priority(prioritized[0]) > 0:
-        ranked = prioritized
-
-    # Hard gate: if any evidence row exists, top slot must be evidence-bearing.
-    evidence_rows = [e for e in ranked if _blob_has_qa_evidence(_event_text(e), question)]
-    if evidence_rows:
-        rest = [e for e in ranked if e not in evidence_rows]
-        ranked = evidence_rows + rest
-
+    ranked = _order_qa_events(ranked, question, _row_priority)
     picked = ranked[:top_k]
     if _detect_memory_conflict(picked, question):
         # Prefer the best subject-aligned row when shrinking to 1.
         if subject:
             aligned = [e for e in ranked if _blob_has_subject(_event_text(e), subject)]
             if aligned:
-                return aligned[:1]
+                return _order_qa_events(aligned, question, _row_priority)[:1]
+        evidence_rows = [
+            e for e in ranked if _blob_has_qa_evidence(_event_text(e), question)
+        ]
         if evidence_rows:
-            return evidence_rows[:1]
+            return _order_qa_events(evidence_rows, question, _row_priority)[:1]
         return ranked[:1]
     return picked
 
@@ -2791,19 +2853,9 @@ def compute_draft_policy(question: str, events: List[Any]) -> Dict[str, Any]:
     # called with a raw (unordered) event list.
     subject = _question_subject_noun(question)
 
-    def _hint_key(event: Any) -> int:
-        blob = _event_text(event)
-        if subject and _blob_has_subject(blob, subject):
-            return 2
-        if _blob_has_qa_evidence(blob, question):
-            return 1
-        return 0
-
     ranked = rerank_episodic_for_question(list(events or []), query)
-    # Float subject/evidence rows first, using relevance order as the stable base so
-    # a row that merely says "no car visible" cannot outrank the real car row.
-    selected = sorted(ranked, key=_hint_key, reverse=True)
-    scores = [episodic_relevance_score(event, query) for event in ranked[:5]]
+    selected = _order_qa_events(ranked, question)
+    scores = [episodic_relevance_score(event, query) for event in selected[:5]]
     margin = (scores[0] - scores[1]
               ) if len(scores) >= 2 else (scores[0] if scores else 0.0)
     conflict = _detect_memory_conflict(ranked, question)
@@ -2955,6 +3007,7 @@ def prepare_draft_policy_for_agent(mma_agent: Any, question: str) -> Dict[str, A
         return {}
     all_events = list_reranked_episodic_for_question(mma_agent, question)
     selected = select_events_for_qa(all_events, question)
+    selected = _order_qa_events(selected, question)
     if _detect_memory_conflict(selected, question) and len(selected) > 1:
         selected = selected[:1]
     policy = compute_draft_policy(question, selected)
