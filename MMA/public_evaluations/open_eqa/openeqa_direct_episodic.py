@@ -2,16 +2,30 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from contextlib import contextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from openeqa_memory import (
     clear_openeqa_scene_episodic,
     episodic_events_cover_frames,
 )
+
+
+def _get_caption_cache_path(image_paths: List[str]) -> Path:
+    """Persistent caption cache on /workspace so rememorize can skip VL."""
+    cache_root = Path(
+        os.environ.get("OPENEQA_CAPTION_CACHE", "/workspace/openeqa_caption_cache")
+    )
+    cache_root.mkdir(parents=True, exist_ok=True)
+    normalized_paths = [os.path.abspath(p) for p in image_paths]
+    path_string = "||".join(normalized_paths)
+    path_hash = hashlib.sha256(path_string.encode("utf-8")).hexdigest()
+    return cache_root / f"{path_hash}.txt"
 
 
 def direct_episodic_enabled() -> bool:
@@ -167,6 +181,21 @@ def _baseline_vl_context():
 
 def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
     del question  # shared episodic store must stay question-neutral
+
+    cache_file = _get_caption_cache_path(image_paths)
+    if cache_file.exists():
+        print(
+            f"  [Direct Episodic Cache Hit] Reusing offline caption: {cache_file.name}",
+            flush=True,
+        )
+        try:
+            return cache_file.read_text(encoding="utf-8").strip()
+        except Exception as e:
+            print(
+                f"  [Cache Warning] Failed to read cache {cache_file}: {e}. Regenerating...",
+                flush=True,
+            )
+
     from mma.llm_api.llm_client import LLMClient
     from mma.schemas.llm_config import LLMConfig
 
@@ -199,7 +228,15 @@ def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
         request_data["image_paths"] = paths
         response_data = client.request(request_data)
 
-    return (response_data.get("generated_text") or "").strip()
+    response_text = (response_data.get("generated_text") or "").strip()
+    if response_text:
+        try:
+            cache_file.write_text(response_text, encoding="utf-8")
+            print(f"  [Cache Saved] Saved offline caption to: {cache_file}", flush=True)
+        except Exception as e:
+            print(f"  [Cache Warning] Failed to save cache {cache_file}: {e}", flush=True)
+
+    return response_text
 
 
 def ensure_episodic_from_frames(

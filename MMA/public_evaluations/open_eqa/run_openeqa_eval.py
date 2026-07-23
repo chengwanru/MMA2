@@ -49,6 +49,7 @@ loads draft+target on an empty GPU (40GB A100 OOM fix after frame absorb).
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import subprocess
@@ -107,6 +108,11 @@ def parse_args() -> argparse.Namespace:
         default="both",
         choices=("both", "baseline", "ours"),
         help="Run baseline only, ours only, or both (both needs more GPU memory).",
+    )
+    parser.add_argument(
+        "--speedup",
+        action="store_true",
+        help="Run in a single process (optional; default still uses per-sample subprocesses).",
     )
 
     return parser.parse_args()
@@ -460,6 +466,102 @@ def _run_variant(
     return results
 
 
+def _get_one_sample_module() -> Any:
+    spec = importlib.util.spec_from_file_location(
+        "run_openeqa_one_sample", str(_ONE_SAMPLE_SCRIPT)
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _run_variant_speedup(
+    variant_name: str,
+    config_path: str,
+    samples: List[Dict[str, Any]],
+    use_speculative_baseline: bool = False,
+    output_file: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """In-process memorize→QA loop (optional --speedup). Default path stays subprocess."""
+    del use_speculative_baseline  # reserved for parity with _run_variant
+    one_sample_mod = _get_one_sample_module()
+
+    os.environ["OPENEQA_SPLIT_PHASES"] = "1"
+    results: List[Dict[str, Any]] = []
+
+    for idx, sample in enumerate(samples):
+        question: str = sample.get("question", "")
+        if not question:
+            continue
+
+        print(
+            f"[{variant_name}] speedup-sample {idx + 1}/{len(samples)}: {question[:80]}...",
+            flush=True,
+        )
+
+        home_dir = _sample_home_dir(idx, sample.get("id", idx))
+        home_dir.mkdir(parents=True, exist_ok=True)
+        os.environ["HOME"] = str(home_dir)
+
+        debug_info: Optional[Dict[str, Any]] = None
+        try:
+            mem_status, _mem_err, mem_debug = one_sample_mod._run_memorize(
+                sample=sample,
+                config_path=config_path,
+                home_dir=home_dir,
+            )
+
+            if str(mem_status).startswith("ERROR"):
+                prediction = mem_status
+                debug_info = {"memorize": mem_debug, "home_dir": str(home_dir)}
+            else:
+                pred, _qa_err, qa_debug = one_sample_mod._run_qa(
+                    sample=sample,
+                    config_path=config_path,
+                    home_dir=home_dir,
+                )
+                prediction = pred
+                debug_info = {
+                    "memorize": mem_debug,
+                    "qa": qa_debug,
+                    "home_dir": str(home_dir),
+                }
+        except Exception as e:
+            prediction = f"ERROR: speedup runner failed: {e}"
+            debug_info = None
+
+        print(
+            f"[{variant_name}] speedup-sample {idx + 1} done: {str(prediction)[:120]}",
+            flush=True,
+        )
+
+        result: Dict[str, Any] = {
+            "id": sample.get("id", idx),
+            "question_id": sample.get("id") if isinstance(sample.get("id"), str) else None,
+            "variant": variant_name,
+            "question": question,
+            "gold_answer": sample.get("answer"),
+            "prediction": prediction,
+        }
+        if debug_info:
+            result["debug"] = debug_info
+            if output_file:
+                saved = _persist_sample_debug(
+                    output_file, idx, sample.get("id", idx), debug_info
+                )
+                if saved:
+                    result["debug_file"] = saved
+
+        for k, v in sample.items():
+            if k not in {"id", "question", "answer", "image_paths", "images"}:
+                result.setdefault("metadata", {})[k] = v
+
+        results.append(result)
+
+    return results
+
+
 def main() -> None:
     args = parse_args()
 
@@ -468,9 +570,10 @@ def main() -> None:
     use_speculative_baseline = os.path.abspath(args.baseline_config) == os.path.abspath(args.ours_config)
 
     results: Dict[str, List[Dict[str, Any]]] = {}
+    run_fn = _run_variant_speedup if args.speedup else _run_variant
 
     if args.variants in ("both", "baseline"):
-        results["baseline"] = _run_variant(
+        results["baseline"] = run_fn(
             variant_name="baseline",
             config_path=args.baseline_config,
             samples=samples,
@@ -479,7 +582,7 @@ def main() -> None:
         )
 
     if args.variants in ("both", "ours"):
-        results["ours"] = _run_variant(
+        results["ours"] = run_fn(
             variant_name="ours",
             config_path=args.ours_config,
             samples=samples,
