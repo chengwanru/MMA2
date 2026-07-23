@@ -635,6 +635,53 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
         self.assertIn("broom", blob)
 
+    def test_where_ignores_not_visible_checklist_subject_hits(self):
+        """Every garage caption lists opener as NOT_VISIBLE — must not beat real SPATIAL."""
+        clutter = _Event(
+            "garage with workbench, heater, and storage bins",
+            "OBJECTS: workbench, heater\n"
+            "NOT_VISIBLE: garage door opener, broom, cooler",
+        )
+        gold = _Event(
+            "Garage with a dark sedan, a work table, and two trash bins",
+            "OBJECTS: broom, garage door opener\n"
+            "SPATIAL: garage door opener is to the left of the house doorway\n"
+            "LOCALIZATION: broom below the garage door opener",
+        )
+        for q, needle in (
+            ("Where is the garage opener?", "opener"),
+            ("Where is the broom?", "broom"),
+        ):
+            picked = select_events_for_qa([clutter, gold], q)
+            blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+            self.assertIn(needle, blob)
+            self.assertNotIn("workbench", (picked[0].summary or "").lower())
+
+    def test_doorway_question_does_not_prefer_garage_door_only_row(self):
+        garage_closed = _Event(
+            "garage with workbench, wooden crates, and heater",
+            "OBJECTS: workbench, garage door\nSTATES: garage door: closed",
+        )
+        doorway_open = _Event(
+            "Utility room with doorway into renovated space",
+            "OBJECTS: house doorway\nSTATES: house doorway: open",
+        )
+        q = "Is the house doorway open or closed?"
+        picked = select_events_for_qa([garage_closed, doorway_open], q)
+        blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertIn("doorway", blob)
+        self.assertNotIn("workbench", (picked[0].summary or "").lower())
+
+    def test_patio_without_state_clause_does_not_use_other_doors(self):
+        q = "Is the patio door open?"
+        hint = (
+            "Bedroom with white wardrobe and glass patio door\n"
+            "STATES: garage door: open; hallway door: open\n"
+            "room brightness: bright"
+        )
+        # Model said No; unrelated opens must not flip to Yes.
+        self.assertEqual(_yes_no_memory_override("No", hint, q).strip().lower(), "no")
+
     def test_patio_door_no_override_from_unrelated_open_door(self):
         q = "Is the patio door open?"
         hint = (

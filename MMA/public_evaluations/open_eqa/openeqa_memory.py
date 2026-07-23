@@ -218,22 +218,66 @@ def _blob_has_subject(blob: str, subject: str) -> bool:
     return False
 
 
+def _blob_for_subject_match(blob: str) -> str:
+    """Drop NOT_VISIBLE boilerplate so checklist 'opener/broom not visible' is not evidence."""
+    b = _strip_not_visible_section(blob or "")
+    b = re.sub(r"(?i)[^.\n]*\bnot\s+visible\b[^.\n]*[.!]?", " ", b)
+    return b
+
+
+def _blob_has_spatial_subject(blob: str, subject: str) -> bool:
+    """True when the subject appears with an explicit spatial/localization cue."""
+    b = _blob_for_subject_match(blob)
+    if not subject or not _blob_has_subject(b, subject):
+        return False
+    aliases = [t for t in _subject_alias_terms(subject)[:6] if t]
+    if not aliases:
+        return False
+    alias_re = "|".join(re.escape(t) for t in aliases)
+    if re.search(
+        rf"(?:^|\n)\s*(?:localization|spatial)\s*:.*\b(?:{alias_re})\b",
+        b,
+        re.I | re.S,
+    ):
+        return True
+    for term in aliases:
+        if re.search(
+            rf"\b{re.escape(term)}\b.{{0,48}}\b(?:below|under|above|left of|right of|next to)\b|"
+            rf"\b(?:below|under|above|left of|right of|next to)\b.{{0,48}}\b{re.escape(term)}\b",
+            b,
+            re.I,
+        ):
+            return True
+    return False
+
+
 def _subject_prominence_tier(event: Any, question: str) -> int:
     """How strongly an episodic row is *about* the asked subject (summary > details > tail)."""
     subject = _question_subject_noun(question)
     if not subject:
         return 0
-    summary = (getattr(event, "summary", None) or "").lower()
+    summary = _blob_for_subject_match(getattr(event, "summary", None) or "")
+    details = _blob_for_subject_match(getattr(event, "details", None) or "")
+    blob = _blob_for_subject_match(_event_text(event))
+    where_q = _is_where_question(question)
+    # Where/spatial: an explicit localization beat inventory dumps that only list the noun.
+    if (where_q or _parse_spatial_question(question)) and _blob_has_spatial_subject(blob, subject):
+        return 4
     if summary and _blob_has_subject(summary, subject):
         return 3
-    details = (getattr(event, "details", None) or "").lower()
     if details and _blob_has_subject(details, subject):
-        if re.search(r"(?:^|\n)\s*(?:objects|attributes|states|spatial)\s*:", details, re.I):
+        if re.search(
+            r"(?:^|\n)\s*(?:objects|attributes|states|spatial|localization)\s*:",
+            details,
+            re.I,
+        ):
             return 2
-    blob = _event_text(event)
     if _blob_has_subject(blob, subject):
         return 1
-    if _blob_has_qa_evidence(blob, question):
+    if _blob_has_qa_evidence(_event_text(event), question):
+        # Evidence from NOT_VISIBLE-only mentions should not outrank real subject rows.
+        if where_q and not _blob_has_subject(blob, subject):
+            return 0
         return 1
     return 0
 
@@ -1346,11 +1390,9 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
                 if patio_clause:
                     span = patio_clause
                 else:
-                    patio_span = _subject_state_span(hint_l, patio_terms)
-                    if patio_span:
-                        span = patio_span
-                    elif not span:
-                        return pred
+                    # No patio-specific open/closed clause: do not fall back to the
+                    # full hint (garage/hallway doors would falsely flip Yes/No).
+                    return pred
             if not span:
                 span = hint_l
             if pred.strip().lower() == "no" and _door_open(span) and not _door_closed(span):
@@ -2540,30 +2582,39 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
             return closed[:top_k]
 
     if ("doorway" in q or "house doorway" in q) and "open" in q:
-        stated = [
+        # Prefer rows that name the asked doorway. Never fall back to "any door
+        # open/closed" clutter (e.g. garage door: closed on a workbench frame).
+        if "house doorway" in q:
+            house = [
+                event
+                for event in ranked
+                if "house doorway" in _event_text(event)
+            ]
+            if house:
+                return _order_qa_events(house, question)[:top_k]
+        doorway_rows = [
             event
             for event in ranked
-            if _door_open(_event_text(event)) or _door_closed(_event_text(event))
+            if "doorway" in _event_text(event)
         ]
-        if stated:
-            if "house doorway" in q:
-                house = [
-                    event
-                    for event in stated
-                    if "house doorway" in _event_text(event)
-                ]
-                if house:
-                    stated = house
-            # Prefer rows that describe the DOORWAY specifically (not just a
-            # garage door on a clutter frame), so the asked door's state wins.
+        if doorway_rows:
+            stated = [
+                event
+                for event in doorway_rows
+                if _door_open(_event_text(event)) or _door_closed(_event_text(event))
+            ]
+            pool = stated or doorway_rows
+
             def _doorway_rank(event: Any) -> tuple:
                 b = _event_text(event).lower()
-                mentions_doorway = "doorway" in b
-                doorway_open = mentions_doorway and _door_open(b)
-                return (doorway_open, mentions_doorway)
+                mentions_house = "house doorway" in b
+                doorway_open = "doorway" in b and _door_open(b)
+                return (mentions_house, doorway_open)
 
-            stated.sort(key=_doorway_rank, reverse=True)
-            return _order_qa_events(stated, question)[:top_k]
+            pool = sorted(pool, key=_doorway_rank, reverse=True)
+            return _order_qa_events(pool, question)[:top_k]
+        # No doorway row at all → fall through to generic ranking (do not pick
+        # garage-door-only frames just because they mention open/closed).
 
     if "left of the bed" in q or "to the left of the bed" in q:
         rad = [
@@ -2708,15 +2759,26 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
                 pri += 3
             if "bedroom" in b_rooms:
                 pri += 2
-        if "broom" in q and "broom" in blob:
+        if "broom" in q and re.search(r"\bbroom\b", _blob_for_subject_match(blob)):
             pri += 8
-            if "opener" in blob or "below" in blob:
+            if "opener" in _blob_for_subject_match(blob) or "below" in blob:
                 pri += 4
-        if "opener" in q and "opener" in blob:
+        if "opener" in q and re.search(r"\bopener\b", _blob_for_subject_match(blob)):
             pri += 8
             if "doorway" in blob or "left" in blob:
                 pri += 4
         return pri
+
+    # Where questions: float spatial-localized subject rows before inventory dumps.
+    if where_q and subject:
+        spatial_rows = [
+            event
+            for event in ranked
+            if _blob_has_spatial_subject(_event_text(event), subject)
+        ]
+        if spatial_rows:
+            rest = [event for event in ranked if event not in spatial_rows]
+            ranked = spatial_rows + rest
 
     ranked = _order_qa_events(ranked, question, _row_priority)
     picked = ranked[:top_k]
