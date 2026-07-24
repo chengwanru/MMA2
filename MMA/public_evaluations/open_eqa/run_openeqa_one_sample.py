@@ -583,8 +583,19 @@ def _run_memorize(
             debug_payload["direct_episodic_errors"] = direct_errors[:5]
         write_debug_file(home_dir, "memorize", debug_payload)
         log_debug_summary(debug_payload, "memorize")
+        episodic_total = int(debug_payload.get("episodic_total") or 0)
+    else:
+        # OPENEQA_DEBUG=0 skips debug JSON, but we still must count real rows.
+        # Previously episodic_total stayed 0 → false "empty after absorb" on every Q.
+        episodic_total = int(
+            collect_episodic_debug(
+                agent.agent, question=sample.get("question", "")
+            ).get("episodic_total")
+            or 0
+        )
+        if episodic_total == 0 and n_direct > 0:
+            episodic_total = int(n_direct)
 
-    episodic_total = int((debug_payload or {}).get("episodic_total") or 0)
     if episodic_total == 0:
         if os.environ.get("OPENEQA_REQUIRE_EPISODIC", "1").strip().lower() not in (
             "0",
