@@ -271,11 +271,24 @@ def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
 
 
 def _atomic_write_text(path: Path, text: str) -> None:
-    """Write via temp+replace so parallel precompute/eval workers don't clobber."""
+    """Write via temp+replace; fall back to direct write on bosfs/FUSE quirks."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    # Avoid path.with_suffix('.txt.tmp') edge cases; use an explicit sibling name.
+    tmp = path.parent / f".{path.name}.{os.getpid()}.tmp"
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        if not tmp.is_file():
+            raise FileNotFoundError(f"temp caption missing after write: {tmp}")
+        os.replace(str(tmp), str(path))
+    except OSError:
+        # Baidu bosfs sometimes cannot rename; direct write is fine for caption cache.
+        try:
+            path.write_text(text, encoding="utf-8")
+        finally:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def precompute_captions_for_frames(
