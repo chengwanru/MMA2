@@ -56,12 +56,36 @@ def _gold_tokens(gold: str) -> List[str]:
     return [t for t in toks if len(t) > 2 and t not in stop]
 
 
-def _gold_coverage(blob: str, gold: str) -> Dict[str, Any]:
+def _yes_no_evidence_terms(question: str) -> List[str]:
+    """Caption rarely contains literal Yes/No; map state questions to evidence words."""
+    q = (question or "").lower()
+    if "clean" in q:
+        return ["clean", "empty", "tidy", "clear", "uncluttered"]
+    if "clutter" in q:
+        return ["clutter", "messy", "dirty", "items on"]
+    if "made" in q and "bed" in q:
+        return ["made", "neat", "tidy", "comforter", "duvet"]
+    if "light" in q or "lamp" in q:
+        return ["lights: on", "lights on", "lit", "bright", "on", "off", "unlit"]
+    if "mat" in q:
+        return ["placemat", "place mat", "table mat", "mat"]
+    if "open" in q or "closed" in q:
+        return ["open", "closed"]
+    return []
+
+
+def _gold_coverage(blob: str, gold: str, question: str = "") -> Dict[str, Any]:
     b = _norm(blob)
     g = _norm(gold)
     toks = _gold_tokens(gold)
     if not g:
         return {"phrase": False, "token_hit": 0, "token_total": 0, "ratio": 0.0}
+    # Yes/No gold: credit semantic evidence in caption, not the word "yes".
+    if g.rstrip(".") in ("yes", "no"):
+        evidence = _yes_no_evidence_terms(question)
+        if evidence and any(_norm(e) in b for e in evidence):
+            return {"phrase": True, "token_hit": 1, "token_total": 1, "ratio": 1.0}
+        return {"phrase": False, "token_hit": 0, "token_total": 1, "ratio": 0.0}
     phrase = g in b or any(len(p) > 4 and p in b for p in g.split(", "))
     hit = sum(1 for t in toks if t in b)
     total = len(toks) or 1
@@ -155,10 +179,10 @@ def audit_row(row: Dict[str, Any]) -> Dict[str, Any]:
     all_blob = "\n".join(
         f"{e.summary}\n{e.details}" for e in events
     )
-    cov_all = _gold_coverage(all_blob, gold)
+    cov_all = _gold_coverage(all_blob, gold, question)
     selected = select_events_for_qa(events, question) if events else []
     sel_blob = "\n".join(f"{e.summary}\n{e.details}" for e in selected)
-    cov_sel = _gold_coverage(sel_blob, gold)
+    cov_sel = _gold_coverage(sel_blob, gold, question)
     return {
         "question_id": row.get("question_id") or row.get("id"),
         "category": category,
