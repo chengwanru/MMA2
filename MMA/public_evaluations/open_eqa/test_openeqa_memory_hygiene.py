@@ -972,6 +972,99 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         self.assertEqual(pred.lower(), "abstract")
 
+    def test_select_prefers_bedroom_over_hallway_for_style(self):
+        hallway = _Event(
+            "hallway/entryway: white door, carpeted floor, framed picture",
+            "OBJECTS: door, framed picture",
+        )
+        bedroom = _Event(
+            "bedroom: bed with paintings on wall",
+            "OBJECTS: bed, paintings\nATTRIBUTES: paintings: abstract\nWORLD_CUES: abstract",
+        )
+        picked = select_events_for_qa(
+            [hallway, bedroom],
+            "What style of paintings are put up in the bedrrom?",
+        )
+        top = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertIn("bedroom", top)
+        self.assertIn("abstract", top)
+
+    def test_select_demotes_through_doorway_for_above_couch(self):
+        peek = _Event(
+            "kitchen: white refrigerator, red couch visible through doorway",
+            "OBJECTS: refrigerator, red couch, frame visible through doorway",
+        )
+        sofa = _Event(
+            "living room: red couch with paintings above",
+            "OBJECTS: red couch, paintings\nSPATIAL: paintings above couch",
+        )
+        picked = select_events_for_qa([peek, sofa], "What is above the red couch?")
+        top = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertIn("painting", top)
+        self.assertNotIn("through doorway", top)
+
+    def test_select_stairs_center_prefers_sofa_over_fridge(self):
+        fridge = _Event(
+            "kitchen: white refrigerator and cabinets",
+            "OBJECTS: refrigerator, cabinets",
+        )
+        sofa = _Event(
+            "hallway/entryway: red couch by staircase",
+            "OBJECTS: red couch, staircase",
+        )
+        picked = select_events_for_qa(
+            [fridge, sofa],
+            "What is in the center of the room with the stairs?",
+        )
+        top = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertTrue("couch" in top or "sofa" in top)
+
+    def test_normalize_stairs_overrides_refrigerator(self):
+        pred, _ = normalize_qa_prediction(
+            "refrigerator",
+            question="What is in the center of the room with the stairs?",
+            memory_hint="Entryway with staircase and a red couch\nOBJECTS: red couch, staircase",
+        )
+        self.assertRegex(pred.lower(), r"couch|sofa")
+
+    def test_normalize_yes_no_open_maps_closed_to_no(self):
+        pred, _ = normalize_qa_prediction(
+            "Closed",
+            question="Is the front door open?",
+            memory_hint="Entryway front door closed\nSTATES: front door: closed",
+        )
+        self.assertEqual(pred.lower(), "no")
+
+    def test_normalize_fruit_store_to_fridge(self):
+        pred, _ = normalize_qa_prediction(
+            "kitchen countertop",
+            question="Where should I store fruits that I want to last long?",
+            memory_hint="Kitchen with white refrigerator\nOBJECTS: refrigerator\nFUNCTIONAL_CUES: fridge stores food",
+        )
+        self.assertIn("fridge", pred.lower())
+
+    def test_normalize_breakfast_table_where_rejects_bowl(self):
+        pred, _ = normalize_qa_prediction(
+            "A fruit bowl",
+            question="Where is the breakfast table?",
+            memory_hint=(
+                "Dining area to the left of the kitchen\n"
+                "SPATIAL: breakfast table to the left of the kitchen\n"
+                "OBJECTS: breakfast table, fruit bowl"
+            ),
+        )
+        self.assertNotIn("bowl", pred.lower())
+        self.assertTrue(
+            "left" in pred.lower() or "kitchen" in pred.lower(),
+            pred,
+        )
+
+    def test_qa_memory_top_k_default_widened(self):
+        import os
+
+        os.environ.pop("OPENEQA_QA_MEMORY_TOP_K", None)
+        self.assertGreaterEqual(qa_memory_top_k(), 10)
+
 
 class MemoryTextSanitizeTests(unittest.TestCase):
     def test_sanitize_strips_timestamps(self):

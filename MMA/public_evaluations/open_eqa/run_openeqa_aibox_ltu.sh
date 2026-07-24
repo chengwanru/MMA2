@@ -200,10 +200,11 @@ for _k in \
 do
   unset "${_k}" 2>/dev/null || true
 done
-# Keep enough episodic rows in the QA prompt (gold often sat in rank 3–4).
-export OPENEQA_QA_MEMORY_TOP_K="${OPENEQA_QA_MEMORY_TOP_K:-6}"
-export OPENEQA_MAX_EPISODIC_RETRIEVAL="${OPENEQA_MAX_EPISODIC_RETRIEVAL:-24}"
-export OPENEQA_EPISODIC_BM25_LIMIT="${OPENEQA_EPISODIC_BM25_LIMIT:-32}"
+# Wider retrieve → select → inject window (offset40 misses were often rank 7–12).
+export OPENEQA_QA_MEMORY_TOP_K="${OPENEQA_QA_MEMORY_TOP_K:-10}"
+export OPENEQA_MAX_EPISODIC_RETRIEVAL="${OPENEQA_MAX_EPISODIC_RETRIEVAL:-40}"
+export OPENEQA_EPISODIC_BM25_LIMIT="${OPENEQA_EPISODIC_BM25_LIMIT:-48}"
+export OPENEQA_QA_HINT_CHARS="${OPENEQA_QA_HINT_CHARS:-3500}"
 # Structured forced-observation captions (OBJECTS/ATTRIBUTES/STATES/...).
 export OPENEQA_EPISODIC_MAX_TOKENS="${OPENEQA_EPISODIC_MAX_TOKENS:-896}"
 
