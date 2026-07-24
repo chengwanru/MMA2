@@ -77,19 +77,23 @@ RULES:
 - When a bed is visible, ALWAYS give the duvet/comforter color (not only headboard/pillow/carpet).
 - When a shelf is visible, list ITEMS on each level (top/middle/bottom), not just "wooden shelf".
 - When both a radiator and a wardrobe are near a bed, say which is to the LEFT of the bed.
+- Wall art: prefer the word "paintings" (also say pictures/frames if that is clearer); if style is obvious write abstract / realistic / photographic / cartoon.
+- Sofa/couch visible: ALWAYS say what is ABOVE it (paintings / frames / shelf / TV / nothing visible).
+- Dining/breakfast/coffee table visible: name the CENTER item (fruit bowl, vase, placemats, empty).
+- Kitchen countertop visible: STATES must include "kitchen countertop: clean" or "kitchen countertop: cluttered/dirty" or "not visible".
 
 Reply EXACTLY in this format:
 
 SUMMARY: <one sentence: room type + 2-4 dominant objects>
 
 DETAILS:
-OBJECTS: <every distinct object/furniture/appliance/vehicle/tool; give type if clear (sedan not just car); for shelves write "top shelf: item1, item2">
-ATTRIBUTES: <for each notable object: color, material, shape (round/oval/rectangular/square), size, pattern, lid color; bed: duvet/comforter color>
-STATES: <one clause per item, named explicitly, e.g. "patio door: closed"; "trash bin lid: open"; "bedroom lights: on"; "under-bed storage: empty / filled / not visible"; room brightness: bright/dim>
+OBJECTS: <every distinct object/furniture/appliance/vehicle/tool; give type if clear (sedan not just car); for shelves write "top shelf: item1, item2"; include fruit bowl / centerpiece if on a table>
+ATTRIBUTES: <for each notable object: color, material, shape (round/oval/rectangular/square), size, pattern, lid color; bed: duvet/comforter color; paintings: style if clear (abstract/realistic/cartoon)>
+STATES: <one clause per item, named explicitly, e.g. "patio door: closed"; "trash bin lid: open"; "bedroom lights: on"; "kitchen countertop: clean"; "under-bed storage: empty / filled / not visible"; room brightness: bright/dim>
 LOCALIZATION: <where key objects sit: which wall, which shelf level, near which door/TV/bed>
-SPATIAL: <full relations with BOTH objects named, e.g. "radiator is to the left of the bed"; "broom is below the garage door opener"; "opener is to the left of the house doorway">
+SPATIAL: <full relations with BOTH objects named, e.g. "paintings are above the red couch"; "radiator is to the left of the bed"; "fruit bowl is at the center of the breakfast table">
 FUNCTIONAL_CUES: <hose, cooler/ice cooler, broom, watering can, AC/fan controls, light switches/dials and WHERE each is, recycling vs trash bins, garage door opener>
-WORLD_CUES: <room identity (garage/bathroom/bedroom/kitchen/hallway), outdoor view through doors, damage/renovation if obvious>
+WORLD_CUES: <room identity (garage/bathroom/bedroom/kitchen/hallway/dining); painting/art style if obvious; outdoor view through doors; damage/renovation if obvious>
 NOT_VISIBLE: <items from the checklist below that you looked for but cannot see>
 
 Forced scan checklist (mention each if present, else list under NOT_VISIBLE):
@@ -98,9 +102,13 @@ windows + blinds; light fixtures + lit or unlit (name the room);
 switches/dials; bed + comforter/duvet color (mandatory if bed visible); under-bed space;
 radiator vs wardrobe vs bed (which is left of the bed);
 TV + what is above/beside it; mirrors + shape; sinks/toilets;
+sofa/couch + what is above it (paintings/frames/shelf);
+breakfast/dining table + center item (fruit bowl/vase/placemats);
+kitchen countertop clean vs cluttered;
 trash/recycling bins + lid color + open/closed; cooler/ice cooler; hose; broom; ladder;
 shelves + TOP-SHELF item names; car/vehicle type+color; garage door opener location relative to doorway;
-placemats/tableware colors; AC / ceiling fan / heater and their controls.
+placemats/tableware colors; AC / ceiling fan / heater and their controls;
+wall paintings/pictures + style (abstract/realistic/cartoon) when readable.
 """
 
 

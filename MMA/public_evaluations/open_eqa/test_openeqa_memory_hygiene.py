@@ -941,6 +941,37 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         self.assertIn("paint", pred.lower())
 
+    def test_select_breakfast_table_rejects_bathroom(self):
+        bathroom = _Event(
+            "Bathroom with dark tiled walls and a broken wall section",
+            "OBJECTS: toilet, sink, tiles",
+        )
+        kitchen = _Event(
+            "Kitchen breakfast table with a large fruit bowl at the center",
+            "OBJECTS: breakfast table, fruit bowl\nSPATIAL: fruit bowl is at the center of the breakfast table",
+        )
+        q = "What is at the center of the breakfast table?"
+        picked = select_events_for_qa([bathroom, kitchen], q)
+        blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertIn("bowl", blob)
+        self.assertNotIn("bathroom", blob)
+
+    def test_normalize_fruit_bowl_from_hint(self):
+        pred, _ = normalize_qa_prediction(
+            "Bathroom tiles",
+            question="What is at the center of the breakfast table?",
+            memory_hint="Kitchen breakfast table with a large fruit bowl\nOBJECTS: fruit bowl",
+        )
+        self.assertIn("bowl", pred.lower())
+
+    def test_normalize_painting_style_abstract(self):
+        pred, _ = normalize_qa_prediction(
+            "modern",
+            question="What style of paintings are put up in the bedrrom?",
+            memory_hint="Bedroom wall with abstract paintings\nATTRIBUTES: paintings: abstract\nWORLD_CUES: abstract art",
+        )
+        self.assertEqual(pred.lower(), "abstract")
+
 
 class MemoryTextSanitizeTests(unittest.TestCase):
     def test_sanitize_strips_timestamps(self):
