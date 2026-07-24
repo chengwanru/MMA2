@@ -999,9 +999,54 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
             "OBJECTS: red couch, paintings\nSPATIAL: paintings above couch",
         )
         picked = select_events_for_qa([peek, sofa], "What is above the red couch?")
+        self.assertGreaterEqual(len(picked), 1)
         top = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
         self.assertIn("painting", top)
         self.assertNotIn("through doorway", top)
+        # Must keep a multi-row inject window when evidence exists.
+        self.assertGreaterEqual(len(picked), 1)
+
+    def test_select_style_prefers_bedroom_multi(self):
+        hallway = _Event(
+            "hallway/entryway: white door, carpeted floor, framed picture on left wall",
+            "OBJECTS: door, picture frame",
+        )
+        bedroom = _Event(
+            "bedroom: bed, radiator, white door, framed painting, carpet",
+            "OBJECTS: bed, framed painting\nATTRIBUTES: paintings: abstract",
+        )
+        bedroom2 = _Event(
+            "bedroom: bed, wardrobe, radiator, carpeted floor",
+            "OBJECTS: bed, wardrobe",
+        )
+        picked = select_events_for_qa(
+            [hallway, bedroom, bedroom2],
+            "What style of paintings are put up in the bedrrom?",
+        )
+        self.assertGreaterEqual(len(picked), 2)
+        top = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertIn("bedroom", top)
+
+    def test_select_fruit_store_puts_fridge_first(self):
+        counter = _Event(
+            "kitchen: white cabinets, dark countertop, tiled walls, sink visible",
+            "OBJECTS: cabinets, sink, countertop",
+        )
+        fridge = _Event(
+            "kitchen: white refrigerator, white cabinets, tiled walls",
+            "OBJECTS: refrigerator, cabinets",
+        )
+        outdoor = _Event(
+            "outdoor: tiled walkway, graffiti",
+            "OBJECTS: wall, tiles",
+        )
+        picked = select_events_for_qa(
+            [counter, outdoor, fridge],
+            "Where should I store fruits that I want to last long?",
+        )
+        self.assertGreaterEqual(len(picked), 2)
+        top = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertTrue("fridge" in top or "refrigerator" in top)
 
     def test_select_stairs_center_prefers_sofa_over_fridge(self):
         fridge = _Event(

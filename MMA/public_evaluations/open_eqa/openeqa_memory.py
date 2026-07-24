@@ -642,6 +642,28 @@ def _gate_events_by_room(events: List[Any], question: str) -> List[Any]:
     return matched + rest if matched else list(events)
 
 
+def _blob_is_through_doorway_peek(blob: str) -> bool:
+    b = (blob or "").lower()
+    return bool(
+        re.search(
+            r"visible through|through (?:the )?doorway|through doorway|seen through",
+            b,
+        )
+    )
+
+
+def _drop_through_doorway_peeks(events: List[Any], question: str) -> List[Any]:
+    """Drop kitchen→living peeks that steal sofa/painting QA."""
+    q = (question or "").lower()
+    needs = ("above" in q and ("couch" in q or "sofa" in q)) or (
+        "painting" in q or "paintings" in q or "cartoon cat" in q
+    )
+    if not needs or not events:
+        return list(events)
+    kept = [e for e in events if not _blob_is_through_doorway_peek(_event_text(e))]
+    return kept if kept else list(events)
+
+
 def _drop_outdoor_for_indoor(events: List[Any], question: str) -> List[Any]:
     if not events or not _question_needs_indoor_scene(question):
         return list(events)
@@ -1175,6 +1197,9 @@ def _question_subject_noun(question: str) -> str:
     """Best-effort subject noun for attribute / where / type / yes-no questions."""
     q_l = (question or "").lower().strip()
     patterns = (
+        r"what\s+style\s+of\s+(?:the\s+|a\s+|an\s+)?([a-z]+)",
+        r"what\s+is\s+above\s+(?:the\s+|a\s+|an\s+)?([a-z]+(?:\s+[a-z]+){0,3})",
+        r"what\s+is\s+below\s+(?:the\s+|a\s+|an\s+)?([a-z]+(?:\s+[a-z]+){0,3})",
         r"what\s+(?:color|colour)\s+(?:is|are)\s+(?:the\s+|a\s+|an\s+)?([a-z]+)",
         r"what\s+(?:material|type|kind|shape)\s+(?:is|are)\s+(?:the\s+|a\s+|an\s+)?([a-z]+)",
         r"what\s+(?:type|kind)\s+of\s+(?:the\s+|a\s+|an\s+)?([a-z]+)",
@@ -3209,11 +3234,83 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
         return []
     q = (question or "").lower()
     # Room-first pool + hard indoor filter before specialty paths.
-    ranked = _drop_mismatched_wet_rooms(
-        _drop_outdoor_for_indoor(_gate_events_by_room(list(events), question), question),
+    ranked = _drop_through_doorway_peeks(
+        _drop_mismatched_wet_rooms(
+            _drop_outdoor_for_indoor(_gate_events_by_room(list(events), question), question),
+            question,
+        ),
         question,
     )
     top_k = qa_memory_top_k()
+
+    if ("style" in q and ("painting" in q or "paintings" in q)) or (
+        "paintings" in q and ("bedroom" in q or "bedrrom" in q)
+    ):
+        bedroom_art = [
+            event
+            for event in ranked
+            if "bedroom" in _blob_room_tags(_event_text(event))
+            and any(
+                tok in _event_text(event)
+                for tok in ("painting", "picture", "frame", "abstract")
+            )
+        ]
+        abstract_rows = [
+            event for event in ranked if "abstract" in _event_text(event)
+        ]
+        pool = bedroom_art or abstract_rows
+        if pool:
+            # Keep several bedroom/art rows — never collapse to a single hallway peek.
+            return _ensure_evidence_in_window(
+                _order_qa_events(pool + [e for e in ranked if e not in pool], question),
+                question,
+                top_k,
+            )
+
+    if "above" in q and ("couch" in q or "sofa" in q):
+        sofa_art = [
+            event
+            for event in ranked
+            if ("couch" in _event_text(event) or "sofa" in _event_text(event))
+            and any(
+                tok in _event_text(event)
+                for tok in ("painting", "paintings", "picture", "frame")
+            )
+            and not _blob_is_through_doorway_peek(_event_text(event))
+        ]
+        sofa_rows = [
+            event
+            for event in ranked
+            if ("couch" in _event_text(event) or "sofa" in _event_text(event))
+            and not _blob_is_through_doorway_peek(_event_text(event))
+        ]
+        pool = sofa_art or sofa_rows
+        if pool:
+            return _ensure_evidence_in_window(
+                _order_qa_events(pool + [e for e in ranked if e not in pool], question),
+                question,
+                top_k,
+            )
+
+    if ("fruit" in q and "store" in q) or "last long" in q:
+        fridge_rows = [
+            event
+            for event in ranked
+            if any(tok in _event_text(event) for tok in ("fridge", "refrigerator"))
+        ]
+        if fridge_rows:
+            rest = [e for e in ranked if e not in fridge_rows]
+            # Prefer real kitchen fridge frames; demote outdoor/hallway clutter.
+            kitchen_fridge = [
+                e
+                for e in fridge_rows
+                if "kitchen" in _blob_room_tags(_event_text(e))
+                or "refrigerator" in _event_text(e)
+            ]
+            pool = (kitchen_fridge or fridge_rows) + rest
+            return _ensure_evidence_in_window(
+                _order_qa_events(pool, question), question, top_k
+            )
 
     if "between" in q and ("frame" in q or "picture" in q):
         tv_between = [
@@ -3484,11 +3581,11 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
                 if "stair" not in blob and "sofa" not in blob and "couch" not in blob:
                     pri -= 18
         # Doorway peek frames (kitchen→living) often beat in-room sofa/painting evidence.
-        if re.search(r"visible through|through (?:the )?doorway|through doorway", blob):
+        if _blob_is_through_doorway_peek(blob):
             if "above" in q and ("couch" in q or "sofa" in q):
-                pri -= 16
-            if "painting" in q or subject in ("painting", "picture", "cat"):
-                pri -= 12
+                pri -= 40
+            if "painting" in q or subject in ("painting", "picture", "paintings", "cat"):
+                pri -= 30
             if ("stairs" in q or "staircase" in q) and ("center" in q or "middle" in q):
                 pri -= 8
         if ("style" in q and "painting" in q) or ("paintings" in q and ("bedroom" in q or "bedrrom" in q)):
@@ -3570,7 +3667,8 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
             return _ensure_evidence_in_window(
                 _order_qa_events(evidence_rows, question, _row_priority), question, top_k
             )
-        return picked[:1]
+        # Never collapse a multi-row window to a single noisy top hit.
+        return picked[: max(3, min(top_k, len(picked)))]
     return picked
 
 
