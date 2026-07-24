@@ -163,6 +163,10 @@ export OPENEQA_EPISODIC_TOOL_CALL=0
 export OPENEQA_DIRECT_EPISODIC=1
 export OPENEQA_SKIP_ABSORB=1
 export OPENEQA_QA_MAX_TOKENS="${OPENEQA_QA_MAX_TOKENS:-64}"
+# Same episode+frames → memorize once, then QA-only (huge win: 20q≈3 memorizes).
+export OPENEQA_REUSE_EPISODE_MEMORY="${OPENEQA_REUSE_EPISODE_MEMORY:-1}"
+# Optional: keep weights in-process (can OOM on 40GB after memorize; default off).
+export OPENEQA_EVAL_SPEEDUP="${OPENEQA_EVAL_SPEEDUP:-0}"
 export OPENEQA_COLLECT_SD_STATS=1
 export OPENEQA_TRUST_GATE=1
 export OPENEQA_VERIFY_REJECT_BAD_DRAFT=1
@@ -368,15 +372,22 @@ PY
 # 6) Eval: memorize + QA via run_openeqa_eval.py (NOT direct_sd)
 # ---------------------------------------------------------------------------
 echo "=== run_openeqa_eval (memorize→qa, variants=${VARIANTS}) ==="
-"${PY}" run_openeqa_eval.py \
-  --input_file "${INPUT}" \
-  --output_file "${OUTPUT}" \
-  --baseline_config "${CFG}" \
-  --ours_config "${CFG}" \
-  --limit "${LIMIT}" \
-  --offset "${OFFSET_EVAL}" \
-  --variants "${VARIANTS}" \
-  2>&1 | tee "${LOG}"
+EVAL_ARGS=(
+  --input_file "${INPUT}"
+  --output_file "${OUTPUT}"
+  --baseline_config "${CFG}"
+  --ours_config "${CFG}"
+  --limit "${LIMIT}"
+  --offset "${OFFSET_EVAL}"
+  --variants "${VARIANTS}"
+)
+if [[ "${OPENEQA_EVAL_SPEEDUP:-0}" == "1" ]]; then
+  EVAL_ARGS+=(--speedup)
+  echo "eval speedup: in-process ON; episode-memory reuse=${OPENEQA_REUSE_EPISODE_MEMORY:-1}"
+else
+  echo "eval speedup: subprocess split; episode-memory reuse=${OPENEQA_REUSE_EPISODE_MEMORY:-1}"
+fi
+"${PY}" run_openeqa_eval.py "${EVAL_ARGS[@]}" 2>&1 | tee "${LOG}"
 
 # Also keep a copy under OEQA/results for convenience
 cp -a "${OUTPUT}" "${OEQA}/results/$(basename "${OUTPUT}")" 2>/dev/null || true

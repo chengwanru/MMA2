@@ -43,12 +43,16 @@ Notes:
   ours = same config with memory and speculative decoding. Use this on clusters
   where the baseline config (e.g. mma_gpt4.yaml) cannot reach external APIs.
 
-OpenEQA episodic-memory eval (MMA): each sample uses a fresh HOME (isolated
-~/.mma/sqlite.db). By default memorize and QA run in **two subprocesses** so QA
-loads draft+target on an empty GPU (40GB A100 OOM fix after frame absorb).
+OpenEQA episodic-memory eval (MMA): by default questions that share the same
+episode + frame set reuse one HOME/sqlite (OPENEQA_REUSE_EPISODE_MEMORY=1) so
+VL memorize runs once per episode. Use --speedup to keep the process (and model
+weights) warm across samples. Set OPENEQA_REUSE_EPISODE_MEMORY=0 for the old
+per-question isolated HOME behavior. Subprocess split (memorize|qa) remains
+available when --speedup is off (40GB A100 OOM fix after frame absorb).
 """
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -61,6 +65,7 @@ from typing import Any, Dict, List, Optional, Tuple
 _OPEN_EQA_DIR = Path(__file__).resolve().parent
 _CONFIGS_DIR = _OPEN_EQA_DIR.parent.parent / "configs"
 _ONE_SAMPLE_SCRIPT = _OPEN_EQA_DIR / "run_openeqa_one_sample.py"
+_MEMORIZE_OK_MARKER = ".openeqa_memorize_ok"
 
 
 def parse_args() -> argparse.Namespace:
@@ -146,15 +151,77 @@ def _load_samples(
     return samples
 
 
-def _sample_home_dir(sample_idx: int, sample_id: Any) -> Path:
-    root = Path(
+def _reuse_episode_memory_enabled() -> bool:
+    """Share episodic sqlite across questions with the same episode+frames."""
+    return os.environ.get("OPENEQA_REUSE_EPISODE_MEMORY", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+
+
+def _episode_frame_fingerprint(sample: Dict[str, Any]) -> str:
+    """Stable id for (episode, frame set). Different K-frame ablations get different keys."""
+    ep = str(sample.get("episode_history") or sample.get("episode") or "unknown")
+    paths = sample.get("image_paths") or sample.get("images") or []
+    if isinstance(paths, str):
+        paths = [paths]
+    bases = "|".join(os.path.basename(str(p)) for p in paths)
+    raw = f"{ep}::{len(paths)}::{bases}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:20]
+
+
+def _home_root() -> Path:
+    return Path(
         os.environ.get(
             "OPENEQA_HOME_ROOT",
             os.environ.get("SLURM_TMPDIR", "/tmp"),
         )
     )
+
+
+def _sample_home_dir(sample_idx: int, sample_id: Any) -> Path:
     safe_id = str(sample_id).replace("/", "_")[:48]
-    return root / "openeqa_home" / f"{sample_idx}_{safe_id}"
+    return _home_root() / "openeqa_home" / f"{sample_idx}_{safe_id}"
+
+
+def _resolve_home_dir(sample: Dict[str, Any], sample_idx: int) -> Path:
+    if not _reuse_episode_memory_enabled():
+        return _sample_home_dir(sample_idx, sample.get("id", sample_idx))
+    fp = _episode_frame_fingerprint(sample)
+    ep = str(sample.get("episode_history") or sample.get("episode") or "unknown")
+    safe_ep = ep.replace("/", "_")[:48]
+    return _home_root() / "openeqa_home" / f"ep_{fp}_{safe_ep}"
+
+
+def _memorize_is_ready(home_dir: Path, fingerprint: str) -> bool:
+    marker = home_dir / _MEMORIZE_OK_MARKER
+    if not marker.is_file():
+        return False
+    try:
+        return marker.read_text(encoding="utf-8").strip() == fingerprint
+    except OSError:
+        return False
+
+
+def _mark_memorize_ok(home_dir: Path, fingerprint: str) -> None:
+    try:
+        (home_dir / _MEMORIZE_OK_MARKER).write_text(fingerprint + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _log_episode_reuse_plan(samples: List[Dict[str, Any]]) -> None:
+    if not _reuse_episode_memory_enabled():
+        print("episode-memory reuse: OFF", flush=True)
+        return
+    keys = [_episode_frame_fingerprint(s) for s in samples if s.get("question")]
+    unique = len(set(keys))
+    print(
+        f"episode-memory reuse: ON — {unique} memorize(s) for {len(keys)} question(s) "
+        f"(skip VL on repeat episode+frames)",
+        flush=True,
+    )
 
 
 def _subprocess_env(use_speculative_baseline: bool, phase: str = "all") -> Dict[str, str]:
@@ -330,14 +397,21 @@ def _run_sample_subprocess(
     config_path: str,
     use_speculative_baseline: bool,
 ) -> Tuple[str, Optional[Dict[str, Any]]]:
-    """Fresh Python process + HOME => clean ~/.mma per sample."""
-    home_dir = _sample_home_dir(sample_idx, sample.get("id", sample_idx))
+    """Fresh Python process + HOME => clean ~/.mma per sample (or shared per episode)."""
+    home_dir = _resolve_home_dir(sample, sample_idx)
     home_dir.mkdir(parents=True, exist_ok=True)
+    fingerprint = _episode_frame_fingerprint(sample)
     has_frames = bool(sample.get("image_paths") or sample.get("images"))
     split_phases = os.environ.get("OPENEQA_SPLIT_PHASES", "1").strip().lower() not in (
         "0",
         "false",
         "no",
+    )
+    skip_memorize = (
+        has_frames
+        and split_phases
+        and _reuse_episode_memory_enabled()
+        and _memorize_is_ready(home_dir, fingerprint)
     )
 
     with tempfile.NamedTemporaryFile(
@@ -352,17 +426,29 @@ def _run_sample_subprocess(
 
     try:
         if split_phases and has_frames:
-            mem = _invoke_one_sample_phase(
-                phase="memorize",
-                sample_path=sample_path,
-                config_path=config_path,
-                home_dir=home_dir,
-                env=_subprocess_env(use_speculative_baseline, phase="memorize"),
-            )
-            if str(mem["prediction"]).startswith("ERROR"):
-                _write_subprocess_stderr(home_dir, mem.get("stderr_tail", ""))
-                return mem["prediction"], {"memorize": mem.get("debug"), "home_dir": mem.get("debug_dir")}
-            print(f"  memorize phase: {mem['prediction']}", flush=True)
+            mem_debug = None
+            if skip_memorize:
+                print(
+                    f"  memorize phase: SKIP (reuse episode memory in {home_dir.name})",
+                    flush=True,
+                )
+            else:
+                mem = _invoke_one_sample_phase(
+                    phase="memorize",
+                    sample_path=sample_path,
+                    config_path=config_path,
+                    home_dir=home_dir,
+                    env=_subprocess_env(use_speculative_baseline, phase="memorize"),
+                )
+                if str(mem["prediction"]).startswith("ERROR"):
+                    _write_subprocess_stderr(home_dir, mem.get("stderr_tail", ""))
+                    return mem["prediction"], {
+                        "memorize": mem.get("debug"),
+                        "home_dir": mem.get("debug_dir"),
+                    }
+                print(f"  memorize phase: {mem['prediction']}", flush=True)
+                _mark_memorize_ok(home_dir, fingerprint)
+                mem_debug = mem.get("debug")
 
             qa = _invoke_one_sample_phase(
                 phase="qa",
@@ -374,9 +460,10 @@ def _run_sample_subprocess(
             if str(qa["prediction"]).startswith("ERROR"):
                 _write_subprocess_stderr(home_dir, qa.get("stderr_tail", ""))
             debug = {
-                "memorize": mem.get("debug"),
+                "memorize": mem_debug,
+                "memorize_reused": skip_memorize,
                 "qa": qa.get("debug"),
-                "home_dir": qa.get("debug_dir") or mem.get("debug_dir"),
+                "home_dir": qa.get("debug_dir") or str(home_dir),
             }
             return qa["prediction"], debug
 
@@ -389,6 +476,8 @@ def _run_sample_subprocess(
         )
         if str(payload["prediction"]).startswith("ERROR"):
             _write_subprocess_stderr(home_dir, payload.get("stderr_tail", ""))
+        if not str(payload["prediction"]).startswith("ERROR"):
+            _mark_memorize_ok(home_dir, fingerprint)
         return payload["prediction"], payload.get("debug")
     finally:
         try:
@@ -414,6 +503,7 @@ def _run_variant(
 ) -> List[Dict[str, Any]]:
     baseline_flag = variant_name == "baseline" and use_speculative_baseline
     results: List[Dict[str, Any]] = []
+    _log_episode_reuse_plan(samples)
 
     for idx, sample in enumerate(samples):
         question: str = sample.get("question", "")
@@ -489,6 +579,7 @@ def _run_variant_speedup(
 
     os.environ["OPENEQA_SPLIT_PHASES"] = "1"
     results: List[Dict[str, Any]] = []
+    _log_episode_reuse_plan(samples)
 
     for idx, sample in enumerate(samples):
         question: str = sample.get("question", "")
@@ -500,22 +591,39 @@ def _run_variant_speedup(
             flush=True,
         )
 
-        home_dir = _sample_home_dir(idx, sample.get("id", idx))
+        home_dir = _resolve_home_dir(sample, idx)
         home_dir.mkdir(parents=True, exist_ok=True)
         os.environ["HOME"] = str(home_dir)
+        fingerprint = _episode_frame_fingerprint(sample)
+        has_frames = bool(sample.get("image_paths") or sample.get("images"))
+        skip_memorize = (
+            has_frames
+            and _reuse_episode_memory_enabled()
+            and _memorize_is_ready(home_dir, fingerprint)
+        )
 
         debug_info: Optional[Dict[str, Any]] = None
         try:
-            mem_status, _mem_err, mem_debug = one_sample_mod._run_memorize(
-                sample=sample,
-                config_path=config_path,
-                home_dir=home_dir,
-            )
+            mem_debug = None
+            if skip_memorize:
+                print(
+                    f"  memorize phase: SKIP (reuse episode memory in {home_dir.name})",
+                    flush=True,
+                )
+                mem_status = "OK:reused"
+            else:
+                mem_status, _mem_err, mem_debug = one_sample_mod._run_memorize(
+                    sample=sample,
+                    config_path=config_path,
+                    home_dir=home_dir,
+                )
 
             if str(mem_status).startswith("ERROR"):
                 prediction = mem_status
                 debug_info = {"memorize": mem_debug, "home_dir": str(home_dir)}
             else:
+                if not skip_memorize and not str(mem_status).startswith("ERROR"):
+                    _mark_memorize_ok(home_dir, fingerprint)
                 pred, _qa_err, qa_debug = one_sample_mod._run_qa(
                     sample=sample,
                     config_path=config_path,
@@ -524,6 +632,7 @@ def _run_variant_speedup(
                 prediction = pred
                 debug_info = {
                     "memorize": mem_debug,
+                    "memorize_reused": skip_memorize,
                     "qa": qa_debug,
                     "home_dir": str(home_dir),
                 }

@@ -16,6 +16,10 @@
 #
 # Caption cache still helps when the same PNG basename appears in both
 # uniform sets (~partial overlap). Prefer correctness of uniform sampling.
+#
+# Speed: OPENEQA_REUSE_EPISODE_MEMORY=1 (default) memorizes once per
+# episode+frame-set (offset40 20q → ~3 VL memorizes). Optional
+# OPENEQA_EVAL_SPEEDUP=1 for in-process weights if VRAM allows.
 
 set -euo pipefail
 
