@@ -871,6 +871,76 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
         self.assertIn("doorway", blob)
 
+    def test_room_gate_prefers_bedroom_painting_over_bathroom(self):
+        bathroom = _Event(
+            "Bathroom with mirror and towel rack",
+            "OBJECTS: mirror, towel, sink",
+        )
+        bedroom = _Event(
+            "Bedroom with an orange painting above the bed",
+            "OBJECTS: bed, orange painting\nSPATIAL: painting above the bed",
+        )
+        alley = _Event(
+            "Outdoor alleyway with garage door",
+            "OBJECTS: garage door, graffiti",
+        )
+        q = "Where is the orange painting?"
+        picked = select_events_for_qa([bathroom, alley, bedroom], q)
+        blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertIn("bed", blob)
+        self.assertNotIn("bathroom", blob)
+
+    def test_multi_evidence_keeps_kitchen_sink_in_window(self):
+        alley = _Event("Outdoor alleyway", "OBJECTS: garage door")
+        living = _Event("Living room couch", "OBJECTS: couch")
+        kitchen = _Event(
+            "Kitchen with white cabinets and sink",
+            "OBJECTS: sink, countertop",
+        )
+        q = "Where can I wash my hands?"
+        picked = select_events_for_qa([alley, living, kitchen], q)
+        blobs = [
+            ((e.summary or "") + " " + (e.details or "")).lower() for e in picked
+        ]
+        self.assertTrue(any("sink" in b for b in blobs))
+
+    def test_normalize_overrides_garage_for_wash_hands(self):
+        pred, _ = normalize_qa_prediction(
+            "below the garage door",
+            question="Where can I wash my hands?",
+            memory_hint="Kitchen with sink and cabinets\nOBJECTS: kitchen sink",
+        )
+        self.assertIn("sink", pred.lower())
+        self.assertIn("kitchen", pred.lower())
+
+    def test_normalize_front_door_prefers_hint_open_over_closed_pred(self):
+        pred, _ = normalize_qa_prediction(
+            "Closed",
+            question="Is the front door open or closed?",
+            memory_hint=(
+                "Entryway with the front door open\n"
+                "OBJECTS: front door\nSTATES: front door: open"
+            ),
+        )
+        self.assertEqual(pred.lower(), "open")
+
+    def test_normalize_cat_from_pink_frame_hint(self):
+        pred, _ = normalize_qa_prediction(
+            "OBJECTS: lamp, table, chair, plant, books",
+            question="Where is the cartoon cat?",
+            memory_hint="Hallway with a pink picture frame of a cat\nOBJECTS: pink frame, cat",
+        )
+        self.assertIn("pink", pred.lower())
+        self.assertIn("frame", pred.lower())
+
+    def test_normalize_above_couch_paintings_overrides_refusal(self):
+        pred, _ = normalize_qa_prediction(
+            "No red couch in memory",
+            question="What is above the red couch?",
+            memory_hint="Entryway with red sofa and paintings above it\nOBJECTS: red sofa, paintings",
+        )
+        self.assertIn("paint", pred.lower())
+
 
 class MemoryTextSanitizeTests(unittest.TestCase):
     def test_sanitize_strips_timestamps(self):
