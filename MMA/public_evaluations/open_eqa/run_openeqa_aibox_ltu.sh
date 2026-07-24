@@ -269,7 +269,9 @@ echo "OPENEQA_DIRECT_EPISODIC=${OPENEQA_DIRECT_EPISODIC} SKIP_ABSORB=${OPENEQA_S
 echo "OPENEQA_EPISODIC_TOOL_CALL=${OPENEQA_EPISODIC_TOOL_CALL}"
 echo "OPENEQA_TRUST_GATE=${OPENEQA_TRUST_GATE} BIAS_SCALE=${MMA_MEMORY_BIAS_SCALE}"
 echo "OPENEQA_SPLIT_PHASES=${OPENEQA_SPLIT_PHASES} OPENEQA_DIRECT_SD=${OPENEQA_DIRECT_SD}"
-echo "OPENEQA_QA_DIRECT_SD=${OPENEQA_QA_DIRECT_SD} QA_MAX_TOKENS=${OPENEQA_QA_MAX_TOKENS}"
+echo "OPENEQA_REUSE_EPISODE_MEMORY=${OPENEQA_REUSE_EPISODE_MEMORY:-1}"
+echo "PRECOMPUTE_CAPTIONS=${PRECOMPUTE_CAPTIONS:-1} CAPTION_CACHE=${OPENEQA_CAPTION_CACHE:-}"
+echo "OPENEQA_ABSORB_BATCH_SIZE=${OPENEQA_ABSORB_BATCH_SIZE:-1}"
 echo ""
 echo "--- AIBox-only backend diffs (vs vendored LTU stack) ---"
 echo "MMA_VL_NATIVE_TARGET=${MMA_VL_NATIVE_TARGET}"
@@ -366,6 +368,29 @@ if rows:
     print(f"  gold: {s.get('answer')}")
     print(f"  episode: {(s.get('episode_history') or s.get('episode') or '')[:60]}")
 PY
+
+# ---------------------------------------------------------------------------
+# 5b) Offline caption precompute (fills OPENEQA_CAPTION_CACHE; memorize then hits)
+# ---------------------------------------------------------------------------
+if [[ "${PRECOMPUTE_CAPTIONS:-1}" == "1" ]]; then
+  echo "=== precompute_openeqa_captions (cache=${OPENEQA_CAPTION_CACHE}) ==="
+  PRE_ARGS=(
+    --input_file "${INPUT}"
+    --batch-size "${OPENEQA_ABSORB_BATCH_SIZE:-1}"
+  )
+  if [[ -n "${PRECOMPUTE_LIMIT_BATCHES:-}" ]]; then
+    PRE_ARGS+=(--limit-batches "${PRECOMPUTE_LIMIT_BATCHES}")
+  fi
+  if [[ "${PRECOMPUTE_FORCE:-0}" == "1" ]]; then
+    PRE_ARGS+=(--force)
+  fi
+  if [[ -n "${PRECOMPUTE_SHARD_ID:-}" && -n "${PRECOMPUTE_NUM_SHARDS:-}" ]]; then
+    PRE_ARGS+=(--shard-id "${PRECOMPUTE_SHARD_ID}" --num-shards "${PRECOMPUTE_NUM_SHARDS}")
+  fi
+  "${PY}" precompute_openeqa_captions.py "${PRE_ARGS[@]}"
+else
+  echo "=== skip caption precompute (PRECOMPUTE_CAPTIONS=0) ==="
+fi
 
 # ---------------------------------------------------------------------------
 # 6) Eval: memorize + QA via run_openeqa_eval.py (NOT direct_sd)

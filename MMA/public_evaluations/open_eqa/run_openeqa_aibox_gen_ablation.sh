@@ -20,6 +20,9 @@
 # Speed: OPENEQA_REUSE_EPISODE_MEMORY=1 (default) memorizes once per
 # episode+frame-set (offset40 20q → ~3 VL memorizes). Optional
 # OPENEQA_EVAL_SPEEDUP=1 for in-process weights if VRAM allows.
+#
+# Captions: PRECOMPUTE_CAPTIONS=1 (default in aibox) fills
+# /workspace/openeqa_caption_cache before eval so memorize is mostly Cache Hit.
 
 set -euo pipefail
 

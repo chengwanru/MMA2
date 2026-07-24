@@ -254,12 +254,57 @@ def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
     response_text = (response_data.get("generated_text") or "").strip()
     if response_text:
         try:
-            cache_file.write_text(response_text, encoding="utf-8")
+            _atomic_write_text(cache_file, response_text)
             print(f"  [Cache Saved] Saved offline caption to: {cache_file}", flush=True)
         except Exception as e:
             print(f"  [Cache Warning] Failed to save cache {cache_file}: {e}", flush=True)
 
     return response_text
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write via temp+replace so parallel precompute/eval workers don't clobber."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def precompute_captions_for_frames(
+    image_paths: List[str],
+    *,
+    batch_size: int = 1,
+    skip_existing: bool = True,
+) -> Dict[str, int]:
+    """Caption frames into OPENEQA_CAPTION_CACHE (same keys as memorize).
+
+    Returns counts: hit, miss, failed, total_batches.
+    """
+    batch_size = max(1, int(batch_size))
+    stats = {"hit": 0, "miss": 0, "failed": 0, "total_batches": 0}
+    for start in range(0, len(image_paths), batch_size):
+        chunk = image_paths[start : start + batch_size]
+        stats["total_batches"] += 1
+        cache_file = _get_caption_cache_path(chunk)
+        if skip_existing and cache_file.exists() and cache_file.stat().st_size > 0:
+            stats["hit"] += 1
+            print(
+                f"  [precompute] hit {start // batch_size + 1}: {cache_file.name} "
+                f"({', '.join(os.path.basename(p) for p in chunk)})",
+                flush=True,
+            )
+            continue
+        try:
+            text = _describe_frame_batch(chunk)
+            if text.strip():
+                stats["miss"] += 1
+            else:
+                stats["failed"] += 1
+                print(f"  [precompute] empty caption for batch starting {start}", flush=True)
+        except Exception as exc:
+            stats["failed"] += 1
+            print(f"  [precompute] FAILED batch starting {start}: {exc}", flush=True)
+    return stats
 
 
 def ensure_episodic_from_frames(
