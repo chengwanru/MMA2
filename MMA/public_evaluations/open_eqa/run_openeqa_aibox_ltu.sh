@@ -95,8 +95,7 @@ case "${MODE}" in
     DEFAULT_FRAMES=16
     ;;
   frames32_o40)
-    # Frame ablation: SAME first 10 questions as offset40 (indices 40–49), 32 frames.
-    # Compare accuracy on those 10 vs the f16 answers from the offset40 run.
+    # Optional mid-point ablation (indices 40–49, 32 frames). Prefer frames50_o40 for paper parity.
     DEFAULT_LIMIT=10
     DEFAULT_OFFSET=40
     DEFAULT_MAX_SAMPLES=10
@@ -104,7 +103,7 @@ case "${MODE}" in
     DEFAULT_FRAMES=32
     ;;
   frames50_o40)
-    # Paper-like K=50 on the same 10 questions (indices 40–49).
+    # Paper-aligned K=50 on the same 10 questions as offset40[:10] (GPT-4V EM-EQA default).
     DEFAULT_LIMIT=10
     DEFAULT_OFFSET=40
     DEFAULT_MAX_SAMPLES=10
