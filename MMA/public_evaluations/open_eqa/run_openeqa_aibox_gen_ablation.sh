@@ -2,7 +2,7 @@
 # Parallel generalization + frame-ablation pair for AIBox.
 #
 # Exp A: indices 40–59, 20 questions, 16 frames  (new slice vs offset20)
-# Exp B: indices 40–49, 10 questions, 32 frames  (= A's first 10 questions)
+# Exp B: indices 40–49, 10 questions, 50 frames  (= A's first 10; paper-aligned K)
 #
 # Compare B vs A's first 10 rows to see if more frames raise accuracy.
 # Both use independent uniform frame sampling (not nested-for-cache).
@@ -42,9 +42,9 @@ run_A() {
 }
 
 run_B() {
-  echo "=== Exp B: offset40[:10] / 10q / 32 frames (frame ablation) ==="
+  echo "=== Exp B: offset40[:10] / 10q / 50 frames (paper-aligned ablation) ==="
   CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}" \
-    MODE=frames32_o40 \
+    MODE=frames50_o40 \
     FRAME_CACHE="${WORK_ROOT}/openeqa_frame_cache_shared_o40" \
     bash "${OEQA}/run_openeqa_aibox_ltu.sh"
 }
