@@ -52,8 +52,15 @@ class EpisodeReuseTests(unittest.TestCase):
             fp = "abc123"
             self.assertFalse(ev._memorize_is_ready(home, fp))
             ev._mark_memorize_ok(home, fp)
+            # Marker alone is not enough without sqlite.db
+            self.assertFalse(ev._memorize_is_ready(home, fp))
+            db = home / ".mma" / "sqlite.db"
+            db.parent.mkdir(parents=True)
+            db.write_bytes(b"x" * 2048)
             self.assertTrue(ev._memorize_is_ready(home, fp))
             self.assertFalse(ev._memorize_is_ready(home, "other"))
+            ev._clear_memorize_ok(home)
+            self.assertFalse(ev._memorize_is_ready(home, fp))
 
 
 if __name__ == "__main__":

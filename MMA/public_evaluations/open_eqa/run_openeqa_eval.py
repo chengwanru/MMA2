@@ -194,21 +194,65 @@ def _resolve_home_dir(sample: Dict[str, Any], sample_idx: int) -> Path:
     return _home_root() / "openeqa_home" / f"ep_{fp}_{safe_ep}"
 
 
+def _memorize_marker_path(home_dir: Path) -> Path:
+    return home_dir / _MEMORIZE_OK_MARKER
+
+
+def _sqlite_db_path(home_dir: Path) -> Path:
+    return home_dir / ".mma" / "sqlite.db"
+
+
+def _clear_memorize_ok(home_dir: Path) -> None:
+    try:
+        _memorize_marker_path(home_dir).unlink(missing_ok=True)
+    except TypeError:
+        # py<3.8 compatibility
+        p = _memorize_marker_path(home_dir)
+        if p.is_file():
+            try:
+                p.unlink()
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
 def _memorize_is_ready(home_dir: Path, fingerprint: str) -> bool:
-    marker = home_dir / _MEMORIZE_OK_MARKER
+    """True only when marker matches AND sqlite.db looks populated.
+
+    Stale markers after a failed/schema-broken memorize caused SKIP → empty QA.
+    """
+    marker = _memorize_marker_path(home_dir)
     if not marker.is_file():
         return False
     try:
-        return marker.read_text(encoding="utf-8").strip() == fingerprint
+        if marker.read_text(encoding="utf-8").strip() != fingerprint:
+            return False
     except OSError:
         return False
+    db = _sqlite_db_path(home_dir)
+    try:
+        if not db.is_file() or db.stat().st_size < 1024:
+            _clear_memorize_ok(home_dir)
+            return False
+    except OSError:
+        _clear_memorize_ok(home_dir)
+        return False
+    return True
 
 
 def _mark_memorize_ok(home_dir: Path, fingerprint: str) -> None:
     try:
-        (home_dir / _MEMORIZE_OK_MARKER).write_text(fingerprint + "\n", encoding="utf-8")
+        _memorize_marker_path(home_dir).write_text(fingerprint + "\n", encoding="utf-8")
     except OSError:
         pass
+
+
+def _prediction_is_empty_memory_error(prediction: str) -> bool:
+    p = str(prediction or "")
+    return p.startswith("ERROR:qa:no episodic memory") or (
+        "Existing SQLite DB schema is invalid" in p
+    )
 
 
 def _log_episode_reuse_plan(samples: List[Dict[str, Any]]) -> None:
@@ -409,12 +453,6 @@ def _run_sample_subprocess(
         "false",
         "no",
     )
-    skip_memorize = (
-        has_frames
-        and split_phases
-        and _reuse_episode_memory_enabled()
-        and _memorize_is_ready(home_dir, fingerprint)
-    )
 
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -429,6 +467,11 @@ def _run_sample_subprocess(
     try:
         if split_phases and has_frames:
             mem_debug = None
+            skip_memorize = (
+                has_frames
+                and _reuse_episode_memory_enabled()
+                and _memorize_is_ready(home_dir, fingerprint)
+            )
             if skip_memorize:
                 print(
                     f"  memorize phase: SKIP (reuse episode memory in {home_dir.name})",
@@ -443,6 +486,7 @@ def _run_sample_subprocess(
                     env=_subprocess_env(use_speculative_baseline, phase="memorize"),
                 )
                 if str(mem["prediction"]).startswith("ERROR"):
+                    _clear_memorize_ok(home_dir)
                     _write_subprocess_stderr(home_dir, mem.get("stderr_tail", ""))
                     return mem["prediction"], {
                         "memorize": mem.get("debug"),
@@ -459,7 +503,48 @@ def _run_sample_subprocess(
                 home_dir=home_dir,
                 env=_subprocess_env(use_speculative_baseline, phase="qa"),
             )
+            # Stale marker / schema-broken home: rememorize once then retry QA.
+            if _prediction_is_empty_memory_error(qa["prediction"]) and skip_memorize:
+                print(
+                    "  memorize phase: RETRY (stale/empty episode memory; clearing marker)",
+                    flush=True,
+                )
+                _clear_memorize_ok(home_dir)
+                try:
+                    db = _sqlite_db_path(home_dir)
+                    if db.is_file():
+                        db.unlink()
+                except OSError:
+                    pass
+                mem = _invoke_one_sample_phase(
+                    phase="memorize",
+                    sample_path=sample_path,
+                    config_path=config_path,
+                    home_dir=home_dir,
+                    env=_subprocess_env(use_speculative_baseline, phase="memorize"),
+                )
+                if str(mem["prediction"]).startswith("ERROR"):
+                    _clear_memorize_ok(home_dir)
+                    _write_subprocess_stderr(home_dir, mem.get("stderr_tail", ""))
+                    return mem["prediction"], {
+                        "memorize": mem.get("debug"),
+                        "home_dir": mem.get("debug_dir") or str(home_dir),
+                        "memorize_reused": False,
+                    }
+                print(f"  memorize phase: {mem['prediction']}", flush=True)
+                _mark_memorize_ok(home_dir, fingerprint)
+                mem_debug = mem.get("debug")
+                skip_memorize = False
+                qa = _invoke_one_sample_phase(
+                    phase="qa",
+                    sample_path=sample_path,
+                    config_path=config_path,
+                    home_dir=home_dir,
+                    env=_subprocess_env(use_speculative_baseline, phase="qa"),
+                )
             if str(qa["prediction"]).startswith("ERROR"):
+                if _prediction_is_empty_memory_error(qa["prediction"]):
+                    _clear_memorize_ok(home_dir)
                 _write_subprocess_stderr(home_dir, qa.get("stderr_tail", ""))
             debug = {
                 "memorize": mem_debug,
@@ -477,8 +562,9 @@ def _run_sample_subprocess(
             env=_subprocess_env(use_speculative_baseline, phase="all"),
         )
         if str(payload["prediction"]).startswith("ERROR"):
+            _clear_memorize_ok(home_dir)
             _write_subprocess_stderr(home_dir, payload.get("stderr_tail", ""))
-        if not str(payload["prediction"]).startswith("ERROR"):
+        else:
             _mark_memorize_ok(home_dir, fingerprint)
         return payload["prediction"], payload.get("debug")
     finally:
@@ -621,6 +707,7 @@ def _run_variant_speedup(
                 )
 
             if str(mem_status).startswith("ERROR"):
+                _clear_memorize_ok(home_dir)
                 prediction = mem_status
                 debug_info = {"memorize": mem_debug, "home_dir": str(home_dir)}
             else:
@@ -631,13 +718,54 @@ def _run_variant_speedup(
                     config_path=config_path,
                     home_dir=home_dir,
                 )
-                prediction = pred
-                debug_info = {
-                    "memorize": mem_debug,
-                    "memorize_reused": skip_memorize,
-                    "qa": qa_debug,
-                    "home_dir": str(home_dir),
-                }
+                if _prediction_is_empty_memory_error(pred) and skip_memorize:
+                    print(
+                        "  memorize phase: RETRY (stale/empty episode memory; clearing marker)",
+                        flush=True,
+                    )
+                    _clear_memorize_ok(home_dir)
+                    try:
+                        db = _sqlite_db_path(home_dir)
+                        if db.is_file():
+                            db.unlink()
+                    except OSError:
+                        pass
+                    mem_status, _mem_err, mem_debug = one_sample_mod._run_memorize(
+                        sample=sample,
+                        config_path=config_path,
+                        home_dir=home_dir,
+                    )
+                    if str(mem_status).startswith("ERROR"):
+                        _clear_memorize_ok(home_dir)
+                        prediction = mem_status
+                        debug_info = {"memorize": mem_debug, "home_dir": str(home_dir)}
+                    else:
+                        _mark_memorize_ok(home_dir, fingerprint)
+                        skip_memorize = False
+                        pred, _qa_err, qa_debug = one_sample_mod._run_qa(
+                            sample=sample,
+                            config_path=config_path,
+                            home_dir=home_dir,
+                        )
+                        if _prediction_is_empty_memory_error(pred):
+                            _clear_memorize_ok(home_dir)
+                        prediction = pred
+                        debug_info = {
+                            "memorize": mem_debug,
+                            "memorize_reused": False,
+                            "qa": qa_debug,
+                            "home_dir": str(home_dir),
+                        }
+                else:
+                    if _prediction_is_empty_memory_error(pred):
+                        _clear_memorize_ok(home_dir)
+                    prediction = pred
+                    debug_info = {
+                        "memorize": mem_debug,
+                        "memorize_reused": skip_memorize,
+                        "qa": qa_debug,
+                        "home_dir": str(home_dir),
+                    }
         except Exception as e:
             prediction = f"ERROR: speedup runner failed: {e}"
             debug_info = None
