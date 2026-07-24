@@ -36,20 +36,6 @@ def _default_frames_root() -> str:
     return str(_PEV_DIR / "data/open_eqa_data")
 
 
-def _episode_media_path(frames_root: str, episode: str) -> Optional[str]:
-    """Prefer real .tar; else .mp4 preview (ellisbrown/OpenEQA hm3d layout)."""
-    for ext in (".tar", ".mp4"):
-        direct = os.path.join(frames_root, episode + ext)
-        if os.path.isfile(direct):
-            return direct
-        if "/" in episode:
-            split, name = episode.split("/", 1)
-            nested = os.path.join(frames_root, split, name + ext)
-            if os.path.isfile(nested):
-                return nested
-    return None
-
-
 def _is_lfs_pointer(path: str) -> bool:
     try:
         with open(path, "rb") as f:
@@ -57,6 +43,24 @@ def _is_lfs_pointer(path: str) -> bool:
         return head.startswith(b"version https://git-lfs.github.com/spec/v1")
     except OSError:
         return False
+
+
+def _episode_media_path(frames_root: str, episode: str) -> Optional[str]:
+    """Prefer real .tar; else .mp4 preview. Skip Git LFS pointer stubs."""
+    for ext in (".tar", ".mp4"):
+        candidates = [os.path.join(frames_root, episode + ext)]
+        if "/" in episode:
+            split, name = episode.split("/", 1)
+            candidates.append(os.path.join(frames_root, split, name + ext))
+        for path in candidates:
+            if not os.path.isfile(path):
+                continue
+            if ext == ".tar" and (_is_lfs_pointer(path) or os.path.getsize(path) < 1024):
+                continue
+            if ext == ".mp4" and (os.path.getsize(path) <= 1024 or _is_lfs_pointer(path)):
+                continue
+            return path
+    return None
 
 
 def _count_pngs_in_tar(tar_path: str) -> Optional[int]:

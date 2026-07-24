@@ -210,28 +210,51 @@ def _clear_cached_pngs(cache_episode_dir: str) -> None:
             os.remove(os.path.join(cache_episode_dir, name))
 
 
+def _is_lfs_pointer(path: str) -> bool:
+    """Git LFS stub files look like real .tar names but are tiny text pointers."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(64)
+        return head.startswith(b"version https://git-lfs.github.com/spec/v1")
+    except OSError:
+        return False
+
+
+def _is_usable_tar(path: str) -> bool:
+    """True if path is a real tar (not LFS stub / truncated junk)."""
+    if not os.path.isfile(path) or os.path.getsize(path) < 1024:
+        return False
+    if _is_lfs_pointer(path):
+        return False
+    try:
+        with tarfile.open(path, "r:*") as tar:
+            # Touch header/members lightly; empty archive is still "usable".
+            tar.getmembers()
+        return True
+    except tarfile.TarError:
+        return False
+
+
 def _episode_tar_path(frames_root: str, episode: str) -> Optional[str]:
-    direct = os.path.join(frames_root, episode + ".tar")
-    if os.path.isfile(direct):
-        return direct
+    candidates: List[str] = [os.path.join(frames_root, episode + ".tar")]
     if "/" in episode:
         split, name = episode.split("/", 1)
-        nested = os.path.join(frames_root, split, name + ".tar")
-        if os.path.isfile(nested):
-            return nested
+        candidates.append(os.path.join(frames_root, split, name + ".tar"))
+    for path in candidates:
+        if _is_usable_tar(path):
+            return path
     return None
 
 
 def _episode_mp4_path(frames_root: str, episode: str) -> Optional[str]:
     """ellisbrown/OpenEQA hm3d-v0.tar.gz ships one preview .mp4 per episode."""
-    direct = os.path.join(frames_root, episode + ".mp4")
-    if os.path.isfile(direct):
-        return direct
+    candidates: List[str] = [os.path.join(frames_root, episode + ".mp4")]
     if "/" in episode:
         split, name = episode.split("/", 1)
-        nested = os.path.join(frames_root, split, name + ".mp4")
-        if os.path.isfile(nested):
-            return nested
+        candidates.append(os.path.join(frames_root, split, name + ".mp4"))
+    for path in candidates:
+        if os.path.isfile(path) and os.path.getsize(path) > 1024 and not _is_lfs_pointer(path):
+            return path
     return None
 
 
@@ -403,7 +426,11 @@ def _frame_paths_for_episode(
     cache_dir = os.path.join(frame_cache, frame_tag, episode)
     tar_path = _episode_tar_path(frames_root, episode)
     if tar_path:
-        return _minimal_frames_from_tar(tar_path, cache_dir, max_frames, sampling), True
+        try:
+            return _minimal_frames_from_tar(tar_path, cache_dir, max_frames, sampling), True
+        except tarfile.TarError:
+            # Stale/corrupt tar next to a usable .mp4 — fall through.
+            pass
 
     mp4_path = _episode_mp4_path(frames_root, episode)
     if mp4_path:
