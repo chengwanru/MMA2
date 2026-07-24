@@ -94,6 +94,22 @@ case "${MODE}" in
     DEFAULT_TAG="20_offset40"
     DEFAULT_FRAMES=16
     ;;
+  offset60)
+    # Holdout slice (indices 60–79); not used for select/normalize tuning.
+    DEFAULT_LIMIT=20
+    DEFAULT_OFFSET=60
+    DEFAULT_MAX_SAMPLES=20
+    DEFAULT_TAG="20_offset60"
+    DEFAULT_FRAMES=16
+    ;;
+  offset80)
+    # Cleaner holdout (indices 80–99): hm3d-only, little overlap with offset40 episodes.
+    DEFAULT_LIMIT=20
+    DEFAULT_OFFSET=80
+    DEFAULT_MAX_SAMPLES=20
+    DEFAULT_TAG="20_offset80"
+    DEFAULT_FRAMES=16
+    ;;
   frames32_o40)
     # Optional mid-point ablation (indices 40–49, 32 frames). Prefer frames50_o40 for paper parity.
     DEFAULT_LIMIT=10
@@ -111,7 +127,7 @@ case "${MODE}" in
     DEFAULT_FRAMES=50
     ;;
   *)
-    echo "ERROR: unknown MODE=${MODE} (use smoke|10|20|offset20|offset40|frames32_o40|frames50_o40)" >&2
+    echo "ERROR: unknown MODE=${MODE} (use smoke|10|20|offset20|offset40|offset60|offset80|frames32_o40|frames50_o40)" >&2
     exit 1
     ;;
 esac
