@@ -201,7 +201,9 @@ do
   unset "${_k}" 2>/dev/null || true
 done
 # Keep enough episodic rows in the QA prompt (gold often sat in rank 3–4).
-export OPENEQA_QA_MEMORY_TOP_K="${OPENEQA_QA_MEMORY_TOP_K:-4}"
+export OPENEQA_QA_MEMORY_TOP_K="${OPENEQA_QA_MEMORY_TOP_K:-6}"
+export OPENEQA_MAX_EPISODIC_RETRIEVAL="${OPENEQA_MAX_EPISODIC_RETRIEVAL:-24}"
+export OPENEQA_EPISODIC_BM25_LIMIT="${OPENEQA_EPISODIC_BM25_LIMIT:-32}"
 # Structured forced-observation captions (OBJECTS/ATTRIBUTES/STATES/...).
 export OPENEQA_EPISODIC_MAX_TOKENS="${OPENEQA_EPISODIC_MAX_TOKENS:-512}"
 

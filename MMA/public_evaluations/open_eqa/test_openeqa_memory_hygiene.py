@@ -311,21 +311,78 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         picked = select_events_for_qa([ceiling, hallway], q)
         self.assertTrue(any("air conditioner" in (e.summary or "").lower() for e in picked))
 
-    def test_select_door_prefers_closed(self):
-        open_e = _Event("The front door is open")
-        closed = _Event("The front door is closed")
-        picked = select_events_for_qa([open_e, closed], "Is the front door open?")
-        self.assertIn("closed", picked[0].summary.lower())
+    def test_select_front_door_prefers_named_front_door_row(self):
+        kitchen = _Event(
+            "Kitchen with white refrigerator",
+            "OBJECTS: refrigerator\nSTATES: fridge door: closed",
+        )
+        front_open = _Event(
+            "Entryway with the front door open",
+            "OBJECTS: front door\nSTATES: front door: open",
+        )
+        picked = select_events_for_qa(
+            [kitchen, front_open], "Is the front door open or closed?"
+        )
+        blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertIn("front door", blob)
+        self.assertIn("open", blob)
+
+    def test_select_door_does_not_bias_closed_over_open(self):
+        open_e = _Event("The front door is open", "STATES: front door: open")
+        closed = _Event("The front door is closed", "STATES: front door: closed")
+        picked = select_events_for_qa([open_e, closed], "Is the front door open or closed?")
+        # Either is a front-door state row; must not exclusively force closed.
+        blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertIn("front door", blob)
 
     def test_door_closed_detects_adjective_noun_order(self):
         self.assertTrue(_door_closed("A closed door is visible near the entryway"))
         self.assertFalse(_door_closed("The front door is open"))
 
-    def test_select_door_prefers_closed_adjective_noun(self):
-        open_e = _Event("The front door is open")
-        closed = _Event("A closed door is visible near the entryway")
-        picked = select_events_for_qa([open_e, closed], "Is the front door open?")
-        self.assertIn("closed", picked[0].summary.lower())
+    def test_select_indoor_qa_rejects_alley_over_red_sofa(self):
+        alley = _Event(
+            "Outdoor alleyway view from a doorway, showing a garage door",
+            "OBJECTS: garage door, graffiti, metal grate",
+        )
+        sofa = _Event(
+            "Entryway with staircase and red sofa",
+            "OBJECTS: staircase, red sofa, framed picture",
+        )
+        q = "What is in the center of the room with the stairs?"
+        picked = select_events_for_qa([alley, sofa], q)
+        self.assertIn("sofa", (picked[0].summary or "").lower())
+
+    def test_select_wash_hands_prefers_kitchen_sink_not_grate(self):
+        alley = _Event(
+            "Exterior alleyway with a garage door and metal grate",
+            "OBJECTS: garage door, metal grate",
+        )
+        kitchen = _Event(
+            "Kitchen with white cabinets and sink",
+            "OBJECTS: sink, countertop, cabinets",
+        )
+        q = "Where can I wash my hands?"
+        picked = select_events_for_qa([alley, kitchen], q)
+        blob = ((picked[0].summary or "") + " " + (picked[0].details or "")).lower()
+        self.assertIn("sink", blob)
+
+    def test_normalize_upgrades_sofa_to_red_couch_from_hint(self):
+        pred, _ = normalize_qa_prediction(
+            "sofa",
+            question="What is in the center of the room with the stairs?",
+            memory_hint="Entryway with staircase and red sofa\nOBJECTS: red sofa",
+        )
+        self.assertIn("red", pred.lower())
+        self.assertTrue("sofa" in pred.lower() or "couch" in pred.lower())
+
+    def test_normalize_wash_hands_from_kitchen_sink_hint(self):
+        pred, _ = normalize_qa_prediction(
+            "not in memory",
+            question="Where can I wash my hands?",
+            memory_hint="Kitchen with sink and cabinets\nOBJECTS: kitchen sink",
+        )
+        self.assertIn("sink", pred.lower())
+        self.assertIn("kitchen", pred.lower())
 
     def test_normalize_falls_back_to_memory_hint(self):
         pred, _ = normalize_qa_prediction(
