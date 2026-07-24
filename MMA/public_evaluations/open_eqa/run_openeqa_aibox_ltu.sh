@@ -221,20 +221,44 @@ for candidate in \
 done
 [[ -n "${QA_SRC}" ]] || { echo "ERROR: open-eqa-v0.json not found" >&2; exit 1; }
 
-# Prefer persistent /workspace data (code may live under /tmp/MMA2)
+# Prefer persistent media (code may live under /tmp/MMA2 with LFS stub tars).
+# Prefer dirs that actually have usable .mp4 / non-tiny .tar — not empty Git checkouts.
 FRAMES_ROOT="${FRAMES_ROOT:-}"
+_frames_root_score() {
+  local root="$1"
+  local n=0
+  [[ -d "${root}/hm3d-v0" || -d "${root}/scannet-v0" ]] || { echo 0; return; }
+  # Count non-tiny media (real mp4 / extracted tar; skip Git LFS stubs ~<2KB)
+  n=$(find "${root}/hm3d-v0" "${root}/scannet-v0" \
+    \( -name '*.mp4' -o -name '*.tar' \) -type f -size +1M 2>/dev/null | wc -l | tr -d ' ')
+  echo "${n:-0}"
+}
 if [[ -z "${FRAMES_ROOT}" ]]; then
+  best=""
+  best_n=-1
   for candidate in \
+    "/workspace/MMA2/MMA/public_evaluations/data/open_eqa_data" \
+    "/workspace/public_evaluations/data/open_eqa_data" \
+    "/workspace/open_eqa_data" \
+    "/nix/mma2/MMA2/MMA/public_evaluations/data/open_eqa_data" \
     "${WORK_ROOT}/MMA2/MMA/public_evaluations/data/open_eqa_data" \
     "${PEV}/data/open_eqa_data" \
     "${OEQA}/data/open_eqa_data"; do
-    if [[ -d "${candidate}/hm3d-v0" || -d "${candidate}/scannet-v0" ]]; then
-      FRAMES_ROOT="${candidate}"
-      break
+    [[ -d "${candidate}" ]] || continue
+    n="$(_frames_root_score "${candidate}")"
+    if (( n > best_n )); then
+      best_n=$n
+      best="${candidate}"
     fi
   done
+  FRAMES_ROOT="${best}"
 fi
 [[ -n "${FRAMES_ROOT}" ]] || { echo "ERROR: hm3d-v0/scannet-v0 not found" >&2; exit 1; }
+if [[ "$(_frames_root_score "${FRAMES_ROOT}")" -eq 0 ]]; then
+  echo "ERROR: FRAMES_ROOT=${FRAMES_ROOT} has no usable >1MB .mp4/.tar (likely Git LFS stubs)." >&2
+  echo "HINT: export FRAMES_ROOT=/path/to/open_eqa_data that contains real hm3d-v0/*.mp4" >&2
+  exit 1
+fi
 
 [[ -f "${CFG}" ]] || { echo "ERROR: missing config ${CFG}" >&2; exit 1; }
 [[ -d "${MMA_DRAFT_MODEL_PATH:-}" ]] || {
