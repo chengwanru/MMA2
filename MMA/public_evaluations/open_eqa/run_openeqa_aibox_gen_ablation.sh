@@ -2,7 +2,10 @@
 # Parallel generalization + frame-ablation pair for AIBox.
 #
 # Exp A: indices 40–59, 20 questions, 16 frames  (new slice vs offset20)
-# Exp B: indices 40–49, 10 questions, 32 frames  (overlap with A's first 10)
+# Exp B: indices 40–49, 10 questions, 32 frames  (= A's first 10 questions)
+#
+# Compare B vs A's first 10 rows to see if more frames raise accuracy.
+# Both use independent uniform frame sampling (not nested-for-cache).
 #
 # Usage (two GPUs / two tmux sessions recommended):
 #   CUDA_VISIBLE_DEVICES=0 bash run_openeqa_aibox_gen_ablation.sh A
@@ -11,12 +14,8 @@
 # Or launch both sequentially on one GPU:
 #   bash run_openeqa_aibox_gen_ablation.sh both
 #
-# Caption cache: /workspace/openeqa_caption_cache (episode/basename keys → reuse
-# overlapping frames between nested16⊂nested32). Keep ABSORB_BATCH_SIZE=1 for max hits.
-#
-# Frame recommendation: 32 = 2× current (cheap ablation). Use MODE=frames50_o40
-# separately if you want paper-like K=50 on the same 10 questions.
-# Sampling: nested32 so the 16-frame set is a subset of the 32-frame set.
+# Caption cache still helps when the same PNG basename appears in both
+# uniform sets (~partial overlap). Prefer correctness of uniform sampling.
 
 set -euo pipefail
 

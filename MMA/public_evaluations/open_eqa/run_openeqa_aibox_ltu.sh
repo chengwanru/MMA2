@@ -19,7 +19,7 @@
 #   LIMIT=1 OFFSET=20 FRAMES_PER_EPISODE=8 OUTPUT=... RUN_NAME=... DRY_RUN=1
 #
 # Persistent outputs → /workspace/open_eqa_runs/<RUN_NAME>/
-# Ephemeral frame cache / multimodal JSON → /tmp
+# Frame + caption caches → /workspace (avoid filling 40G /)
 
 set -euo pipefail
 
@@ -93,25 +93,23 @@ case "${MODE}" in
     DEFAULT_MAX_SAMPLES=20
     DEFAULT_TAG="20_offset40"
     DEFAULT_FRAMES=16
-    DEFAULT_SAMPLING="nested32"
     ;;
   frames32_o40)
-    # Frame ablation: first 10 of offset40 with 32 frames (compare vs offset40 f16).
+    # Frame ablation: SAME first 10 questions as offset40 (indices 40–49), 32 frames.
+    # Compare accuracy on those 10 vs the f16 answers from the offset40 run.
     DEFAULT_LIMIT=10
     DEFAULT_OFFSET=40
     DEFAULT_MAX_SAMPLES=10
     DEFAULT_TAG="10_offset40_f32"
     DEFAULT_FRAMES=32
-    DEFAULT_SAMPLING="nested32"
     ;;
   frames50_o40)
-    # Paper-like K=50 on the same 10 questions as frames32_o40 / offset40[:10].
+    # Paper-like K=50 on the same 10 questions (indices 40–49).
     DEFAULT_LIMIT=10
     DEFAULT_OFFSET=40
     DEFAULT_MAX_SAMPLES=10
     DEFAULT_TAG="10_offset40_f50"
     DEFAULT_FRAMES=50
-    DEFAULT_SAMPLING="nested50"
     ;;
   *)
     echo "ERROR: unknown MODE=${MODE} (use smoke|10|20|offset20|offset40|frames32_o40|frames50_o40)" >&2
@@ -119,16 +117,14 @@ case "${MODE}" in
     ;;
 esac
 
-# Default sampling for legacy modes (smoke/10/20/offset20)
-DEFAULT_SAMPLING="${DEFAULT_SAMPLING:-uniform}"
-
 LIMIT="${LIMIT:-${DEFAULT_LIMIT}}"
 OFFSET="${OFFSET:-${DEFAULT_OFFSET}}"
 OFFSET_EVAL="${OFFSET_EVAL:-0}"
 MAX_SAMPLES="${MAX_SAMPLES:-${DEFAULT_MAX_SAMPLES}}"
 ALL_FRAMES="${ALL_FRAMES:-0}"
 FRAMES_PER_EPISODE="${FRAMES_PER_EPISODE:-${DEFAULT_FRAMES}}"
-FRAME_SAMPLING="${FRAME_SAMPLING:-${DEFAULT_SAMPLING}}"
+# Always independent uniform sampling for formal runs (do not nest for cache reuse).
+FRAME_SAMPLING="${FRAME_SAMPLING:-uniform}"
 VARIANTS="${VARIANTS:-ours}"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export CUDA_VISIBLE_DEVICES
