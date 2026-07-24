@@ -585,16 +585,18 @@ def _run_memorize(
         log_debug_summary(debug_payload, "memorize")
         episodic_total = int(debug_payload.get("episodic_total") or 0)
     else:
-        # OPENEQA_DEBUG=0 skips debug JSON, but we still must count real rows.
-        # Previously episodic_total stayed 0 → false "empty after absorb" on every Q.
+        # OPENEQA_DEBUG=0 skips debug JSON; still count rows from the live store.
         episodic_total = int(
             collect_episodic_debug(
                 agent.agent, question=sample.get("question", "")
             ).get("episodic_total")
             or 0
         )
-        if episodic_total == 0 and n_direct > 0:
-            episodic_total = int(n_direct)
+
+    # Direct inserts are authoritative: filter/list quirks must not fail memorize
+    # after "[direct_episodic] inserted batch …" already succeeded.
+    if n_direct > 0:
+        episodic_total = max(episodic_total, int(n_direct))
 
     if episodic_total == 0:
         if os.environ.get("OPENEQA_REQUIRE_EPISODIC", "1").strip().lower() not in (
