@@ -86,11 +86,41 @@ case "${MODE}" in
     DEFAULT_TAG="20_offset20"
     DEFAULT_FRAMES=16
     ;;
+  offset40)
+    # Fresh generalization slice (indices 40–59); more where-questions than offset20.
+    DEFAULT_LIMIT=20
+    DEFAULT_OFFSET=40
+    DEFAULT_MAX_SAMPLES=20
+    DEFAULT_TAG="20_offset40"
+    DEFAULT_FRAMES=16
+    DEFAULT_SAMPLING="nested32"
+    ;;
+  frames32_o40)
+    # Frame ablation: first 10 of offset40 with 32 frames (compare vs offset40 f16).
+    DEFAULT_LIMIT=10
+    DEFAULT_OFFSET=40
+    DEFAULT_MAX_SAMPLES=10
+    DEFAULT_TAG="10_offset40_f32"
+    DEFAULT_FRAMES=32
+    DEFAULT_SAMPLING="nested32"
+    ;;
+  frames50_o40)
+    # Paper-like K=50 on the same 10 questions as frames32_o40 / offset40[:10].
+    DEFAULT_LIMIT=10
+    DEFAULT_OFFSET=40
+    DEFAULT_MAX_SAMPLES=10
+    DEFAULT_TAG="10_offset40_f50"
+    DEFAULT_FRAMES=50
+    DEFAULT_SAMPLING="nested50"
+    ;;
   *)
-    echo "ERROR: unknown MODE=${MODE} (use smoke|10|20|offset20)" >&2
+    echo "ERROR: unknown MODE=${MODE} (use smoke|10|20|offset20|offset40|frames32_o40|frames50_o40)" >&2
     exit 1
     ;;
 esac
+
+# Default sampling for legacy modes (smoke/10/20/offset20)
+DEFAULT_SAMPLING="${DEFAULT_SAMPLING:-uniform}"
 
 LIMIT="${LIMIT:-${DEFAULT_LIMIT}}"
 OFFSET="${OFFSET:-${DEFAULT_OFFSET}}"
@@ -98,7 +128,7 @@ OFFSET_EVAL="${OFFSET_EVAL:-0}"
 MAX_SAMPLES="${MAX_SAMPLES:-${DEFAULT_MAX_SAMPLES}}"
 ALL_FRAMES="${ALL_FRAMES:-0}"
 FRAMES_PER_EPISODE="${FRAMES_PER_EPISODE:-${DEFAULT_FRAMES}}"
-FRAME_SAMPLING="${FRAME_SAMPLING:-uniform}"
+FRAME_SAMPLING="${FRAME_SAMPLING:-${DEFAULT_SAMPLING}}"
 VARIANTS="${VARIANTS:-ours}"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export CUDA_VISIBLE_DEVICES
@@ -108,12 +138,16 @@ RUN_NAME="${RUN_NAME:-ltu_${DEFAULT_TAG}_${STAMP}}"
 RUN_DIR="${RUN_DIR:-${WORK_ROOT}/open_eqa_runs/${RUN_NAME}}"
 mkdir -p "${RUN_DIR}" "${OEQA}/logs" "${OEQA}/results"
 
-# Intermediate multimodal JSON + frame cache stay on /tmp (bosfs inode-safe)
-FRAME_CACHE="${FRAME_CACHE:-/tmp/openeqa_frame_cache_${RUN_NAME}}"
-INPUT="${INPUT:-/tmp/open-eqa-multimodal-${DEFAULT_TAG}_${STAMP}.json}"
+# Intermediate multimodal JSON + frame/caption caches prefer /workspace (40G / fills fast)
+FRAME_CACHE="${FRAME_CACHE:-${WORK_ROOT}/openeqa_frame_cache_${RUN_NAME}}"
+INPUT="${INPUT:-${WORK_ROOT}/open-eqa-multimodal-${DEFAULT_TAG}_${STAMP}.json}"
 OUTPUT="${OUTPUT:-${RUN_DIR}/trust_gate_${DEFAULT_TAG}.json}"
 LOG="${LOG:-${RUN_DIR}/run.log}"
 mkdir -p "${FRAME_CACHE}"
+export OPENEQA_CAPTION_CACHE="${OPENEQA_CAPTION_CACHE:-${WORK_ROOT}/openeqa_caption_cache}"
+mkdir -p "${OPENEQA_CAPTION_CACHE}"
+# Shared PNG store across frame-count ablations (optional override).
+export OPENEQA_HOME_ROOT="${OPENEQA_HOME_ROOT:-${WORK_ROOT}}"
 
 # ---------------------------------------------------------------------------
 # 2) LTU toolcall / trust-gate knobs (same as offset20 wrapper)
@@ -121,19 +155,18 @@ mkdir -p "${FRAME_CACHE}"
 export MMA_OFFLINE="${MMA_OFFLINE:-1}"
 export MMA_MEMORY_SEARCH_METHOD=bm25
 export PYTHONUNBUFFERED=1
-export OPENEQA_HOME_ROOT="${OPENEQA_HOME_ROOT:-/tmp}"
+export OPENEQA_HOME_ROOT="${OPENEQA_HOME_ROOT:-${WORK_ROOT}}"
 export OPENEQA_SPLIT_PHASES="${OPENEQA_SPLIT_PHASES:-1}"
 export OPENEQA_DEBUG="${OPENEQA_DEBUG:-1}"
 export OPENEQA_VL_DEBUG="${OPENEQA_VL_DEBUG:-1}"
+export OPENEQA_ABSORB_BATCH_SIZE="${OPENEQA_ABSORB_BATCH_SIZE:-1}"
 
 # Never enter the no-memory direct_sd diversion
 export OPENEQA_DIRECT_SD=0
-
 export OPENEQA_EPISODIC_TOOL_CALL=0
 export OPENEQA_DIRECT_EPISODIC=1
 export OPENEQA_SKIP_ABSORB=1
 export OPENEQA_QA_MAX_TOKENS="${OPENEQA_QA_MAX_TOKENS:-64}"
-export OPENEQA_ABSORB_BATCH_SIZE="${OPENEQA_ABSORB_BATCH_SIZE:-1}"
 export OPENEQA_COLLECT_SD_STATS=1
 export OPENEQA_TRUST_GATE=1
 export OPENEQA_VERIFY_REJECT_BAD_DRAFT=1

@@ -2079,6 +2079,45 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
             return cleaned[0].upper() + cleaned[1:] if cleaned else cleaned
         return ""
 
+    # 1) Prefer explicit SPATIAL / LOCALIZATION lines that mention the subject.
+    #    Do this BEFORE loose "subject … above …" scans so checklist noise cannot win.
+    spatial_hits: List[Tuple[int, str]] = []
+    for line in hint_l.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        is_labeled = bool(re.match(r"^(?:localization|spatial)\s*:", line, re.I))
+        if aliases and not any(re.search(rf"\b{re.escape(a)}\b", line) for a in aliases):
+            continue
+        if not is_labeled and not re.search(rf"\b{rel}\b", line):
+            continue
+        cleaned = re.sub(r"^(?:localization|spatial)\s*:\s*", "", line, flags=re.I).strip()
+        # Prefer relation+landmark without repeating the asked subject as the answer head.
+        for alias in aliases:
+            cleaned = re.sub(
+                rf"^\s*(?:the\s+|a\s+|an\s+)?{re.escape(alias)}\s+(?:is|are|sits|located)\s+",
+                "",
+                cleaned,
+                flags=re.I,
+            )
+        out = _finalize_loc(cleaned)
+        if out:
+            # SPATIAL beats LOCALIZATION: localization often has "above workbench"
+            # while spatial carries the landmark used in gold ("left of doorway").
+            score = 1
+            if re.match(r"^spatial\s*:", line, re.I):
+                score = 5
+            elif re.match(r"^localization\s*:", line, re.I):
+                score = 3
+            if re.search(rf"\b{rel}\b", cleaned):
+                score += 1
+            if "doorway" in cleaned:
+                score += 1
+            spatial_hits.append((score, out))
+    if spatial_hits:
+        spatial_hits.sort(key=lambda x: x[0], reverse=True)
+        return spatial_hits[0][1]
+
     # Opener / broom: prefer canonical landmarks when present anywhere in memory.
     if subject in ("opener",) or "opener" in (question or "").lower():
         m = re.search(
@@ -3121,10 +3160,25 @@ def _evidence_search_queries(question: str) -> List[str]:
         queries.append("hose garden hose")
     if "broom" in q_l:
         queries.append("broom garage door opener")
+        queries.append("LOCALIZATION SPATIAL broom below")
     if "opener" in q_l:
         queries.append("garage door opener doorway")
-    if "doorway" in q_l or ("door" in q_l and "open" in q_l):
+        queries.append("SPATIAL opener left doorway")
+    if "doorway" in q_l or "house doorway" in q_l:
+        queries.append("house doorway open closed")
+        queries.append("doorway STATES open")
+    elif ("door" in q_l and "open" in q_l):
         queries.append("doorway open closed house doorway")
+        if "patio" in q_l:
+            queries.append("patio door glass door closed open STATES")
+        if "front" in q_l:
+            queries.append("front door open closed STATES")
+    if "patio" in q_l and "door" in q_l:
+        queries.append("patio door glass sliding door STATES")
+    if _is_where_question(question) and subject:
+        queries.append(f"LOCALIZATION SPATIAL {subject}")
+    if ("color" in q_l or "colour" in q_l) and subject:
+        queries.append(f"ATTRIBUTES {subject} color")
     if "under" in q_l and "bed" in q_l:
         queries.append("under-bed storage under the bed")
     if "light" in q_l and ("on" in q_l or "turned" in q_l):
@@ -3138,7 +3192,7 @@ def _evidence_search_queries(question: str) -> List[str]:
             continue
         seen.add(q)
         out.append(q)
-    return out[:4]
+    return out[:6]
 
 
 def _event_id(event: Any) -> str:

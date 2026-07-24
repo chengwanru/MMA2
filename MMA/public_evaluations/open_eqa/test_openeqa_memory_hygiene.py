@@ -620,6 +620,21 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         picked = select_events_for_qa([clutter, sedan], q)
         self.assertIn("sedan", (picked[0].summary or "").lower())
 
+    def test_where_prefers_spatial_line_over_loose_above(self):
+        q = "Where is the garage opener?"
+        hint = (
+            "OBJECTS: garage door opener, broom\n"
+            "LOCALIZATION: opener mounted on the ceiling above the workbench\n"
+            "SPATIAL: garage door opener is to the left of the house doorway"
+        )
+        pred, _ = normalize_qa_prediction(
+            "Opener: above garage workbench",
+            question=q,
+            memory_hint=hint,
+        )
+        self.assertIn("left", pred.lower())
+        self.assertIn("doorway", pred.lower())
+
     def test_broom_question_prefers_broom_row_when_scores_tie(self):
         workbench = _Event(
             "garage with workbench, heater, and storage bins",

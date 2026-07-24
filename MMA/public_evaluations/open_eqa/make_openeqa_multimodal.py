@@ -13,6 +13,7 @@ uniform (spread across the episode) rather than the first N frames in each tar.
 import argparse
 import json
 import os
+import re
 import tarfile
 from glob import glob
 from pathlib import Path
@@ -116,11 +117,33 @@ def _uniform_sample_indices(total: int, k: int) -> List[int]:
     return sorted({int(round(i * (total - 1) / (k - 1))) for i in range(k)})
 
 
+def _nested_sample_indices(total: int, k: int, parent_k: int) -> List[int]:
+    """Uniform parent set, then subsample so smaller-k ablations are nested subsets.
+
+    Example: parent_k=32, k=16 → 16 frames ⊆ the 32-frame set → caption/PNG reuse.
+    """
+    parent_k = max(int(parent_k), int(k), 1)
+    parent = _uniform_sample_indices(total, parent_k)
+    if k >= len(parent):
+        return parent
+    picks = _uniform_sample_indices(len(parent), k)
+    return [parent[i] for i in picks]
+
+
 def _sample_indices(total: int, k: int, sampling: str) -> List[int]:
     if sampling == "all" or k <= 0 or k >= total:
         return list(range(total))
     if sampling == "head":
         return list(range(min(total, k)))
+    if sampling.startswith("nested"):
+        # nested / nested32 / nested50
+        parent_k = 32
+        m = re.match(r"nested(\d+)$", sampling)
+        if m:
+            parent_k = int(m.group(1))
+        else:
+            parent_k = int(os.environ.get("OPENEQA_NEST_PARENT", "32"))
+        return _nested_sample_indices(total, k, parent_k)
     return _uniform_sample_indices(total, k)
 
 
@@ -374,7 +397,10 @@ def _frame_paths_for_episode(
     sampling: str,
 ) -> tuple[List[str], bool]:
     """Return (paths, pulled_from_archive). Supports .tar PNGs or .mp4 previews."""
-    cache_dir = os.path.join(frame_cache, episode)
+    # Nest by frame budget so 16 vs 32 ablations (and parallel A/B runs) do not
+    # wipe each other's PNGs via .frame_manifest.json max_frames mismatch.
+    frame_tag = "all" if max_frames <= 0 else f"f{int(max_frames)}_{sampling}"
+    cache_dir = os.path.join(frame_cache, frame_tag, episode)
     tar_path = _episode_tar_path(frames_root, episode)
     if tar_path:
         return _minimal_frames_from_tar(tar_path, cache_dir, max_frames, sampling), True

@@ -16,14 +16,37 @@ from openeqa_memory import (
 )
 
 
+def _stable_frame_ids(image_paths: List[str]) -> List[str]:
+    """Episode-relative frame ids so caption cache survives different FRAME_CACHE roots.
+
+    Paths look like .../frame_cache/f16_uniform/<episode>/<frame>.png — skip the
+    fK_sampling tag so 16-frame and 32-frame ablations share captions for the
+    same episode+basename.
+    """
+    ids: List[str] = []
+    for path in image_paths:
+        p = Path(os.path.abspath(path))
+        parts = list(p.parts)
+        if len(parts) >= 3 and re.match(r"^f\d+_", parts[-3]):
+            ids.append(f"{parts[-2]}/{parts[-1]}")
+        elif len(parts) >= 2:
+            ids.append(f"{parts[-2]}/{parts[-1]}")
+        else:
+            ids.append(p.name)
+    return ids
+
+
 def _get_caption_cache_path(image_paths: List[str]) -> Path:
-    """Persistent caption cache on /workspace so rememorize can skip VL."""
+    """Persistent caption cache on /workspace so rememorize can skip VL.
+
+    Keyed by episode/basename (not absolute FRAME_CACHE path) so 16-frame and
+    32-frame ablations reuse captions for overlapping frames.
+    """
     cache_root = Path(
         os.environ.get("OPENEQA_CAPTION_CACHE", "/workspace/openeqa_caption_cache")
     )
     cache_root.mkdir(parents=True, exist_ok=True)
-    normalized_paths = [os.path.abspath(p) for p in image_paths]
-    path_string = "||".join(normalized_paths)
+    path_string = "||".join(_stable_frame_ids(image_paths))
     path_hash = hashlib.sha256(path_string.encode("utf-8")).hexdigest()
     return cache_root / f"{path_hash}.txt"
 
