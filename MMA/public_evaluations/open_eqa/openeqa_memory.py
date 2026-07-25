@@ -2962,6 +2962,35 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
         elif re.search(r"\bceiling\s+fan\b", hint_l):
             _add(4, "ceiling fan")
 
+    # Co-occurrence fallback: landmark + typical object in same memory blob
+    # (captions often list both in OBJECTS without a clean SPATIAL line).
+    if not candidates:
+        landmark_hit = any(re.search(rf"\b{re.escape(a)}\b", hint_l) for a in aliases)
+        if landmark_hit and family == "under":
+            for cand in (
+                "radiator", "heater", "console table", "dresser", "cabinet",
+                "bookshelf", "shelf", "nightstand",
+            ):
+                if re.search(rf"\b{re.escape(cand)}\b", hint_l):
+                    _add(2, cand)
+                    break
+        if landmark_hit and family in ("left", "right"):
+            for cand in (
+                "light switch", "switch", "towel", "plant", "vase", "lamp",
+                "clock", "door", "window", "cabinet", "sink",
+            ):
+                if re.search(rf"\b{re.escape(cand)}\b", hint_l):
+                    _add(2, cand)
+                    break
+        if landmark_hit and family == "across":
+            for cand in (
+                "mirror", "painting", "picture", "window", "door", "fireplace",
+                "cabinet", "couch", "sofa", "table",
+            ):
+                if re.search(rf"\b{re.escape(cand)}\b", hint_l):
+                    _add(2, cand)
+                    break
+
     if not candidates:
         return ""
     candidates.sort(key=lambda x: x[0], reverse=True)

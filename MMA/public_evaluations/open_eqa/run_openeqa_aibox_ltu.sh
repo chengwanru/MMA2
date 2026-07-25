@@ -293,6 +293,13 @@ fi
 echo "========================================"
 echo " AIBox LTU-parity OpenEQA"
 echo "========================================"
+GIT_HEAD="$(git -C "${ROOT}/.." rev-parse --short HEAD 2>/dev/null || git -C "${ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+echo "GIT_HEAD=${GIT_HEAD}  OEQA=${OEQA}"
+"${PY}" - <<'PY'
+import openeqa_memory as m
+print("openeqa_memory=", m.__file__)
+print("has_relational_extract=", hasattr(m, "_extract_relational_object_from_memory"))
+PY
 echo "MODE=${MODE}  LIMIT=${LIMIT}  OFFSET=${OFFSET}  OFFSET_EVAL=${OFFSET_EVAL}"
 echo "FRAMES_PER_EPISODE=${FRAMES_PER_EPISODE}  ALL_FRAMES=${ALL_FRAMES}"
 echo "VARIANTS=${VARIANTS}"

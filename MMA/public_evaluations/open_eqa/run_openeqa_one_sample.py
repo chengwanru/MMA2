@@ -834,8 +834,21 @@ def _run_qa(
     if not raw_prediction:
         print("  [qa] empty response after retries (normalize may use memory hint)", flush=True)
 
+    from openeqa_memory import memory_hint_from_events
+
     memory_hint = (draft_policy or {}).get("top_memory_hint") or (
         (draft_policy or {}).get("top_memory_preview") or ""
+    )
+    # Always rebuild from the selected QA window — policy hint can be empty/stale.
+    if selected_events:
+        rebuilt = memory_hint_from_events(selected_events)
+        if len(rebuilt) >= len(memory_hint or ""):
+            memory_hint = rebuilt
+    print(
+        f"  [qa] memory_hint_chars={len(memory_hint or '')} "
+        f"selected={len(selected_events or [])} "
+        f"raw_empty={not bool(raw_prediction)}",
+        flush=True,
     )
     prediction, _ = normalize_qa_prediction(
         raw_prediction,
