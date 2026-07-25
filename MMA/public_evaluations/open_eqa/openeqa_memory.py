@@ -3719,6 +3719,7 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
 def _extract_purpose_tool_from_memory(hint: str, question: str) -> str:
     """For 'what can I use to …', extract a concrete object NP near purpose terms."""
     blob = sanitize_memory_text_for_inference((hint or "").strip())
+    blob = _evidence_text(blob)
     if not blob:
         return ""
     hint_l = blob.lower()
@@ -3726,7 +3727,7 @@ def _extract_purpose_tool_from_memory(hint: str, question: str) -> str:
     purpose = _question_purpose_terms(question)
     dry_q = bool(
         re.search(r"\bdry(?:ing)?\b", q_l)
-        and ("hand" in q_l or "hands" in purpose or "dry" in purpose or "drying" in purpose)
+        and ("hand" in q_l or "dry" in purpose or "drying" in purpose)
     )
     cool_q = (
         any(p in purpose for p in ("cool", "cooling", "cold"))
