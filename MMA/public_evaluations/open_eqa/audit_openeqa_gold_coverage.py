@@ -40,6 +40,7 @@ from openeqa_direct_episodic import (  # noqa: E402
 )
 from openeqa_memory import (  # noqa: E402
     _evidence_text,
+    parse_caption_summary_details,
     select_events_for_qa,
 )
 
@@ -107,19 +108,7 @@ def _gold_coverage(blob: str, gold: str, question: str = "") -> Dict[str, Any]:
 
 
 def _parse_caption_block(text: str) -> Tuple[str, str]:
-    text = (text or "").strip()
-    if not text:
-        return "", ""
-    sm = re.search(r"SUMMARY:\s*(.+?)(?:\n|$)", text, re.I)
-    dm = re.search(r"DETAILS:\s*(.+)", text, re.I | re.S)
-    if sm:
-        return sm.group(1).strip()[:500], (dm.group(1).strip() if dm else text)[:8000]
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    if not lines:
-        return "", ""
-    if len(lines) == 1:
-        return lines[0][:500], lines[0][:8000]
-    return lines[0][:500], "\n".join(lines)[:8000]
+    return parse_caption_summary_details(text)
 
 
 def _load_frame_captions(image_paths: Sequence[str]) -> Tuple[List[_Event], int, int]:

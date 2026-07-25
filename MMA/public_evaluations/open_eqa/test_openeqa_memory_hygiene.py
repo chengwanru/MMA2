@@ -1559,6 +1559,22 @@ class GenerateExtractRootCauseTests(unittest.TestCase):
         self.assertIn("pier", packed.lower())
         self.assertIn("art_content", packed.lower())
 
+    def test_parse_caption_keeps_trailing_spatial_under_budget(self):
+        from openeqa_memory import parse_caption_summary_details
+
+        objs = "OBJECTS: " + ", ".join([f"item{i}" for i in range(900)])
+        raw = (
+            "SUMMARY: bedroom: bed\nDETAILS:\nROOM: bedroom\n"
+            f"{objs}\n"
+            "SPATIAL: air vent is above the painting\n"
+            "ART_CONTENT: white flowers\n"
+        )
+        summary, details = parse_caption_summary_details(raw, max_details=8000)
+        self.assertIn("bedroom", summary.lower())
+        self.assertIn("vent", details.lower())
+        self.assertIn("art_content", details.lower())
+        self.assertIn("white flowers", details.lower())
+
 
 class MemoryTextSanitizeTests(unittest.TestCase):
     def test_sanitize_strips_timestamps(self):

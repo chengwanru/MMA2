@@ -301,19 +301,13 @@ def _patch_offline_constants() -> None:
 
 
 def _parse_summary_details(text: str) -> Tuple[str, str]:
+    from openeqa_memory import parse_caption_summary_details
+
     text = (text or "").strip()
     if not text:
         return "Scene observation", ""
-    summary_m = re.search(r"SUMMARY:\s*(.+?)(?:\n|$)", text, re.I)
-    details_m = re.search(r"DETAILS:\s*(.+)", text, re.I | re.S)
-    if summary_m:
-        summary = summary_m.group(1).strip()
-        details = details_m.group(1).strip() if details_m else text
-        return summary[:500], details[:8000]
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    if len(lines) == 1:
-        return lines[0][:500], lines[0][:8000]
-    return lines[0][:500], "\n".join(lines)[:8000]
+    summary, details = parse_caption_summary_details(text)
+    return (summary or "Scene observation"), details
 
 
 @contextmanager
@@ -827,10 +821,9 @@ def _load_caption_cache_events(image_paths: List[str]) -> List[Any]:
         parts = re.split(r"(?=SUMMARY:\s)", raw, flags=re.I)
         parts = [p.strip() for p in parts if p.strip()] or [raw]
         for part in parts:
-            sm = re.search(r"SUMMARY:\s*(.+?)(?:\n|$)", part, re.I)
-            dm = re.search(r"DETAILS:\s*(.+)", part, re.I | re.S)
-            summary = (sm.group(1).strip() if sm else part.splitlines()[0])[:500]
-            details = (dm.group(1).strip() if dm else part)[:8000]
+            from openeqa_memory import parse_caption_summary_details
+
+            summary, details = parse_caption_summary_details(part)
             if summary or details:
                 events.append(_CapEvent(summary or "Scene", details or part))
     return events

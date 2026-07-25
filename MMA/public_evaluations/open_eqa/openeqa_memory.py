@@ -1903,6 +1903,50 @@ def memory_hint_from_events(
     return _pack_memory_hint_text(hint, question=question, max_chars=max_chars)
 
 
+def parse_caption_summary_details(
+    text: str,
+    *,
+    max_summary: int = 500,
+    max_details: Optional[int] = None,
+    question: str = "",
+) -> Tuple[str, str]:
+    """Split SUMMARY/DETAILS and pack details so SPATIAL/ART_CONTENT survive budgets.
+
+    Blind ``details[:8000]`` drops trailing structured channels when OBJECTS is long
+    — that made offline replay look like extractors failed when evidence was only
+    truncated away.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return "", ""
+    if max_details is None:
+        max_details = max(
+            8000, int(os.environ.get("OPENEQA_CAPTION_DETAILS_CHARS", "16000"))
+        )
+    sm = re.search(r"SUMMARY:\s*(.+?)(?:\n|$)", raw, re.I)
+    dm = re.search(r"DETAILS:\s*(.+)", raw, re.I | re.S)
+    if sm:
+        summary = sm.group(1).strip()[:max_summary]
+        body = (dm.group(1).strip() if dm else raw).strip()
+        details = _pack_memory_hint_text(
+            body, question=question, max_chars=max_details
+        )
+        return summary, details
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    if not lines:
+        return "", ""
+    if len(lines) == 1:
+        packed = _pack_memory_hint_text(
+            lines[0], question=question, max_chars=max_details
+        )
+        return lines[0][:max_summary], packed
+    summary = lines[0][:max_summary]
+    body = "\n".join(lines[1:] if lines[0].lower().startswith("summary:") else lines)
+    return summary, _pack_memory_hint_text(
+        body, question=question, max_chars=max_details
+    )
+
+
 def events_to_memory_items(events: List[Any]) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
     for event in events:

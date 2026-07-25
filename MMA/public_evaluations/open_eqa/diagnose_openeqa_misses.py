@@ -31,7 +31,7 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 from openeqa_direct_episodic import _get_caption_cache_path  # noqa: E402
-from openeqa_memory import select_events_for_qa  # noqa: E402
+from openeqa_memory import parse_caption_summary_details, select_events_for_qa  # noqa: E402
 
 
 class _Event:
@@ -78,14 +78,7 @@ def _is_good(label: str) -> bool:
 
 
 def _parse_block(text: str) -> Tuple[str, str]:
-    sm = re.search(r"SUMMARY:\s*(.+?)(?:\n|$)", text, re.I)
-    dm = re.search(r"DETAILS:\s*(.+)", text, re.I | re.S)
-    if sm:
-        return sm.group(1).strip()[:500], (dm.group(1).strip() if dm else text)[:8000]
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    if not lines:
-        return "", ""
-    return lines[0][:500], "\n".join(lines)[:8000]
+    return parse_caption_summary_details(text)
 
 
 def _load_events(image_paths: Sequence[str]) -> List[_Event]:

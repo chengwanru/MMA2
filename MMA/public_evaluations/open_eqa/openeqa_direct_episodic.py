@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from openeqa_memory import (
     clear_openeqa_scene_episodic,
     episodic_events_cover_frames,
+    parse_caption_summary_details,
 )
 
 
@@ -506,16 +507,13 @@ def _parse_summary_details(text: str) -> Tuple[str, str]:
     text = harden_caption_text(text or "")
     if not text:
         return "Scene observation", ""
-    summary_m = re.search(r"SUMMARY:\s*(.+?)(?:\n|$)", text, re.I)
-    details_m = re.search(r"DETAILS:\s*(.+)", text, re.I | re.S)
-    if summary_m:
-        summary = summary_m.group(1).strip()
-        details = details_m.group(1).strip() if details_m else text
-        return summary[:500], details[:12000]
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    if len(lines) == 1:
-        return lines[0][:500], lines[0][:12000]
-    return lines[0][:500], "\n".join(lines)[:12000]
+    summary, details = parse_caption_summary_details(
+        text,
+        max_details=max(
+            8000, int(os.environ.get("OPENEQA_CAPTION_DETAILS_CHARS", "16000"))
+        ),
+    )
+    return (summary or "Scene observation"), details
 
 
 def _entity_tags_from_text(text: str) -> List[str]:

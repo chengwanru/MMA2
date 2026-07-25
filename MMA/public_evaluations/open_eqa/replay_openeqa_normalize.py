@@ -26,9 +26,11 @@ if str(_HERE) not in sys.path:
 
 from openeqa_direct_episodic import _get_caption_cache_path  # noqa: E402
 from openeqa_memory import (  # noqa: E402
+    _extract_painting_content_from_memory,
     _extract_relational_object_from_memory,
     memory_hint_from_events,
     normalize_qa_prediction,
+    parse_caption_summary_details,
     select_events_for_qa,
 )
 
@@ -41,23 +43,11 @@ class _Event:
         self.tree_path = ["openeqa", "scene"]
 
 
-def _parse_caption_block(text: str) -> Tuple[str, str]:
-    text = (text or "").strip()
-    if not text:
-        return "", ""
-    sm = re.search(r"SUMMARY:\s*(.+?)(?:\n|$)", text, re.I)
-    dm = re.search(r"DETAILS:\s*(.+)", text, re.I | re.S)
-    if sm:
-        return sm.group(1).strip()[:500], (dm.group(1).strip() if dm else text)[:8000]
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    if not lines:
-        return "", ""
-    if len(lines) == 1:
-        return lines[0][:500], lines[0][:8000]
-    return lines[0][:500], "\n".join(lines)[:8000]
+def _parse_caption_block(text: str, question: str = "") -> Tuple[str, str]:
+    return parse_caption_summary_details(text, question=question)
 
 
-def _load_events(image_paths: Sequence[str]) -> List[_Event]:
+def _load_events(image_paths: Sequence[str], question: str = "") -> List[_Event]:
     events: List[_Event] = []
     candidates: List[List[str]] = [list(image_paths)]
     candidates.extend([[p] for p in image_paths])
@@ -76,7 +66,7 @@ def _load_events(image_paths: Sequence[str]) -> List[_Event]:
         parts = re.split(r"(?=SUMMARY:\s)", raw, flags=re.I)
         parts = [p.strip() for p in parts if p.strip()] or [raw]
         for part in parts:
-            summary, details = _parse_caption_block(part)
+            summary, details = _parse_caption_block(part, question=question)
             if summary or details:
                 events.append(_Event(summary or "Scene", details or part))
     return events
@@ -205,7 +195,7 @@ def main() -> None:
         images = sample.get("image_paths") or sample.get("images") or []
         if isinstance(images, str):
             images = [images]
-        events = _load_events([str(p) for p in images])
+        events = _load_events([str(p) for p in images], question=question)
         selected = select_events_for_qa(events, question) if events else []
         # Prefer selected window; fall back to wider pool when extract is empty
         # (mirrors QA recover path — select-miss should not hide generate gains).
@@ -239,7 +229,18 @@ def main() -> None:
                     new_pred = alt
                     hint_sel = hint_wide
         hint = hint_sel
+        hint_l = (hint or "").lower()
         rel = _extract_relational_object_from_memory(hint, question)
+        art = _extract_painting_content_from_memory(hint, question)
+        flags = []
+        if re.search(r"(?m)^spatial\s*:", hint_l):
+            flags.append("spatial")
+        if re.search(r"(?m)^art_content\s*:", hint_l):
+            flags.append("art")
+        if re.search(r"\b(?:air\s+)?vent\b", hint_l):
+            flags.append("vent")
+        if re.search(r"\bpier\b", hint_l):
+            flags.append("pier")
         mark = "CHANGED" if (new_pred or "").strip() != old_pred else "same"
         if mark == "CHANGED":
             changed += 1
@@ -248,8 +249,8 @@ def main() -> None:
         if _good(gold, new_pred or ""):
             good_new += 1
         print(
-            f"{i+1:2} {mark:7} hint={len(hint):4}d events={len(events):2}/{len(selected):2} "
-            f"rel={rel[:40]!r}"
+            f"{i+1:2d} {mark:7s} hint={len(hint):4d}d events={len(events):2d}/{len(selected):2d} "
+            f"rel={(rel or '')[:36]!r} art={(art or '')[:28]!r} flags={','.join(flags) or '-'}"
         )
         print(f"    Q: {question[:70]}")
         print(f"    gold={gold!r}")
