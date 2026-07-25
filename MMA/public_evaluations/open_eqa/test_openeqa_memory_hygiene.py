@@ -260,6 +260,36 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         self.assertIn("towel", pred.lower())
 
+    def test_dry_hands_does_not_pick_ceiling_fan(self):
+        pred, _ = normalize_qa_prediction(
+            "In the bathroom sink",
+            question="After washing my hands in the sink, what should I use to dry my hands?",
+            memory_hint=(
+                "ROOM: bathroom\nOBJECTS: sink, ceiling fan, mirror\n"
+                "functional_cues: cool: ceiling fan; wash hands at sink"
+            ),
+        )
+        self.assertNotIn("fan", pred.lower())
+        # No towel in memory → do not invent a cooling tool.
+        self.assertNotEqual(pred.lower().strip(), "the ceiling fan")
+
+    def test_table_material_ignores_nearby_wooden_chairs(self):
+        pred, _ = normalize_qa_prediction(
+            "en",
+            question="What material is the dining table?",
+            memory_hint="OBJECTS: wooden chairs, dining table, wood floor",
+        )
+        # No glass/wood bound to table → keep model fragment rather than invent Wood.
+        self.assertNotEqual(pred.lower().strip(), "wood")
+
+    def test_table_material_glass_top_binding(self):
+        pred, _ = normalize_qa_prediction(
+            "en",
+            question="What material is the dining table?",
+            memory_hint="ATTRIBUTES: dining table: glass top; chairs: wood",
+        )
+        self.assertIn("glass", pred.lower())
+
     def test_painting_content_overrides_refusal(self):
         pred, _ = normalize_qa_prediction(
             "No painting depicted",

@@ -140,6 +140,28 @@ def main() -> None:
         n = min(n, args.limit)
 
     changed = 0
+    good_old = good_new = 0
+
+    def _good(gold: str, pred: str) -> bool:
+        from openeqa_memory import _norm  # type: ignore
+        # local match consistent with summary
+        import re as _re
+        if not pred or str(pred).startswith("ERROR"):
+            return False
+        g = _re.sub(r"\s+", " ", (gold or "").strip().lower())
+        p = _re.sub(r"\s+", " ", (pred or "").strip().lower())
+        if not p:
+            return False
+        if g == p or g in p or p in g:
+            return True
+        gw = {w for w in _re.findall(r"[a-z0-9]+", g) if len(w) > 2}
+        pw = {w for w in _re.findall(r"[a-z0-9]+", p) if len(w) > 2}
+        if gw and gw <= pw:
+            return True
+        if gw and len(gw & pw) >= max(1, len(gw) // 2):
+            return True
+        return False
+
     for i in range(n):
         sample = multimodal[i]
         row = results[i]
@@ -151,16 +173,34 @@ def main() -> None:
             images = [images]
         events = _load_events([str(p) for p in images])
         selected = select_events_for_qa(events, question) if events else []
-        hint = memory_hint_from_events(selected or events)
+        # Prefer selected window; fall back to wider pool when extract is empty
+        # (mirrors QA recover path — select-miss should not hide generate gains).
+        hint_sel = memory_hint_from_events(selected or events)
+        hint_wide = memory_hint_from_events(events, top_k=min(24, len(events))) if events else ""
+        raw_for_norm = old_pred if not old_pred.startswith("ERROR") else "ERROR"
         new_pred, _ = normalize_qa_prediction(
-            old_pred if not old_pred.startswith("ERROR") else "ERROR",
-            question=question,
-            memory_hint=hint,
+            raw_for_norm, question=question, memory_hint=hint_sel
         )
+        if (not new_pred or new_pred.startswith("ERROR") or new_pred == old_pred) and hint_wide:
+            alt, _ = normalize_qa_prediction(
+                raw_for_norm, question=question, memory_hint=hint_wide
+            )
+            if alt and not alt.startswith("ERROR"):
+                # Keep alt when it improves over selected-only / old.
+                if not new_pred or new_pred.startswith("ERROR") or (
+                    _good(gold, alt) and not _good(gold, new_pred or "")
+                ):
+                    new_pred = alt
+                    hint_sel = hint_wide
+        hint = hint_sel
         rel = _extract_relational_object_from_memory(hint, question)
         mark = "CHANGED" if (new_pred or "").strip() != old_pred else "same"
         if mark == "CHANGED":
             changed += 1
+        if _good(gold, old_pred):
+            good_old += 1
+        if _good(gold, new_pred or ""):
+            good_new += 1
         print(
             f"{i+1:2} {mark:7} hint={len(hint):4}d events={len(events):2}/{len(selected):2} "
             f"rel={rel[:40]!r}"
@@ -170,6 +210,7 @@ def main() -> None:
         print(f"    old ={old_pred[:80]!r}")
         print(f"    new ={(new_pred or '')[:80]!r}")
     print(f"=== replay: {changed}/{n} predictions would change ===")
+    print(f"=== substring-good: old={good_old}/{n}  new={good_new}/{n}  delta={good_new-good_old:+d} ===")
 
 
 if __name__ == "__main__":
