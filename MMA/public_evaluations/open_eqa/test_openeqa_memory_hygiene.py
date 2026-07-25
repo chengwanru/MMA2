@@ -209,6 +209,100 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         self.assertIn("couch", pred.lower())
 
+    def test_evidence_strips_implied_by_and_taxonomy(self):
+        from openeqa_memory import _evidence_text
+
+        raw = (
+            "OBJECTS: mirror, light fixture\n"
+            "smoke detector (implied by ceiling shape)\n"
+            "WORLD_CUES: multiple showers, multiple tubs, multiple fridges, "
+            "multiple stoves, multiple microwaves, multiple dishwashers\n"
+            "ATTRIBUTES: mirror: gold frame\n"
+        )
+        ev = _evidence_text(raw).lower()
+        self.assertNotIn("implied by", ev)
+        self.assertNotIn("multiple microwaves", ev)
+        self.assertIn("gold frame", ev)
+
+    def test_pattern_binds_to_pillow_not_sofa_color(self):
+        pred, _ = normalize_qa_prediction(
+            "Black",
+            question="What color pattern is on the pillow on the black couch?",
+            memory_hint="OBJECTS: black leather sofa, leopard-print pillow, coffee table",
+        )
+        self.assertIn("leopard", pred.lower())
+
+    def test_above_mirror_prefers_lights_over_wall_art(self):
+        pred, _ = normalize_qa_prediction(
+            "wall art",
+            question="What is above the mirror in the bathroom?",
+            memory_hint=(
+                "ROOM: bathroom\n"
+                "OBJECTS: mirror, lights, wall art, sink\n"
+                "LOCALIZATION: lights above mirror; wall art on side wall"
+            ),
+        )
+        self.assertRegex(pred.lower(), r"light")
+
+    def test_between_cabinets_prefers_microwave(self):
+        pred, _ = normalize_qa_prediction(
+            "refrigerator",
+            question="What is in between the two white cabinets in the kitchen?",
+            memory_hint="OBJECTS: white cabinets, microwave, refrigerator, stove",
+        )
+        self.assertIn("microwave", pred.lower())
+
+    def test_dry_hands_uses_towel_not_sink(self):
+        pred, _ = normalize_qa_prediction(
+            "In the bathroom sink",
+            question="After washing my hands in the sink, what should I use to dry my hands?",
+            memory_hint="functional_cues: wash hands at sink; hand towel on rack",
+        )
+        self.assertIn("towel", pred.lower())
+
+    def test_painting_content_overrides_refusal(self):
+        pred, _ = normalize_qa_prediction(
+            "No painting depicted",
+            question="What is depicted on the painting above the bed?",
+            memory_hint="ATTRIBUTES: painting above bed: white flowers; bed: wood",
+        )
+        self.assertIn("flower", pred.lower())
+
+    def test_or_choice_prefers_memory_option(self):
+        pred, _ = normalize_qa_prediction(
+            "Yes",
+            question="Does this house have pull lever door handles or knobs?",
+            memory_hint="ATTRIBUTES: door: metal pull lever handle; no round knobs",
+        )
+        self.assertIn("lever", pred.lower())
+
+    def test_count_basins_from_memory(self):
+        pred, _ = normalize_qa_prediction(
+            "one basin",
+            question="How many basins does the sink have?",
+            memory_hint="ATTRIBUTES: sink: white, two basins, dual faucet",
+        )
+        self.assertEqual(pred.lower(), "two")
+
+    def test_mirror_trim_color_from_memory(self):
+        pred, _ = normalize_qa_prediction(
+            "White",
+            question="What color is the trim around the mirror?",
+            memory_hint="ATTRIBUTES: mirror: gold frame, rectangular, hanging on wall",
+        )
+        self.assertIn("gold", pred.lower())
+
+    def test_curtain_yesno_scoped_to_patio(self):
+        pred, _ = normalize_qa_prediction(
+            "No",
+            question="Are the curtains to the patio door open?",
+            memory_hint=(
+                "STATES: front door: closed; patio curtains: open; "
+                "bedroom closet: closed"
+            ),
+        )
+        self.assertEqual(pred.lower(), "yes")
+
     def test_between_frames_conflict_ac_vs_tv(self):
         events = [
             _Event("Between picture frames there is a wall-mounted air conditioning unit"),

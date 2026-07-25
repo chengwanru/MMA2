@@ -100,10 +100,28 @@ def _result_rows(payload: Any) -> List[Dict[str, Any]]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--multimodal", type=Path, required=True)
-    ap.add_argument("--results", type=Path, required=True)
+    ap.add_argument("--multimodal", type=Path, default=None)
+    ap.add_argument("--results", type=Path, default=None)
+    ap.add_argument("--run-dir", type=Path, default=None,
+                    help="compare_* dir: auto-resolve multimodal + mma_sd.json")
     ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args()
+
+    if args.run_dir:
+        run_dir = args.run_dir.resolve()
+        args.results = args.results or (run_dir / "mma_sd.json")
+        work_root = run_dir.parent.parent if run_dir.parent.name == "open_eqa_runs" else run_dir.parent
+        if args.multimodal is None:
+            cand = work_root / f"open-eqa-multimodal-{run_dir.name}.json"
+            log = run_dir / "run.log"
+            if log.is_file():
+                for line in log.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    if line.startswith("INPUT="):
+                        cand = Path(line.split("=", 1)[1].strip())
+                        break
+            args.multimodal = cand
+    if not args.multimodal or not args.results:
+        raise SystemExit("Need --run-dir or both --multimodal and --results")
 
     import openeqa_memory as om
 
@@ -114,7 +132,8 @@ def main() -> None:
     )
     print(f"caption_cache={os.environ.get('OPENEQA_CAPTION_CACHE', '')}")
 
-    multimodal = json.loads(args.multimodal.read_text(encoding="utf-8"))
+    mm_raw = json.loads(args.multimodal.read_text(encoding="utf-8"))
+    multimodal = mm_raw if isinstance(mm_raw, list) else mm_raw.get("data", [])
     results = _result_rows(json.loads(args.results.read_text(encoding="utf-8")))
     n = min(len(multimodal), len(results))
     if args.limit > 0:
