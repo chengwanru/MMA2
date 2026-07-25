@@ -73,6 +73,7 @@ _POLLUTED_MEMORY_MARKERS = (
 _REFUSAL_RE = re.compile(
     r"\b(?:"
     r"no\s+\w+(?:\s+\w+){0,3}\s+(?:mentioned|listed|described|visible|shown|present|found)"
+    r"|no\s+(?:visible\s+)?(?:painting|picture|artwork)\b"
     r"|not\s+(?:specified|mentioned|described|listed|shown|stated|clear|visible|available|provided)"
     r"|nothing\s+(?:mentioned|listed|described|on|in|is\s+mentioned)"
     r"|(?:not|isn't|is\s+not)\s+(?:in|part\s+of)\s+(?:the\s+)?(?:memory|episodic|context|record)"
@@ -1810,6 +1811,14 @@ def _pack_memory_hint_text(blob: str, question: str = "", max_chars: int = 8000)
     if not lines:
         return text[:max_chars].rstrip()
 
+    # Never pack NOT_VISIBLE — checklist vocab (vent/pier/…) is not evidence.
+    lines = [
+        ln for ln in lines
+        if not re.match(r"^not_visible\s*:", ln, re.I)
+    ]
+    if not lines:
+        return ""
+
     _STRUCT_HI = re.compile(
         r"^(?:art_content|states|spatial|localization|attributes|"
         r"functional_cues|world_cues)\s*:",
@@ -1896,7 +1905,9 @@ def memory_hint_from_events(
             f"{getattr(event, 'summary', None) or ''}\n"
             f"{getattr(event, 'details', None) or ''}"
         ).strip()
-        content = sanitize_memory_text_for_inference(raw_content)
+        # Drop NOT_VISIBLE / prompt checklist before packing so leak tokens
+        # (vent/pier in taxonomy dumps) cannot inflate flags or crowd budget.
+        content = _evidence_text(sanitize_memory_text_for_inference(raw_content))
         if content:
             parts.append(content)
     hint = "\n".join(parts).strip()
@@ -4047,13 +4058,14 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
 
     # Above art/mirror: always prefer fixtures over furniture, even when SPATIAL
     # already proposed a console/dresser (common caption: "painting above console").
+    # Landmark need not reappear in evidence — question already names it, and the
+    # landmark noun is often only in NOT_VISIBLE dumps after harden.
     if family == "above":
         art_landmark = any(
             a.startswith("paint") or a in ("picture", "pictures", "frame", "frames", "mirror")
             for a in aliases
         )
-        landmark_hit = any(re.search(rf"\b{re.escape(a)}\b", hint_l) for a in aliases)
-        if art_landmark and landmark_hit:
+        if art_landmark:
             for rank, noun in (
                 (10, r"air\s+(?:vent|return)|ceiling\s+vent|(?:hvac\s+)?vent"),
                 (10, r"air\s+conditioner|air\s+conditioning(?:\s+unit)?|ac\s+unit"),

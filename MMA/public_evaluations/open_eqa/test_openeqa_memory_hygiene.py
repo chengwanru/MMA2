@@ -1575,6 +1575,38 @@ class GenerateExtractRootCauseTests(unittest.TestCase):
         self.assertIn("art_content", details.lower())
         self.assertIn("white flowers", details.lower())
 
+    def test_above_art_fixture_without_landmark_word_in_evidence(self):
+        # Question names the painting; evidence only lists the fixture.
+        pred, _ = normalize_qa_prediction(
+            "console table",
+            question="What is above the painting with the red flowers?",
+            memory_hint="OBJECTS: air vent, console table, bed\nSPATIAL: none",
+        )
+        self.assertIn("vent", pred.lower())
+
+    def test_not_visible_vent_does_not_force_above_art(self):
+        pred, _ = normalize_qa_prediction(
+            "console table",
+            question="What is above the painting with the red flowers?",
+            memory_hint=(
+                "OBJECTS: console table, bed\n"
+                "SPATIAL: painting is above the console table\n"
+                "NOT_VISIBLE: air vent, pier, smoke detector, towel"
+            ),
+        )
+        self.assertEqual(pred.lower(), "console table")
+
+    def test_no_painting_refusal_upgrades_from_art_content(self):
+        from openeqa_memory import _is_refusal_answer
+
+        self.assertTrue(_is_refusal_answer("No painting in bathroom"))
+        pred, _ = normalize_qa_prediction(
+            "No painting in bathroom",
+            question="What does the painting in the bathroom depict?",
+            memory_hint="ROOM: bathroom\nART_CONTENT: wooden pier extending into water",
+        )
+        self.assertIn("pier", pred.lower())
+
 
 class MemoryTextSanitizeTests(unittest.TestCase):
     def test_sanitize_strips_timestamps(self):

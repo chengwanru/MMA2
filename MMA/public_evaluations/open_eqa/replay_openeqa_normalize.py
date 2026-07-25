@@ -26,6 +26,7 @@ if str(_HERE) not in sys.path:
 
 from openeqa_direct_episodic import _get_caption_cache_path  # noqa: E402
 from openeqa_memory import (  # noqa: E402
+    _evidence_text,
     _extract_painting_content_from_memory,
     _extract_relational_object_from_memory,
     memory_hint_from_events,
@@ -95,6 +96,12 @@ def main() -> None:
     ap.add_argument("--run-dir", type=Path, default=None,
                     help="compare_* dir: auto-resolve multimodal + mma_sd.json")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument(
+        "--dump-idx",
+        type=int,
+        default=0,
+        help="1-based sample index: print evidence hint + raw NOT_VISIBLE presence",
+    )
     args = ap.parse_args()
 
     if args.run_dir is not None:
@@ -229,18 +236,29 @@ def main() -> None:
                     new_pred = alt
                     hint_sel = hint_wide
         hint = hint_sel
-        hint_l = (hint or "").lower()
+        # Flags must use evidence text — raw hints often contain NOT_VISIBLE
+        # checklist tokens (vent/pier) that extractors correctly ignore.
+        ev = _evidence_text(hint)
+        ev_l = (ev or "").lower()
         rel = _extract_relational_object_from_memory(hint, question)
         art = _extract_painting_content_from_memory(hint, question)
         flags = []
-        if re.search(r"(?m)^spatial\s*:", hint_l):
+        if re.search(r"(?m)^spatial\s*:", ev_l):
             flags.append("spatial")
-        if re.search(r"(?m)^art_content\s*:", hint_l):
+        if re.search(r"(?m)^art_content\s*:", ev_l):
             flags.append("art")
-        if re.search(r"\b(?:air\s+)?vent\b", hint_l):
-            flags.append("vent")
-        if re.search(r"\bpier\b", hint_l):
-            flags.append("pier")
+        if re.search(r"\b(?:air\s+)?vent\b", ev_l):
+            flags.append("ev_vent")
+        if re.search(r"\bpier\b", ev_l):
+            flags.append("ev_pier")
+        raw_blob = "\n".join(
+            f"{getattr(e, 'summary', '')}\n{getattr(e, 'details', '')}"
+            for e in (selected or events)[:10]
+        ).lower()
+        if re.search(r"not_visible\s*:.*\bvent\b", raw_blob, re.S):
+            flags.append("nv_vent")
+        if re.search(r"not_visible\s*:.*\bpier\b", raw_blob, re.S):
+            flags.append("nv_pier")
         mark = "CHANGED" if (new_pred or "").strip() != old_pred else "same"
         if mark == "CHANGED":
             changed += 1
@@ -256,6 +274,10 @@ def main() -> None:
         print(f"    gold={gold!r}")
         print(f"    old ={old_pred[:80]!r}")
         print(f"    new ={(new_pred or '')[:80]!r}")
+        if args.dump_idx and (i + 1) == args.dump_idx:
+            print("---- evidence hint (normalize input) ----")
+            print(ev[:3000])
+            print("---- /evidence ----")
     print(f"=== replay: {changed}/{n} predictions would change ===")
     print(f"=== substring-good: old={good_old}/{n}  new={good_new}/{n}  delta={good_new-good_old:+d} ===")
 
