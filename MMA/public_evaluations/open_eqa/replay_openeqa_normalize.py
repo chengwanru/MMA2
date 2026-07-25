@@ -107,21 +107,55 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args()
 
-    if args.run_dir:
-        run_dir = args.run_dir.resolve()
-        args.results = args.results or (run_dir / "mma_sd.json")
-        work_root = run_dir.parent.parent if run_dir.parent.name == "open_eqa_runs" else run_dir.parent
+    if args.run_dir is not None:
+        run_dir_raw = str(args.run_dir).strip()
+        if not run_dir_raw:
+            raise SystemExit(
+                "ERROR: --run-dir is empty. Re-export RUN, e.g.\n"
+                "  RUN=/workspace/open_eqa_runs/compare_o100_n50_f16_20260725_152119"
+            )
+        run_dir = Path(run_dir_raw).expanduser().resolve()
+        if not run_dir.is_dir():
+            raise SystemExit(f"ERROR: --run-dir is not a directory: {run_dir}")
+        mma = run_dir / "mma_sd.json"
+        if not mma.is_file():
+            raise SystemExit(
+                f"ERROR: missing {mma}\n"
+                "Hint: RUN must be the compare_* folder under open_eqa_runs/, "
+                "not the open_eqa source directory."
+            )
+        args.results = args.results or mma
         if args.multimodal is None:
-            cand = work_root / f"open-eqa-multimodal-{run_dir.name}.json"
+            candidates: List[Path] = []
             log = run_dir / "run.log"
             if log.is_file():
                 for line in log.read_text(encoding="utf-8", errors="ignore").splitlines():
                     if line.startswith("INPUT="):
-                        cand = Path(line.split("=", 1)[1].strip())
+                        candidates.append(Path(line.split("=", 1)[1].strip()))
                         break
-            args.multimodal = cand
+            # Naming from compare script: open-eqa-multimodal-<RUN_NAME>.json
+            for root in (
+                run_dir.parent.parent,  # WORK_ROOT when .../open_eqa_runs/<run>
+                Path("/workspace"),
+                Path("/tmp/openeqa_work"),
+                run_dir.parent,
+            ):
+                candidates.append(root / f"open-eqa-multimodal-{run_dir.name}.json")
+            found = next((p for p in candidates if p.is_file()), None)
+            if found is None:
+                tried = "\n  ".join(str(p) for p in candidates[:6])
+                raise SystemExit(
+                    f"ERROR: could not find multimodal JSON for {run_dir.name}\n"
+                    f"Tried:\n  {tried}\n"
+                    "Pass --multimodal explicitly."
+                )
+            args.multimodal = found
     if not args.multimodal or not args.results:
         raise SystemExit("Need --run-dir or both --multimodal and --results")
+    if not Path(args.multimodal).is_file():
+        raise SystemExit(f"ERROR: multimodal not found: {args.multimodal}")
+    if not Path(args.results).is_file():
+        raise SystemExit(f"ERROR: results not found: {args.results}")
 
     import openeqa_memory as om
 
@@ -131,10 +165,12 @@ def main() -> None:
         f"{hasattr(om, '_extract_relational_object_from_memory')}"
     )
     print(f"caption_cache={os.environ.get('OPENEQA_CAPTION_CACHE', '')}")
+    print(f"multimodal={args.multimodal}")
+    print(f"results={args.results}")
 
-    mm_raw = json.loads(args.multimodal.read_text(encoding="utf-8"))
+    mm_raw = json.loads(Path(args.multimodal).read_text(encoding="utf-8"))
     multimodal = mm_raw if isinstance(mm_raw, list) else mm_raw.get("data", [])
-    results = _result_rows(json.loads(args.results.read_text(encoding="utf-8")))
+    results = _result_rows(json.loads(Path(args.results).read_text(encoding="utf-8")))
     n = min(len(multimodal), len(results))
     if args.limit > 0:
         n = min(n, args.limit)
