@@ -849,13 +849,17 @@ def _run_qa(
                 prediction = line[:200]
                 break
     # Last resort: empty/ERROR model output → recover from episodic hint.
-    if (not prediction or prediction == "ERROR") and memory_hint:
+    pred_s = (prediction or "").strip()
+    if (
+        (not pred_s or pred_s == "ERROR" or pred_s.startswith("ERROR:"))
+        and memory_hint
+    ):
         recovered, _ = normalize_qa_prediction(
             "ERROR",
             question=question,
             memory_hint=memory_hint,
         )
-        if recovered and recovered.strip().upper() != "ERROR":
+        if recovered and not recovered.strip().upper().startswith("ERROR"):
             print(f"  [qa] recovered from memory_hint: {recovered[:80]!r}", flush=True)
             prediction = recovered
             if not raw_prediction:

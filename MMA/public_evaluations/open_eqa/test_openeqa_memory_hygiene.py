@@ -1110,6 +1110,78 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         os.environ.pop("OPENEQA_QA_MEMORY_TOP_K", None)
         self.assertGreaterEqual(qa_memory_top_k(), 10)
 
+    def test_relational_under_paintings_extracts_radiator(self):
+        hint = (
+            "ROOM: bedroom\n"
+            "OBJECTS: four paintings, radiator\n"
+            "SPATIAL: paintings are above the radiator; radiator is underneath the paintings"
+        )
+        pred, _ = normalize_qa_prediction(
+            "carpeted stairs",
+            question="What is underneath the four paintings upstairs?",
+            memory_hint=hint,
+        )
+        self.assertIn("radiator", pred.lower())
+
+    def test_relational_left_of_mirror_extracts_switch(self):
+        hint = (
+            "OBJECTS: mirror, light switch\n"
+            "SPATIAL: light switch is to the left of the mirror downstairs"
+        )
+        pred, _ = normalize_qa_prediction(
+            "stairs",
+            question="What is to the left of the mirror downstairs?",
+            memory_hint=hint,
+        )
+        self.assertIn("switch", pred.lower())
+
+    def test_ceiling_center_prefers_smoke_detector(self):
+        hint = (
+            "OBJECTS: smoke detector, ceiling vent\n"
+            "LOCALIZATION: smoke detector on the center of the ceiling in the living room\n"
+            "SPATIAL: ceiling vent is near the corner"
+        )
+        pred, _ = normalize_qa_prediction(
+            "ceiling vent",
+            question="What is on the center of the ceiling in the living room?",
+            memory_hint=hint,
+        )
+        self.assertIn("smoke", pred.lower())
+
+    def test_brush_teeth_recovers_from_error_via_memory(self):
+        hint = (
+            "ROOM: bathroom\nOBJECTS: sink, toothbrush holder\n"
+            "FUNCTIONAL_CUES: brush teeth → sink @ bathroom"
+        )
+        pred, _ = normalize_qa_prediction(
+            "ERROR",
+            question="Where can I brush my teeth?",
+            memory_hint=hint,
+        )
+        self.assertIn("sink", pred.lower())
+        self.assertIn("bathroom", pred.lower())
+
+    def test_warmup_prefers_fireplace_over_room_title(self):
+        hint = "ROOM: living room\nOBJECTS: fireplace\nFUNCTIONAL_CUES: warm up → fireplace @ living room"
+        pred, _ = normalize_qa_prediction(
+            "in the living room",
+            question="Where can I set if I want to warmup?",
+            memory_hint=hint,
+        )
+        self.assertIn("fireplace", pred.lower())
+
+    def test_door_design_from_world_cues(self):
+        hint = (
+            "WORLD_CUES: door design: cross hatch glass door\n"
+            "ATTRIBUTES: front door: cross-hatch glass"
+        )
+        pred, _ = normalize_qa_prediction(
+            "ornate wooden doors",
+            question="What type of door design is featured prominently in this home?",
+            memory_hint=hint,
+        )
+        self.assertIn("hatch", pred.lower())
+
 
 class MemoryTextSanitizeTests(unittest.TestCase):
     def test_sanitize_strips_timestamps(self):
