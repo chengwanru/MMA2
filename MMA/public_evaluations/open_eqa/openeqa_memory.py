@@ -1094,7 +1094,32 @@ def _is_valid_where_answer(answer: str, question: str) -> bool:
         return False
     if _where_answer_repeats_subject_as_landmark(phrase, question):
         return False
+    # Raw SPATIAL copulas ("Bed is left of wall", "Steps are below doorway")
+    # are not destinations for "where can I …" / object-where questions.
+    if re.match(
+        r"^[A-Za-z][a-z]+(?:\s+[a-z]+){0,5}\s+(?:is|are)\s+"
+        r"(?:to the\s+)?(?:left|right|below|under|above|next|behind|in front)\b",
+        phrase,
+        re.I,
+    ):
+        return False
+    if re.match(r"^art_content\s*:", phrase, re.I):
+        return False
     return True
+
+
+def _functional_where_object_terms(question: str) -> List[str]:
+    """Destination nouns for 'where can I put/take …' when subject parse is weak."""
+    q_l = (question or "").lower()
+    if re.search(r"\bshoes?\b", q_l):
+        return ["shoe rack", "rack", "closet", "hanger"]
+    if re.search(r"\b(hat|hats)\b", q_l):
+        return ["hat rack", "coat rack", "rack", "hook"]
+    if re.search(r"\b(nap|sleep|lie down)\b", q_l):
+        return ["couch", "sofa", "loveseat", "bed"]
+    if re.search(r"\b(jacket|coat)s?\b", q_l):
+        return ["closet", "coat rack", "rack", "hanger"]
+    return []
 
 
 def fresh_home_enabled() -> bool:
@@ -2563,14 +2588,20 @@ def _extract_material_answer(text: str, question: str = "") -> str:
         rf"\b(?:{alias_alt})\s*:\s*[^;\n]{{0,64}}?\b({mat_alt})\b",
         rf"\b(?:{alias_alt})\s*:\s*({mat_alt})\b",
     )
+    hits: List[str] = []
     for pat in patterns:
-        m = re.search(pat, blob)
-        if not m:
-            continue
-        mat = next(g for g in m.groups() if g)
-        if mat == "wooden":
-            mat = "wood"
-        return mat[0].upper() + mat[1:]
+        for m in re.finditer(pat, blob):
+            mat = next(g for g in m.groups() if g)
+            if mat == "wooden":
+                mat = "wood"
+            if mat not in hits:
+                hits.append(mat)
+    if "table" in q_l and hits:
+        for pref in ("glass", "marble", "granite", "metal", "stone", "wood", "plastic"):
+            if pref in hits:
+                return pref[0].upper() + pref[1:]
+    if hits:
+        return hits[0][0].upper() + hits[0][1:]
     return ""
 
 
@@ -2695,15 +2726,10 @@ def _extract_painting_content_from_memory(hint: str, question: str) -> str:
     if not blob:
         return ""
 
-    # Prefer dedicated ART_CONTENT channel when present.
-    art_m = re.search(
-        r"art_content\s*:\s*(.+?)(?:\n[A-Z_]{2,}|\n\n|$)",
-        blob,
-        re.I | re.S,
-    )
-    art_span = (art_m.group(1) if art_m else "").strip()
-    if art_span and art_span not in ("none", "n/a", "not readable", "not visible"):
-        # Drop trailing junk after semicolon "none" clauses.
+    def _phrase_from_art_span(art_span: str) -> str:
+        art_span = (art_span or "").strip()
+        if not art_span or art_span in ("none", "n/a", "not readable", "not visible"):
+            return ""
         art_span = re.split(r";\s*(?:none|not readable)\b", art_span, maxsplit=1)[0].strip()
         content_m = re.search(
             r"\b((?:wooden\s+)?pier|dock|bridge|boat|"
@@ -2711,30 +2737,75 @@ def _extract_painting_content_from_memory(hint: str, question: str) -> str:
             r"tiger|bird|cat|dog|horse|owl|leopard|"
             r"landscape|portrait|mountain|forest|snowy\s+\w+|"
             r"person walking[^,;.]{0,40}|people walking[^,;.]{0,40}|"
-            r"heart(?:\s+shape)?|geometric shapes|abstract shapes)\b",
+            r"(?:a\s+)?man\b|geometric shapes|abstract shapes)\b",
             art_span,
         )
-        if content_m:
-            phrase = content_m.group(1).strip()
-            if phrase in ("flower", "flowers"):
-                cm = re.search(
-                    r"\b((?:white|red|orange|blue|pink|yellow)\s+flowers?)\b",
-                    art_span,
-                )
-                if cm:
-                    phrase = cm.group(1)
-            if "animal" in q_l:
-                animal = re.search(
-                    r"\b(tiger|bird|cat|dog|horse|owl|leopard)\b", art_span
-                )
-                if animal:
-                    phrase = animal.group(1)
-            if phrase.startswith(("a ", "an ", "the ")):
-                return phrase[0].upper() + phrase[1:]
-            if "flower" in phrase or "walking" in phrase or "shapes" in phrase:
-                return phrase[0].upper() + phrase[1:]
-            art = "An" if phrase[0] in "aeiou" else "A"
-            return f"{art} {phrase}"
+        if not content_m:
+            return ""
+        phrase = content_m.group(1).strip()
+        if phrase in ("flower", "flowers"):
+            cm = re.search(
+                r"\b((?:white|red|orange|blue|pink|yellow)\s+flowers?)\b",
+                art_span,
+            )
+            if cm:
+                phrase = cm.group(1)
+        if "animal" in q_l:
+            animal = re.search(
+                r"\b(tiger|bird|cat|dog|horse|owl|leopard)\b", art_span
+            )
+            if animal:
+                phrase = animal.group(1)
+        if phrase.startswith(("a ", "an ", "the ")):
+            return phrase[0].upper() + phrase[1:]
+        if "flower" in phrase or "walking" in phrase or "shapes" in phrase:
+            return phrase[0].upper() + phrase[1:]
+        if phrase in ("man",):
+            return "A man"
+        art = "An" if phrase[0] in "aeiou" else "A"
+        return f"{art} {phrase}"
+
+    # Collect ART_CONTENT spans with nearest preceding ROOM label.
+    room = ""
+    scored: List[Tuple[int, str]] = []
+    for raw_line in blob.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        rm = re.match(r"^room\s*:\s*(.+)$", line, re.I)
+        if rm:
+            room = rm.group(1).strip().lower()
+            continue
+        am = re.match(r"^art_content\s*:\s*(.+)$", line, re.I)
+        if not am:
+            continue
+        phrase = _phrase_from_art_span(am.group(1))
+        if not phrase:
+            continue
+        score = 1
+        pl = phrase.lower()
+        if "bathroom" in q_l or "bath" in q_l:
+            if "bath" in room:
+                score += 6
+            # Distinctive pier/dock beats generic multi-room flowers for bath art.
+            if re.search(r"\b(pier|dock|bridge)\b", pl):
+                score += 5
+            if "flower" in pl and "bath" not in room:
+                score -= 3
+        if "bedroom" in q_l or "bed" in q_l:
+            if "bed" in room:
+                score += 6
+            if "above" in q_l and "flower" in pl:
+                score += 2
+            if re.search(r"\bwhite\s+flowers?\b", pl):
+                score += 3
+        if "animal" in q_l and re.search(r"\b(bird|tiger|cat|dog)\b", pl):
+            score += 4
+        scored.append((score, phrase))
+    if scored:
+        scored.sort(key=lambda x: x[0], reverse=True)
+        if scored[0][0] >= 1:
+            return scored[0][1]
 
     # Prefer content bound to painting/picture attributes.
     m = re.search(
@@ -3030,11 +3101,11 @@ def normalize_qa_prediction(
             if color_mem:
                 return _finalize(color_mem, raw_text)
         # Mirror frame/trim: model often guesses wall white; prefer bound memory color.
-        if ("mirror" in q_l or "trim" in q_l) and color_mem:
-            if (
-                not color_raw
-                or color_mem.lower() not in color_raw.lower()
-            ):
+        # But never replace an already-correct gold/brass answer with ambient green/plant.
+        if "mirror" in q_l or "trim" in q_l:
+            if re.search(r"\b(gold|golden|brass)\b", raw_text, re.I):
+                return _finalize("Gold", raw_text)
+            if color_mem:
                 return _finalize(color_mem, raw_text)
         if color_raw:
             return _finalize(color_raw, raw_text)
@@ -3129,18 +3200,27 @@ def normalize_qa_prediction(
         # Only trust a memory location when the hint actually mentions the asked subject.
         # Otherwise clutter frames invent landmarks ("in front of the chest").
         wash_q = "wash" in q_l and "hand" in q_l
+        purpose = _functional_where_object_terms(question)
         loc_ok = bool(
             loc
             and _is_valid_where_answer(loc, question)
             and (
                 wash_q
-                or not subject
-                or _blob_has_subject(memory_hint, subject)
                 or (
-                    subject in ("painting", "picture", "cat")
-                    and any(
-                        tok in hint_l
-                        for tok in ("painting", "picture", "frame", "cat", "pink")
+                    purpose
+                    and any(p.split()[-1] in loc.lower() for p in purpose)
+                )
+                or (
+                    subject
+                    and (
+                        _blob_has_subject(memory_hint, subject)
+                        or (
+                            subject in ("painting", "picture", "cat")
+                            and any(
+                                tok in hint_l
+                                for tok in ("painting", "picture", "frame", "cat", "pink")
+                            )
+                        )
                     )
                 )
             )
@@ -3148,7 +3228,22 @@ def normalize_qa_prediction(
         if loc_ok:
             if not model_ok:
                 return _finalize(loc, raw_text)
-            if not _where_landmark_corroborated(cleaned_where, loc):
+            # Agreeing landmarks → keep the (usually shorter) model phrasing.
+            if _where_landmark_corroborated(cleaned_where, loc):
+                return _finalize(cleaned_where, raw_text)
+            if _looks_like_inventory_list(cleaned_where) or _looks_like_scene_or_inventory_dump(
+                cleaned_where
+            ):
+                return _finalize(loc, raw_text)
+            # Functional "where can I put/take …": keep model if it already names
+            # the affordance (couch/rack); do not clobber with unrelated SPATIAL.
+            if purpose and any(
+                re.search(rf"\b{re.escape(p.split()[-1])}\b", cleaned_where.lower())
+                for p in purpose
+            ):
+                return _finalize(cleaned_where, raw_text)
+            # Classic "Where is the X?": subject-bound memory beats inventions.
+            if re.match(r"^\s*where\s+(?:is|are)\b", q_l):
                 return _finalize(loc, raw_text)
             return _finalize(cleaned_where, raw_text)
         if model_ok:
@@ -3254,7 +3349,7 @@ def _force_answer_from_strong_hint(hint: str, question: str, raw_text: str) -> s
         tok in q_l
         for tok in (
             "dry", "towel", "pattern", "material", "how many", " or ",
-            "depict", "painting", "eat", "nap", "picture", "animal",
+            "depict", "painting", "picture", "animal",
         )
     ):
         ans = _answer_from_memory_hint(hint, question)
@@ -3266,6 +3361,23 @@ def _force_answer_from_strong_hint(hint: str, question: str, raw_text: str) -> s
                 or _is_refusal_answer(cleaned)
                 or not _prediction_covers_memory_answer(cleaned, ans)
                 or _material_overrides_color_guess(cleaned, ans)
+            ):
+                return ans
+
+    # Nap / eat destinations: only override when model missed the affordance entirely.
+    if any(tok in q_l for tok in ("nap", "eat", "sit and eat")):
+        ans = _answer_from_memory_hint(hint, question)
+        if ans:
+            if "nap" in q_l and re.search(r"\b(couch|sofa|bed)\b", cleaned_l):
+                return ""
+            if "eat" in q_l and re.search(r"\b(bar|counter|island)\b", cleaned_l):
+                return ""
+            if (
+                not cleaned
+                or _is_bad_answer(cleaned)
+                or _looks_like_scene_or_inventory_dump(cleaned)
+                or _is_refusal_answer(cleaned)
+                or not _prediction_covers_memory_answer(cleaned, ans)
             ):
                 return ans
 
@@ -3783,13 +3895,16 @@ def _landmark_aliases(landmark: str) -> List[str]:
     stop = _QUESTION_STOPWORDS | {
         "four", "two", "three", "five", "several", "many", "some", "all",
         "living", "room", "downstairs", "upstairs",
+        # Colors as sole landmarks match too many SPATIAL clauses ("white pillar").
+        "white", "black", "grey", "gray", "red", "blue", "green", "yellow",
+        "brown", "pink", "orange", "purple", "gold", "silver",
     }
     aliases = [w for w in words if w not in stop]
     # Prefer distinctive nouns (paintings, mirror, ceiling, staircase).
     pref = (
         "painting", "paintings", "picture", "pictures", "frame", "frames",
         "mirror", "ceiling", "staircase", "stairs", "stair", "table", "bed",
-        "couch", "sofa", "tv", "door", "window", "sink", "cabinet",
+        "couch", "sofa", "tv", "door", "window", "sink", "cabinet", "cabinets",
     )
     ordered = [p for p in pref if p in aliases or p.rstrip("s") + "s" in aliases]
     for a in aliases:
@@ -3806,6 +3921,8 @@ def _landmark_aliases(landmark: str) -> List[str]:
             extra.append("sofa")
         if a == "sofa":
             extra.append("couch")
+        if a in ("cabinet", "cabinets"):
+            extra.extend(["cabinet", "cabinets"])
     for e in extra:
         if e not in ordered:
             ordered.append(e)
@@ -4146,6 +4263,12 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
                 w for w in re.findall(r"[a-z]{3,}", m.group(1))
                 if w not in _QUESTION_STOPWORDS
             ][-2:]
+    purpose = _functional_where_object_terms(question)
+    if purpose:
+        aliases = list(dict.fromkeys(aliases + purpose))
+    # Without a subject/purpose anchor, SPATIAL lines are noise across rooms.
+    if not aliases:
+        return ""
 
     rel = (
         r"(?:to the left of|to the right of|left of|right of|below|under|above|"
@@ -4166,7 +4289,7 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
         if not line:
             continue
         is_labeled = bool(re.match(r"^(?:localization|spatial)\s*:", line, re.I))
-        if aliases and not any(re.search(rf"\b{re.escape(a)}\b", line) for a in aliases):
+        if not any(re.search(rf"\b{re.escape(a)}\b", line) for a in aliases):
             continue
         if not is_labeled and not re.search(rf"\b{rel}\b", line):
             continue
@@ -4192,6 +4315,9 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
                 score += 1
             if "doorway" in cleaned:
                 score += 1
+            # Purpose nouns (rack/couch) beat unrelated doorway steps.
+            if any(re.search(rf"\b{re.escape(p.split()[-1])}\b", out.lower()) for p in purpose):
+                score += 4
             spatial_hits.append((score, out))
     if spatial_hits:
         spatial_hits.sort(key=lambda x: x[0], reverse=True)

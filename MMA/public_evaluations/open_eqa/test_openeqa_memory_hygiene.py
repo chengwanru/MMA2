@@ -1620,6 +1620,49 @@ class GenerateExtractRootCauseTests(unittest.TestCase):
         self.assertIn("vent", hint.lower())
         self.assertNotIn("not_visible", hint.lower())
 
+    def test_where_keeps_couch_over_spatial_noise(self):
+        pred, _ = normalize_qa_prediction(
+            "on the black leather couch",
+            question="Where can I take a nap?",
+            memory_hint=(
+                "ROOM: living room\nOBJECTS: black leather couch\n"
+                "SPATIAL: steps are below doorway; bed is left of wall"
+            ),
+        )
+        self.assertIn("couch", pred.lower())
+        self.assertNotIn("steps", pred.lower())
+
+    def test_bathroom_art_prefers_pier_over_hallway_flowers(self):
+        pred, _ = normalize_qa_prediction(
+            "No painting in bathroom",
+            question="What does the painting in the bathroom depict?",
+            memory_hint=(
+                "ROOM: hallway\nART_CONTENT: red and yellow flowers\n"
+                "ROOM: bathroom\nART_CONTENT: wooden pier extending into water\n"
+            ),
+        )
+        self.assertIn("pier", pred.lower())
+
+    def test_between_cabinets_not_fooled_by_white_pillar(self):
+        pred, _ = normalize_qa_prediction(
+            "rowave glass, white cabinets",
+            question="What is in between the two white cabinets in the kitchen?",
+            memory_hint=(
+                "ROOM: kitchen\nOBJECTS: microwave, white cabinets, dining table\n"
+                "SPATIAL: dining table is between white pillar and door; "
+                "microwave is between the white cabinets"
+            ),
+        )
+        self.assertIn("microwave", pred.lower())
+
+    def test_trim_keeps_gold_over_ambient_green(self):
+        pred, _ = normalize_qa_prediction(
+            "Gold",
+            question="What color is the trim around the mirror?",
+            memory_hint="ATTRIBUTES: mirror: gold trim; plant: green; wall: green",
+        )
+        self.assertEqual(pred.lower(), "gold")
+
     def test_no_painting_refusal_upgrades_from_art_content(self):
         from openeqa_memory import _is_refusal_answer
 
