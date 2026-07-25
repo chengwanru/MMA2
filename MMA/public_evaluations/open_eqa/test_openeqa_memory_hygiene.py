@@ -185,6 +185,30 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         pred, _ = normalize_qa_prediction(raw, question="What should I do to cool down the room?")
         self.assertIn("air conditioner", pred.lower())
 
+    def test_memory_hint_cool_myself_via_ceiling_fan(self):
+        pred, _ = normalize_qa_prediction(
+            "ERROR",
+            question="How can I cool myself off?",
+            memory_hint="ROOM: bedroom\nOBJECTS: ceiling fan, bed, dresser",
+        )
+        self.assertIn("ceiling fan", pred.lower())
+
+    def test_memory_hint_hat_rack_destination(self):
+        pred, _ = normalize_qa_prediction(
+            "ERROR",
+            question="Where can I put my hat?",
+            memory_hint="functional_cues: hang hat on hat rack near entry",
+        )
+        self.assertIn("hat rack", pred.lower())
+
+    def test_memory_hint_nap_prefers_couch(self):
+        pred, _ = normalize_qa_prediction(
+            "ERROR",
+            question="Where can I take a nap?",
+            memory_hint="OBJECTS: black couch, wooden bench with pillow, rocking chair",
+        )
+        self.assertIn("couch", pred.lower())
+
     def test_between_frames_conflict_ac_vs_tv(self):
         events = [
             _Event("Between picture frames there is a wall-mounted air conditioning unit"),

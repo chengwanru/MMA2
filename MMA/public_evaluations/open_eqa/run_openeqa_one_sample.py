@@ -738,8 +738,22 @@ def _qa_direct_sd_send(
             print(f"  [qa] direct_sd raw={text[:120]!r}", flush=True)
         return text
     except Exception as exc:
-        print(f"  [qa] direct_sd FAILED: {exc}", flush=True)
-        traceback.print_exc()
+        exc_s = str(exc)
+        is_oom = (
+            "OutOfMemoryError" in type(exc).__name__
+            or "out of memory" in exc_s.lower()
+            or "CUDA out of memory" in exc_s
+        )
+        print(
+            f"  [qa] direct_sd FAILED{' (OOM)' if is_oom else ''}: {exc}",
+            flush=True,
+        )
+        if not is_oom:
+            traceback.print_exc()
+        else:
+            _release_gpu_cache()
+            # Stash so fallback knows not to reload another copy of the model.
+            os.environ["OPENEQA_QA_OOM"] = "1"
         return ""
     finally:
         for key, value in saved_env.items():
@@ -770,9 +784,14 @@ def _qa_answer_source(raw_prediction: str, prediction: str) -> str:
 
 
 def _qa_direct_sd_with_fallback(mma_agent, formatted: str, question: str) -> str:
+    os.environ.pop("OPENEQA_QA_OOM", None)
     raw = _qa_direct_sd_send(mma_agent, formatted, question)
     if raw:
         return raw
+    # OOM: do NOT reload target-only — that doubles VRAM pressure and fails again.
+    if os.environ.get("OPENEQA_QA_OOM", "").strip() == "1":
+        print("  [qa] direct_sd OOM; skip baseline reload → memory/caption recover", flush=True)
+        return ""
     print("  [qa] direct_sd empty; retrying target-only baseline", flush=True)
     _release_gpu_cache()
     return _qa_direct_sd_send(mma_agent, formatted, question, baseline_only=True)
@@ -943,7 +962,11 @@ def _run_qa(
                 )
             else:
                 raw_prediction = _qa_send(agent, formatted)
-            if not raw_prediction and _is_yes_no_question(question):
+            if (
+                not raw_prediction
+                and _is_yes_no_question(question)
+                and os.environ.get("OPENEQA_QA_OOM", "").strip() != "1"
+            ):
                 fallback = (
                     "Based on episodic memory only, answer with exactly one word: "
                     "Yes or No.\n\n"

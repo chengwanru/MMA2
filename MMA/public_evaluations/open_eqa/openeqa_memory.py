@@ -2562,11 +2562,25 @@ def _strip_persona_bleed(text: str) -> str:
 def _extract_functional_action(text: str, question: str) -> str:
     q_l = (question or "").lower()
     blob = text or ""
-    if "cool down" in q_l or "cooling" in q_l or "air conditioner" in q_l:
+    hint_l = blob.lower()
+    cool_q = bool(
+        re.search(
+            r"\b(cool\s+(?:down|off|myself)|cooling|air\s+conditioner|"
+            r"cool\s+(?:the\s+)?(?:room|myself))\b",
+            q_l,
+        )
+        or ("cool" in q_l and re.search(r"\b(how can i|what should i|what can i)\b", q_l))
+    )
+    if cool_q:
         match = _ACTION_COOLDOWN_RE.search(blob)
         if match:
             phrase = match.group(0).strip().rstrip(".,;")
             return phrase[0].upper() + phrase[1:] if phrase else phrase
+        # Affordance from object presence (full-set cool-down / cool-myself).
+        if "ceiling fan" in hint_l:
+            return "Turn on the ceiling fan"
+        if any(tok in hint_l for tok in ("air conditioner", "air conditioning", "ac unit")):
+            return "Turn on the air conditioner"
     if "ceiling fan" in q_l or ("fan" in q_l and "speed" in q_l):
         match = _ACTION_FAN_RE.search(blob)
         if match:
@@ -3553,15 +3567,49 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
             return "By the heater"
         if "radiator" in hint_l:
             return "By the radiator"
-    if re.search(r"\b(jacket|jackets|coat|coats|shoes)\b", q_l) and (
+    if re.search(r"\b(hat|hats)\b", q_l) and (
+        "where" in q_l or "put" in q_l or "hang" in q_l or "store" in q_l
+    ):
+        if re.search(r"\bhat\s+rack\b", hint_l):
+            return "On the hat rack"
+        if re.search(r"\bcoat\s+rack\b", hint_l):
+            return "On the coat rack"
+        if re.search(r"\b(clothing\s+rack|clothes\s+rack)\b", hint_l):
+            return "On the clothing rack"
+    if re.search(r"\b(shoes?|shoe)\b", q_l) and (
+        "where" in q_l or "put" in q_l or "hang" in q_l or "store" in q_l
+    ):
+        if re.search(r"\b(?:hanging\s+)?shoe\s+rack\b", hint_l):
+            if "hanging" in hint_l and "shoe" in hint_l:
+                return "On the hanging shoe rack"
+            return "On the shoe rack"
+        if "closet" in hint_l and "shoe" in hint_l:
+            return "In the closet"
+    if re.search(r"\b(jacket|jackets|coat|coats)\b", q_l) and (
         "where" in q_l or "put" in q_l or "hang" in q_l or "store" in q_l
     ):
         if re.search(r"\b(storage\s+closet|coat\s+closet|closet)\b", hint_l):
             if "storage closet" in hint_l:
                 return "In the storage closet"
             return "In the closet"
-        if re.search(r"\b(clothing\s+rack|clothes\s+rack|hanger|hangar)\b", hint_l):
+        if re.search(r"\b(clothing\s+rack|clothes\s+rack|coat\s+rack|hanger|hangar)\b", hint_l):
+            if "coat rack" in hint_l:
+                return "On the coat rack"
             return "On the clothing rack"
+    if re.search(r"\b(take a nap|nap|sleep|lie down)\b", q_l) and (
+        "where" in q_l or "can i" in q_l or "should i" in q_l
+    ):
+        # Prefer couch/sofa for nap (beds are often bedrooms; gold often couch).
+        m = re.search(
+            r"\b((?:black|brown|blue|white|gray|grey|leather|fabric)\s+)?"
+            r"(?:couch|sofa|loveseat)\b",
+            hint_l,
+        )
+        if m:
+            phrase = m.group(0).strip()
+            return f"On the {phrase}"
+        if re.search(r"\bbed\b", hint_l):
+            return "On the bed"
     if re.search(r"\b(backyard|back yard|patio|yard)\b", q_l) and (
         "how can i" in q_l or "get to" in q_l or "access" in q_l
     ):
