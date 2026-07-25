@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Fair A/B on the same 10 questions + same frame paths:
+# Fair A/B on the same questions + same frame paths, with wall / per-sample timing:
 #   A) Direct Qwen3-VL-8B: frames in VL prompt (no MMA, no SD)
 #   B) MMA full chain: episodic captions + memory select + speculative QA
 #
-# Slice: first 10 of offset100 (= dataset indices 100–109), FRAMES=16 (same as offset100).
+# Default slice: OFFSET=100 LIMIT=50 (= dataset indices 100–149), FRAMES=16.
 #
-# Usage (AIBox GPU0 ~40GiB free):
+# Usage (AIBox, /workspace available):
 #   cd /tmp/MMA2/MMA/public_evaluations/open_eqa
-#   CUDA_VISIBLE_DEVICES=0 bash run_openeqa_aibox_compare_direct_vs_mma.sh
+#   CUDA_VISIBLE_DEVICES=0 LIMIT=50 bash run_openeqa_aibox_compare_direct_vs_mma.sh
 #
 # Overrides:
-#   ARMS=both|direct|mma   FRAMES_PER_EPISODE=16   LIMIT=10   OFFSET=100
-#   PRECOMPUTE_CAPTIONS=0  (reuse OPENEQA_CAPTION_CACHE)  DRY_RUN=1
+#   ARMS=both|direct|mma   FRAMES_PER_EPISODE=16   LIMIT=50   OFFSET=100
+#   WORK_ROOT=/workspace   PRECOMPUTE_CAPTIONS=0|1   DRY_RUN=1
 
 set -euo pipefail
 
@@ -27,7 +27,16 @@ if [[ -z "${PY:-}" || ! -x "${PY}" ]]; then
 fi
 export PATH="$(dirname "${PY}"):${PATH}"
 
-WORK_ROOT="${WORK_ROOT:-/tmp/openeqa_work}"
+# Prefer persistent /workspace when mounted.
+if [[ -z "${WORK_ROOT:-}" ]]; then
+  if [[ -d /workspace && -w /workspace ]]; then
+    WORK_ROOT=/workspace
+  else
+    WORK_ROOT=/tmp/openeqa_work
+  fi
+fi
+export WORK_ROOT
+
 ROOT="$(cd "${OEQA}/../.." && pwd)"
 PEV="${ROOT}/public_evaluations"
 CFG="${ROOT}/configs/mma_speculative_memory.yaml"
@@ -38,7 +47,7 @@ bash "${OEQA}/sync_mma_runtime.sh"
 export PYTHONPATH="${MMA_RUNTIME}:${ROOT}:${PEV}:${PYTHONPATH:-}"
 
 OFFSET="${OFFSET:-100}"
-LIMIT="${LIMIT:-10}"
+LIMIT="${LIMIT:-50}"
 MAX_SAMPLES="${MAX_SAMPLES:-${LIMIT}}"
 FRAMES_PER_EPISODE="${FRAMES_PER_EPISODE:-16}"
 FRAME_SAMPLING="${FRAME_SAMPLING:-uniform}"
@@ -53,15 +62,17 @@ RUN_NAME="${RUN_NAME:-${TAG}_${STAMP}}"
 RUN_DIR="${RUN_DIR:-${WORK_ROOT}/open_eqa_runs/${RUN_NAME}}"
 mkdir -p "${RUN_DIR}" "${OEQA}/logs" "${OEQA}/results"
 
-FRAME_CACHE="${FRAME_CACHE:-${WORK_ROOT}/openeqa_frame_cache_${RUN_NAME}}"
+FRAME_CACHE="${FRAME_CACHE:-${WORK_ROOT}/openeqa_frame_cache_${TAG}}"
 INPUT="${INPUT:-${WORK_ROOT}/open-eqa-multimodal-${TAG}_${STAMP}.json}"
 OUT_DIRECT="${OUT_DIRECT:-${RUN_DIR}/direct_vl8b.json}"
 OUT_MMA="${OUT_MMA:-${RUN_DIR}/mma_sd.json}"
 LOG="${LOG:-${RUN_DIR}/run.log}"
+TIMING_JSON="${TIMING_JSON:-${RUN_DIR}/timing_summary.json}"
 mkdir -p "${FRAME_CACHE}"
-export OPENEQA_CAPTION_CACHE="${OPENEQA_CAPTION_CACHE:-/tmp/openeqa_caption_cache_v4}"
+export OPENEQA_CAPTION_CACHE="${OPENEQA_CAPTION_CACHE:-${WORK_ROOT}/openeqa_caption_cache_v4}"
 mkdir -p "${OPENEQA_CAPTION_CACHE}"
-export OPENEQA_HOME_ROOT="${OPENEQA_HOME_ROOT:-/tmp/openeqa_home}"
+export OPENEQA_HOME_ROOT="${OPENEQA_HOME_ROOT:-${WORK_ROOT}/openeqa_home}"
+mkdir -p "${OPENEQA_HOME_ROOT}"
 
 # Shared LTU knobs for MMA arm
 export MMA_OFFLINE="${MMA_OFFLINE:-1}"
@@ -117,16 +128,18 @@ fi
 GIT_HEAD="$(git -C "${ROOT}/.." rev-parse --short HEAD 2>/dev/null || echo unknown)"
 {
   echo "========================================"
-  echo " Direct-VL8B vs MMA+SD  (same frames)"
+  echo " Direct-VL8B vs MMA+SD  (same frames + timing)"
   echo "========================================"
   echo "GIT_HEAD=${GIT_HEAD}"
   echo "ARMS=${ARMS}  OFFSET=${OFFSET}  LIMIT=${LIMIT}  FRAMES=${FRAMES_PER_EPISODE}"
   echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+  echo "WORK_ROOT=${WORK_ROOT}"
   echo "INPUT=${INPUT}"
   echo "OUT_DIRECT=${OUT_DIRECT}"
   echo "OUT_MMA=${OUT_MMA}"
   echo "RUN_DIR=${RUN_DIR}"
   echo "OPENEQA_CAPTION_CACHE=${OPENEQA_CAPTION_CACHE}"
+  echo "OPENEQA_HOME_ROOT=${OPENEQA_HOME_ROOT}"
 } | tee "${LOG}"
 
 if [[ "${DRY_RUN:-0}" == "1" ]]; then
@@ -134,9 +147,26 @@ if [[ "${DRY_RUN:-0}" == "1" ]]; then
   exit 0
 fi
 
+# Seed timing JSON
+echo '{}' > "${TIMING_JSON}"
+_record_wall() {
+  local key="$1"
+  local sec="$2"
+  KEY="${key}" SEC="${sec}" TIMING_JSON="${TIMING_JSON}" "${PY}" - <<'PY'
+import json, os
+from pathlib import Path
+p = Path(os.environ["TIMING_JSON"])
+data = json.loads(p.read_text()) if p.is_file() else {}
+data[os.environ["KEY"]] = float(os.environ["SEC"])
+p.write_text(json.dumps(data, indent=2))
+print(f"[timing] {os.environ['KEY']}={float(os.environ['SEC']):.1f}s")
+PY
+}
+
 # ---------------------------------------------------------------------------
 # 1) Shared multimodal JSON (both arms consume identical image_paths)
 # ---------------------------------------------------------------------------
+t0=$(date +%s)
 if [[ ! -f "${INPUT}" || "${FORCE_REBUILD_INPUT:-0}" == "1" ]]; then
   echo "=== make_openeqa_multimodal ===" | tee -a "${LOG}"
   "${PY}" make_openeqa_multimodal.py \
@@ -152,6 +182,7 @@ if [[ ! -f "${INPUT}" || "${FORCE_REBUILD_INPUT:-0}" == "1" ]]; then
 else
   echo "=== reuse INPUT=${INPUT} ===" | tee -a "${LOG}"
 fi
+_record_wall multimodal_sec "$(( $(date +%s) - t0 ))"
 
 INPUT="${INPUT}" OFFSET="${OFFSET}" "${PY}" - <<'PY' | tee -a "${LOG}"
 import json, os
@@ -174,7 +205,7 @@ PY
 # ---------------------------------------------------------------------------
 if [[ "${ARMS}" == "both" || "${ARMS}" == "direct" ]]; then
   echo "=== Arm A: Direct Qwen3-VL-8B (frames in prompt, no MMA/SD) ===" | tee -a "${LOG}"
-  # Use every frame already sampled into INPUT (do not re-subsample down).
+  t0=$(date +%s)
   "${PY}" run_openeqa_direct_sd.py \
     --input_file "${INPUT}" \
     --output_file "${OUT_DIRECT}.raw.json" \
@@ -183,32 +214,47 @@ if [[ "${ARMS}" == "both" || "${ARMS}" == "direct" ]]; then
     --no-compare \
     --mode baseline \
     2>&1 | tee -a "${LOG}"
+  _record_wall direct_wall_sec "$(( $(date +%s) - t0 ))"
 
-  # Normalize to eval-compatible {baseline: [...]} for the shared summarizer.
   "${PY}" - <<PY
-import json
+import json, statistics as st
 from pathlib import Path
 raw = json.loads(Path("${OUT_DIRECT}.raw.json").read_text())
 rows_in = raw.get("direct_sd") or raw.get("baseline") or []
 rows = []
+ts = []
 for r in rows_in:
     pred = (r.get("prediction") or "").strip()
     if not pred and isinstance(r.get("result"), dict):
         pred = (r["result"].get("prediction") or "").strip()
     if r.get("error") and not pred:
         pred = str(r["error"])
+    elapsed = (r.get("result") or {}).get("elapsed_sec")
+    if elapsed is not None:
+        ts.append(float(elapsed))
     rows.append({
         "id": r.get("id"),
         "question": r.get("question") or "",
         "gold_answer": r.get("gold_answer") or r.get("answer") or "",
         "prediction": pred,
         "variant": "direct_vl8b",
-        "elapsed_sec": (r.get("result") or {}).get("elapsed_sec"),
+        "elapsed_sec": elapsed,
+        "timing": {"total_sec": elapsed, "vl_decode_sec": elapsed},
         "metadata": r.get("metadata") or {},
     })
-out = {"baseline": rows, "arm": "direct_vl8b_no_mma_no_sd"}
+out = {
+    "baseline": rows,
+    "arm": "direct_vl8b_no_mma_no_sd",
+    "timing": {
+        "n": len(ts),
+        "mean_elapsed_sec": round(st.mean(ts), 3) if ts else None,
+        "sum_elapsed_sec": round(sum(ts), 3) if ts else None,
+        "median_elapsed_sec": round(st.median(ts), 3) if ts else None,
+    },
+}
 Path("${OUT_DIRECT}").write_text(json.dumps(out, ensure_ascii=False, indent=2))
 print(f"Wrote {len(rows)} direct rows → ${OUT_DIRECT}")
+print(f"direct mean_elapsed={out['timing']['mean_elapsed_sec']}s  sum={out['timing']['sum_elapsed_sec']}s")
 PY
 
   "${PY}" write_openeqa_result_summary.py \
@@ -225,17 +271,25 @@ fi
 # ---------------------------------------------------------------------------
 if [[ "${ARMS}" == "both" || "${ARMS}" == "mma" ]]; then
   echo "=== Arm B: MMA + speculative QA ===" | tee -a "${LOG}"
-  rm -rf /tmp/openeqa_home ~/.mma 2>/dev/null || true
+  # Keep homes under WORK_ROOT; clear only this run's tree if requested.
+  if [[ "${CLEAR_OPENEQA_HOME:-1}" == "1" ]]; then
+    rm -rf "${OPENEQA_HOME_ROOT}" 2>/dev/null || true
+    mkdir -p "${OPENEQA_HOME_ROOT}"
+  fi
 
   if [[ "${PRECOMPUTE_CAPTIONS:-1}" == "1" ]]; then
     echo "=== precompute captions (cache=${OPENEQA_CAPTION_CACHE}) ===" | tee -a "${LOG}"
+    t0=$(date +%s)
     PRE_ARGS=(--input_file "${INPUT}" --batch-size "${OPENEQA_ABSORB_BATCH_SIZE:-1}")
     [[ "${PRECOMPUTE_FORCE:-0}" == "1" ]] && PRE_ARGS+=(--force)
     "${PY}" precompute_openeqa_captions.py "${PRE_ARGS[@]}" 2>&1 | tee -a "${LOG}"
+    _record_wall precompute_wall_sec "$(( $(date +%s) - t0 ))"
   else
     echo "=== skip caption precompute (PRECOMPUTE_CAPTIONS=0) ===" | tee -a "${LOG}"
+    _record_wall precompute_wall_sec 0
   fi
 
+  t0=$(date +%s)
   "${PY}" run_openeqa_eval.py \
     --input_file "${INPUT}" \
     --output_file "${OUT_MMA}" \
@@ -245,6 +299,43 @@ if [[ "${ARMS}" == "both" || "${ARMS}" == "mma" ]]; then
     --offset 0 \
     --variants ours \
     2>&1 | tee -a "${LOG}"
+  _record_wall mma_eval_wall_sec "$(( $(date +%s) - t0 ))"
+
+  "${PY}" - <<PY
+import json, statistics as st
+from pathlib import Path
+p = Path("${OUT_MMA}")
+data = json.loads(p.read_text())
+rows = data.get("ours") or []
+totals, mems, qas, decodes = [], [], [], []
+for r in rows:
+    t = r.get("timing") or {}
+    if r.get("elapsed_sec") is not None:
+        totals.append(float(r["elapsed_sec"]))
+    if t.get("memorize_sec") is not None:
+        mems.append(float(t["memorize_sec"]))
+    if t.get("qa_sec") is not None:
+        qas.append(float(t["qa_sec"]))
+    if t.get("qa_decode_sec") is not None:
+        decodes.append(float(t["qa_decode_sec"]))
+def _stats(xs):
+    if not xs:
+        return None
+    return {
+        "n": len(xs),
+        "mean": round(st.mean(xs), 3),
+        "median": round(st.median(xs), 3),
+        "sum": round(sum(xs), 3),
+    }
+data["timing"] = {
+    "total_sec": _stats(totals),
+    "memorize_sec": _stats(mems),
+    "qa_wall_sec": _stats(qas),
+    "qa_decode_sec": _stats(decodes),
+}
+p.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+print("MMA timing:", json.dumps(data["timing"], indent=2))
+PY
 
   "${PY}" write_openeqa_result_summary.py \
     --input_file "${OUT_MMA}" \
@@ -256,12 +347,13 @@ if [[ "${ARMS}" == "both" || "${ARMS}" == "mma" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 4) Side-by-side table
+# 4) Side-by-side accuracy + timing
 # ---------------------------------------------------------------------------
 if [[ -f "${OUT_DIRECT}" && -f "${OUT_MMA}" ]]; then
   echo "=== Side-by-side (ds ${OFFSET}+i) ===" | tee -a "${LOG}"
-  OFFSET="${OFFSET}" OUT_DIRECT="${OUT_DIRECT}" OUT_MMA="${OUT_MMA}" "${PY}" - <<'PY' | tee -a "${LOG}"
-import json, os, re
+  OFFSET="${OFFSET}" OUT_DIRECT="${OUT_DIRECT}" OUT_MMA="${OUT_MMA}" \
+  TIMING_JSON="${TIMING_JSON}" RUN_DIR="${RUN_DIR}" "${PY}" - <<'PY' | tee -a "${LOG}"
+import json, os, re, statistics as st
 from pathlib import Path
 
 def norm(t):
@@ -288,13 +380,22 @@ def label(gold, pred):
 def good(lab):
     return lab in ("EXACT", "HIT", "PARTIAL")
 
+def trunc(s, w=18):
+    s = re.sub(r"\s+", " ", (s or "").strip())
+    return s if len(s) <= w else s[: w - 3] + "..."
+
 offset = int(os.environ["OFFSET"])
 d = json.loads(Path(os.environ["OUT_DIRECT"]).read_text())["baseline"]
 m = json.loads(Path(os.environ["OUT_MMA"]).read_text())["ours"]
 n = min(len(d), len(m))
-print(f"{'ds':>4}  {'D':<7}  {'M':<7}  {'gold':<22}  {'direct_pred':<22}  {'mma_pred':<22}  question")
-print("-" * 130)
+print(
+    f"{'ds':>4}  {'D':<7}  {'M':<7}  {'Dt':>6}  {'Mt':>6}  {'Mmem':>5}  {'Mqa':>5}  "
+    f"{'gold':<18}  {'direct':<18}  {'mma':<18}"
+)
+print("-" * 140)
 gd = gm = 0
+d_times, m_times, m_mem, m_qa, m_dec = [], [], [], [], []
+rows_out = []
 for i in range(n):
     gold = d[i].get("gold_answer") or m[i].get("gold_answer") or ""
     pd = (d[i].get("prediction") or "").strip()
@@ -302,28 +403,83 @@ for i in range(n):
     ld, lm = label(gold, pd), label(gold, pm)
     gd += int(good(ld))
     gm += int(good(lm))
-    q = (d[i].get("question") or m[i].get("question") or "")[:36]
-    def trunc(s, w=22):
-        s = re.sub(r"\s+", " ", s)
-        return s if len(s) <= w else s[: w - 3] + "..."
+    dt = d[i].get("elapsed_sec")
+    mt = m[i].get("elapsed_sec")
+    tm = m[i].get("timing") or {}
+    mm = tm.get("memorize_sec")
+    mq = tm.get("qa_sec")
+    md = tm.get("qa_decode_sec")
+    if dt is not None:
+        d_times.append(float(dt))
+    if mt is not None:
+        m_times.append(float(mt))
+    if mm is not None:
+        m_mem.append(float(mm))
+    if mq is not None:
+        m_qa.append(float(mq))
+    if md is not None:
+        m_dec.append(float(md))
+    def fmt(x):
+        return f"{float(x):5.1f}" if x is not None else "  n/a"
     print(
-        f"{offset+i:>4}  {ld:<7}  {lm:<7}  {trunc(gold):<22}  {trunc(pd):<22}  {trunc(pm):<22}  {q}"
+        f"{offset+i:>4}  {ld:<7}  {lm:<7}  {fmt(dt)}  {fmt(mt)}  {fmt(mm)}  {fmt(mq)}  "
+        f"{trunc(gold):<18}  {trunc(pd):<18}  {trunc(pm):<18}"
     )
-print("-" * 130)
+    rows_out.append({
+        "ds": offset + i,
+        "direct_match": ld,
+        "mma_match": lm,
+        "direct_sec": dt,
+        "mma_total_sec": mt,
+        "mma_memorize_sec": mm,
+        "mma_qa_sec": mq,
+        "mma_qa_decode_sec": md,
+        "gold": gold,
+        "direct_pred": pd,
+        "mma_pred": pm,
+    })
+print("-" * 140)
 print(f"good: direct_vl8b={gd}/{n}   mma_sd={gm}/{n}")
-cmp = {
+
+def mean(xs):
+    return round(st.mean(xs), 3) if xs else None
+
+wall = {}
+tj = Path(os.environ["TIMING_JSON"])
+if tj.is_file():
+    wall = json.loads(tj.read_text())
+
+summary = {
     "offset": offset,
     "n": n,
     "direct_good": gd,
     "mma_good": gm,
+    "direct_mean_sec": mean(d_times),
+    "direct_sum_sec": round(sum(d_times), 3) if d_times else None,
+    "mma_mean_total_sec": mean(m_times),
+    "mma_sum_total_sec": round(sum(m_times), 3) if m_times else None,
+    "mma_mean_memorize_sec": mean(m_mem),
+    "mma_mean_qa_sec": mean(m_qa),
+    "mma_mean_qa_decode_sec": mean(m_dec),
+    "wall": wall,
+    "rows": rows_out,
     "out_direct": os.environ["OUT_DIRECT"],
     "out_mma": os.environ["OUT_MMA"],
 }
-Path(os.environ["OUT_MMA"]).with_name("compare_side_by_side.json").write_text(
-    json.dumps(cmp, indent=2)
-)
-print(f"Wrote {Path(os.environ['OUT_MMA']).with_name('compare_side_by_side.json')}")
+out_path = Path(os.environ["RUN_DIR"]) / "compare_side_by_side.json"
+out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2))
+print("=== Timing summary ===")
+print(f"  Direct mean/sample VL: {summary['direct_mean_sec']}s  (sum {summary['direct_sum_sec']}s)")
+print(f"  Direct wall arm:       {wall.get('direct_wall_sec')}s")
+print(f"  MMA mean total:        {summary['mma_mean_total_sec']}s  (sum {summary['mma_sum_total_sec']}s)")
+print(f"    mean memorize:       {summary['mma_mean_memorize_sec']}s")
+print(f"    mean qa wall:        {summary['mma_mean_qa_sec']}s")
+print(f"    mean qa decode(SD):  {summary['mma_mean_qa_decode_sec']}s")
+print(f"  MMA eval wall:         {wall.get('mma_eval_wall_sec')}s")
+print(f"  Caption precompute:    {wall.get('precompute_wall_sec')}s")
+print(f"Wrote {out_path}")
 PY
 fi
 
 echo "DONE RUN_DIR=${RUN_DIR}" | tee -a "${LOG}"
+echo "TIMING_JSON=${TIMING_JSON}" | tee -a "${LOG}"

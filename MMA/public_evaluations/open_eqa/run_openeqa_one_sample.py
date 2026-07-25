@@ -1049,6 +1049,13 @@ def _run_qa(
         )
         write_debug_file(home_dir, "qa", debug_payload)
         log_debug_summary(debug_payload, "qa")
+    else:
+        # Lightweight timing/source payload even when OPENEQA_DEBUG=0.
+        debug_payload = {
+            "phase": "qa",
+            "qa_answer_source": qa_answer_source,
+            "speculative_stats": sd_stats or {},
+        }
 
     pred_s = (prediction or "").strip()
     if not pred_s or pred_s == "ERROR" or pred_s.startswith("ERROR:"):

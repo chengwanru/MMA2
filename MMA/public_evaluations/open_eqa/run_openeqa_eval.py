@@ -59,6 +59,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -69,7 +70,8 @@ _MEMORIZE_OK_MARKER = ".openeqa_memorize_ok"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run OpenEQA-style evaluation with MMA (baseline vs ours).")
+    parser = argparse.ArgumentParser(
+        description="Run OpenEQA-style evaluation with MMA (baseline vs ours).")
 
     parser.add_argument(
         "--input_file",
@@ -141,7 +143,8 @@ def _load_samples(
         samples = data
 
     if not isinstance(samples, list):
-        raise ValueError("input_file must contain a list of samples or a dict with key 'data'.")
+        raise ValueError(
+            "input_file must contain a list of samples or a dict with key 'data'.")
 
     if offset:
         samples = samples[offset:]
@@ -162,7 +165,8 @@ def _reuse_episode_memory_enabled() -> bool:
 
 def _episode_frame_fingerprint(sample: Dict[str, Any]) -> str:
     """Stable id for (episode, frame set). Different K-frame ablations get different keys."""
-    ep = str(sample.get("episode_history") or sample.get("episode") or "unknown")
+    ep = str(sample.get("episode_history")
+             or sample.get("episode") or "unknown")
     paths = sample.get("image_paths") or sample.get("images") or []
     if isinstance(paths, str):
         paths = [paths]
@@ -189,7 +193,8 @@ def _resolve_home_dir(sample: Dict[str, Any], sample_idx: int) -> Path:
     if not _reuse_episode_memory_enabled():
         return _sample_home_dir(sample_idx, sample.get("id", sample_idx))
     fp = _episode_frame_fingerprint(sample)
-    ep = str(sample.get("episode_history") or sample.get("episode") or "unknown")
+    ep = str(sample.get("episode_history")
+             or sample.get("episode") or "unknown")
     safe_ep = ep.replace("/", "_")[:48]
     return _home_root() / "openeqa_home" / f"ep_{fp}_{safe_ep}"
 
@@ -243,7 +248,8 @@ def _memorize_is_ready(home_dir: Path, fingerprint: str) -> bool:
 
 def _mark_memorize_ok(home_dir: Path, fingerprint: str) -> None:
     try:
-        _memorize_marker_path(home_dir).write_text(fingerprint + "\n", encoding="utf-8")
+        _memorize_marker_path(home_dir).write_text(
+            fingerprint + "\n", encoding="utf-8")
     except OSError:
         pass
 
@@ -259,7 +265,8 @@ def _log_episode_reuse_plan(samples: List[Dict[str, Any]]) -> None:
     if not _reuse_episode_memory_enabled():
         print("episode-memory reuse: OFF", flush=True)
         return
-    keys = [_episode_frame_fingerprint(s) for s in samples if s.get("question")]
+    keys = [_episode_frame_fingerprint(s)
+            for s in samples if s.get("question")]
     unique = len(set(keys))
     print(
         f"episode-memory reuse: ON — {unique} memorize(s) for {len(keys)} question(s) "
@@ -369,6 +376,7 @@ def _invoke_one_sample_phase(
         "PG_URI",
     ):
         isolated_env.pop(pg_key, None)
+    t0 = time.perf_counter()
     proc = subprocess.run(
         [
             sys.executable,
@@ -386,6 +394,7 @@ def _invoke_one_sample_phase(
         capture_output=True,
         text=True,
     )
+    wall_sec = round(time.perf_counter() - t0, 3)
     stderr_tail = (proc.stderr or "")[-4000:]
     if proc.stdout:
         for line in proc.stdout.strip().splitlines():
@@ -397,15 +406,19 @@ def _invoke_one_sample_phase(
         return {
             "prediction": f"ERROR: subprocess exit {proc.returncode}: {err_tail}",
             "stderr_tail": stderr_tail,
+            "wall_sec": wall_sec,
         }
-    lines = [ln for ln in (proc.stdout or "").strip().splitlines() if ln.strip()]
+    lines = [ln for ln in (
+        proc.stdout or "").strip().splitlines() if ln.strip()]
     if not lines:
         return {
             "prediction": f"ERROR: empty subprocess stdout; stderr={stderr_tail[-500:]}",
             "stderr_tail": stderr_tail,
+            "wall_sec": wall_sec,
         }
     payload = json.loads(lines[-1])
-    prediction = payload.get("prediction", "ERROR: missing prediction in subprocess output")
+    prediction = payload.get(
+        "prediction", "ERROR: missing prediction in subprocess output")
     if str(prediction).startswith("ERROR"):
         extra = payload.get("stderr_tail") or stderr_tail
         if extra:
@@ -415,6 +428,7 @@ def _invoke_one_sample_phase(
         "stderr_tail": stderr_tail,
         "debug": payload.get("debug"),
         "debug_dir": payload.get("debug_dir"),
+        "wall_sec": wall_sec,
     }
 
 
@@ -436,6 +450,19 @@ def _persist_sample_debug(
         return str(path)
     except OSError:
         return None
+
+
+def _sd_decode_sec_from_debug(qa_debug: Any) -> Optional[float]:
+    if not isinstance(qa_debug, dict):
+        return None
+    for key in ("speculative_stats", "sd_stats", "sd"):
+        stats = qa_debug.get(key)
+        if isinstance(stats, dict) and stats.get("elapsed_sec") is not None:
+            try:
+                return round(float(stats["elapsed_sec"]), 4)
+            except (TypeError, ValueError):
+                return None
+    return None
 
 
 def _run_sample_subprocess(
@@ -468,6 +495,7 @@ def _run_sample_subprocess(
     try:
         if split_phases and has_frames:
             mem_debug = None
+            memorize_sec = 0.0
             skip_memorize = (
                 has_frames
                 and _reuse_episode_memory_enabled()
@@ -484,16 +512,28 @@ def _run_sample_subprocess(
                     sample_path=sample_path,
                     config_path=config_path,
                     home_dir=home_dir,
-                    env=_subprocess_env(use_speculative_baseline, phase="memorize"),
+                    env=_subprocess_env(
+                        use_speculative_baseline, phase="memorize"),
                 )
+                memorize_sec = float(mem.get("wall_sec") or 0.0)
                 if str(mem["prediction"]).startswith("ERROR"):
                     _clear_memorize_ok(home_dir)
-                    _write_subprocess_stderr(home_dir, mem.get("stderr_tail", ""))
+                    _write_subprocess_stderr(
+                        home_dir, mem.get("stderr_tail", ""))
                     return mem["prediction"], {
                         "memorize": mem.get("debug"),
                         "home_dir": mem.get("debug_dir"),
+                        "timing": {
+                            "memorize_sec": memorize_sec,
+                            "qa_sec": 0.0,
+                            "total_sec": memorize_sec,
+                            "memorize_reused": False,
+                        },
                     }
-                print(f"  memorize phase: {mem['prediction']}", flush=True)
+                print(
+                    f"  memorize phase: {mem['prediction']} ({memorize_sec:.1f}s)",
+                    flush=True,
+                )
                 _mark_memorize_ok(home_dir, fingerprint)
                 mem_debug = mem.get("debug")
 
@@ -522,17 +562,29 @@ def _run_sample_subprocess(
                     sample_path=sample_path,
                     config_path=config_path,
                     home_dir=home_dir,
-                    env=_subprocess_env(use_speculative_baseline, phase="memorize"),
+                    env=_subprocess_env(
+                        use_speculative_baseline, phase="memorize"),
                 )
+                memorize_sec = float(mem.get("wall_sec") or 0.0)
                 if str(mem["prediction"]).startswith("ERROR"):
                     _clear_memorize_ok(home_dir)
-                    _write_subprocess_stderr(home_dir, mem.get("stderr_tail", ""))
+                    _write_subprocess_stderr(
+                        home_dir, mem.get("stderr_tail", ""))
                     return mem["prediction"], {
                         "memorize": mem.get("debug"),
                         "home_dir": mem.get("debug_dir") or str(home_dir),
                         "memorize_reused": False,
+                        "timing": {
+                            "memorize_sec": memorize_sec,
+                            "qa_sec": 0.0,
+                            "total_sec": memorize_sec,
+                            "memorize_reused": False,
+                        },
                     }
-                print(f"  memorize phase: {mem['prediction']}", flush=True)
+                print(
+                    f"  memorize phase: {mem['prediction']} ({memorize_sec:.1f}s)",
+                    flush=True,
+                )
                 _mark_memorize_ok(home_dir, fingerprint)
                 mem_debug = mem.get("debug")
                 skip_memorize = False
@@ -547,11 +599,21 @@ def _run_sample_subprocess(
                 if _prediction_is_empty_memory_error(qa["prediction"]):
                     _clear_memorize_ok(home_dir)
                 _write_subprocess_stderr(home_dir, qa.get("stderr_tail", ""))
+            qa_sec = float(qa.get("wall_sec") or 0.0)
+            total_sec = round(memorize_sec + qa_sec, 3)
+            timing = {
+                "memorize_sec": round(memorize_sec, 3),
+                "qa_sec": round(qa_sec, 3),
+                "total_sec": total_sec,
+                "memorize_reused": bool(skip_memorize),
+                "qa_decode_sec": _sd_decode_sec_from_debug(qa.get("debug")),
+            }
             debug = {
                 "memorize": mem_debug,
                 "memorize_reused": skip_memorize,
                 "qa": qa.get("debug"),
                 "home_dir": qa.get("debug_dir") or str(home_dir),
+                "timing": timing,
             }
             return qa["prediction"], debug
 
@@ -567,13 +629,23 @@ def _run_sample_subprocess(
             _write_subprocess_stderr(home_dir, payload.get("stderr_tail", ""))
         else:
             _mark_memorize_ok(home_dir, fingerprint)
-        return payload["prediction"], payload.get("debug")
+        wall = float(payload.get("wall_sec") or 0.0)
+        debug = payload.get("debug") or {}
+        if isinstance(debug, dict):
+            debug = dict(debug)
+            debug["timing"] = {
+                "memorize_sec": None,
+                "qa_sec": None,
+                "total_sec": wall,
+                "memorize_reused": False,
+                "qa_decode_sec": _sd_decode_sec_from_debug(debug.get("qa") or debug),
+            }
+        return payload["prediction"], debug
     finally:
         try:
             os.unlink(sample_path)
         except OSError:
             pass
-
 
 def _write_subprocess_stderr(home_dir: Path, stderr_tail: str) -> None:
     log_path = home_dir / "subprocess.stderr"
@@ -604,6 +676,7 @@ def _run_variant(
             flush=True,
         )
         debug_info: Optional[Dict[str, Any]] = None
+        t_sample0 = time.perf_counter()
         try:
             prediction, debug_info = _run_sample_subprocess(
                 sample=sample,
@@ -614,8 +687,19 @@ def _run_variant(
         except Exception as e:  # pragma: no cover - defensive
             prediction = f"ERROR: {e}"
 
+        timing = {}
+        if isinstance(debug_info, dict) and isinstance(debug_info.get("timing"), dict):
+            timing = dict(debug_info["timing"])
+        if "total_sec" not in timing:
+            timing["total_sec"] = round(time.perf_counter() - t_sample0, 3)
+
         print(
-            f"[{variant_name}] sample {idx + 1} done: {str(prediction)[:120]}",
+            f"[{variant_name}] sample {idx + 1} done: {str(prediction)[:120]} "
+            f"| total={timing.get('total_sec')}s "
+            f"mem={timing.get('memorize_sec')}s "
+            f"qa={timing.get('qa_sec')}s "
+            f"decode={timing.get('qa_decode_sec')}s "
+            f"reuse={timing.get('memorize_reused')}",
             flush=True,
         )
 
@@ -626,6 +710,8 @@ def _run_variant(
             "question": question,
             "gold_answer": sample.get("answer"),
             "prediction": prediction,
+            "elapsed_sec": timing.get("total_sec"),
+            "timing": timing,
         }
         if debug_info:
             result["debug"] = debug_info
@@ -739,7 +825,8 @@ def _run_variant_speedup(
                     if str(mem_status).startswith("ERROR"):
                         _clear_memorize_ok(home_dir)
                         prediction = mem_status
-                        debug_info = {"memorize": mem_debug, "home_dir": str(home_dir)}
+                        debug_info = {"memorize": mem_debug,
+                                      "home_dir": str(home_dir)}
                     else:
                         _mark_memorize_ok(home_dir, fingerprint)
                         skip_memorize = False
@@ -807,7 +894,8 @@ def main() -> None:
 
     samples = _load_samples(args.input_file, args.limit, args.offset)
 
-    use_speculative_baseline = os.path.abspath(args.baseline_config) == os.path.abspath(args.ours_config)
+    use_speculative_baseline = os.path.abspath(
+        args.baseline_config) == os.path.abspath(args.ours_config)
 
     results: Dict[str, List[Dict[str, Any]]] = {}
     run_fn = _run_variant_speedup if args.speedup else _run_variant
@@ -830,7 +918,8 @@ def main() -> None:
             output_file=args.output_file,
         )
 
-    os.makedirs(os.path.dirname(os.path.abspath(args.output_file)), exist_ok=True)
+    os.makedirs(os.path.dirname(
+        os.path.abspath(args.output_file)), exist_ok=True)
     with open(args.output_file, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
 
