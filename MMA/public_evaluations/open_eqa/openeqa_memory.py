@@ -176,19 +176,44 @@ def _strip_prompt_checklist_leakage(text: str) -> str:
     scene evidence (e.g. bare 'cross-hatch' or 'radiator' in a vocab dump).
     """
     keep: List[str] = []
+    placeholder_re = re.compile(
+        r"^(?:room|objects|attributes|states|localization|spatial|"
+        r"art_content|functional_cues|world_cues)\s*:\s*"
+        r"(?:not visible|none|n/a)\s*$",
+        re.I,
+    )
     for raw in (text or "").splitlines():
         line = raw.strip()
         if not line:
             continue
         lower = line.lower()
+        # Hardened placeholders ("STATES: not visible") are not dumps.
+        if placeholder_re.match(lower):
+            keep.append(raw)
+            continue
         # Long semicolon / slash taxonomies from the prompt.
         if line.count(";") >= 3 or lower.count(" / ") >= 3:
             if any(
                 tok in lower
                 for tok in (
                     "cross-hatch", "multi-color", "multi-material", "spherical",
-                    "spiral", "not visible", "placemat", "functional_cues",
+                    "spiral", "placemat",
                 )
+            ):
+                continue
+            # Only drop "not visible" / functional_cues when the line looks like
+            # a vocab dump — not when a normal bindings line merely contains the
+            # placeholder phrase after newline-collapse.
+            shape_hits = sum(
+                1
+                for tok in (
+                    "round", "oval", "square", "rectangular", "spherical",
+                    "spiral", "cross-hatch", "stripe",
+                )
+                if tok in lower
+            )
+            if shape_hits >= 3 and (
+                "not visible" in lower or "functional_cues" in lower
             ):
                 continue
         # Enum-like shape/color lists without an object binding ("x: value").
@@ -1888,6 +1913,20 @@ def _pack_memory_hint_text(blob: str, question: str = "", max_chars: int = 8000)
     return "\n".join(line for _, line in chosen)
 
 
+def _sanitize_caption_preserve_lines(text: str) -> str:
+    """Strip frame/timestamp noise but keep section newlines for packing/extract."""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    # Per-line sanitize so SUMMARY/SPATIAL/ART_CONTENT headers survive.
+    out_lines: List[str] = []
+    for ln in raw.splitlines():
+        cleaned = sanitize_memory_text_for_inference(ln)
+        if cleaned:
+            out_lines.append(cleaned)
+    return "\n".join(out_lines)
+
+
 def memory_hint_from_events(
     events: List[Any],
     *,
@@ -1905,9 +1944,11 @@ def memory_hint_from_events(
             f"{getattr(event, 'summary', None) or ''}\n"
             f"{getattr(event, 'details', None) or ''}"
         ).strip()
-        # Drop NOT_VISIBLE / prompt checklist before packing so leak tokens
-        # (vent/pier in taxonomy dumps) cannot inflate flags or crowd budget.
-        content = _evidence_text(sanitize_memory_text_for_inference(raw_content))
+        # Evidence-strip on multiline FIRST. sanitize_memory_text_for_inference
+        # collapses newlines; doing it first turns "STATES: not visible" +
+        # bindings into one line that checklist leakage wrongly drops entirely.
+        content = _evidence_text(raw_content)
+        content = _sanitize_caption_preserve_lines(content)
         if content:
             parts.append(content)
     hint = "\n".join(parts).strip()

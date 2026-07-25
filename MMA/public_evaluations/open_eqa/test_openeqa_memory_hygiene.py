@@ -1596,6 +1596,30 @@ class GenerateExtractRootCauseTests(unittest.TestCase):
         )
         self.assertEqual(pred.lower(), "console table")
 
+    def test_memory_hint_keeps_sections_despite_not_visible_placeholders(self):
+        from openeqa_memory import memory_hint_from_events
+
+        details = (
+            "ROOM: bedroom\n"
+            "OBJECTS: bed, painting, console table\n"
+            "ATTRIBUTES: painting: red flowers; bed: grey; lamp: brass\n"
+            "STATES: not visible\n"
+            "LOCALIZATION: not visible\n"
+            "SPATIAL: air vent is above the painting\n"
+            "ART_CONTENT: red flowers\n"
+            "FUNCTIONAL_CUES: none\n"
+            "WORLD_CUES: none\n"
+            "NOT_VISIBLE: air vent, pier, umbrella, smoke detector"
+        )
+        hint = memory_hint_from_events(
+            [_Event("bedroom: bed", details)],
+            question="What is above the painting with the red flowers?",
+        )
+        self.assertGreater(len(hint), 40)
+        self.assertIn("spatial", hint.lower())
+        self.assertIn("vent", hint.lower())
+        self.assertNotIn("not_visible", hint.lower())
+
     def test_no_painting_refusal_upgrades_from_art_content(self):
         from openeqa_memory import _is_refusal_answer
 

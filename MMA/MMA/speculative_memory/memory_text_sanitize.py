@@ -39,5 +39,14 @@ def sanitize_memory_text_for_inference(text: str) -> str:
         if not match:
             break
         stripped = stripped[match.end() :].strip()
+    # Keep section newlines (SPATIAL:/ART_CONTENT:) so OpenEQA extractors can match.
+    # Collapsing everything to one line previously caused checklist filters to drop
+    # whole captions when "STATES: not visible" co-occurred with attribute bindings.
+    if "\n" in stripped:
+        lines = [
+            re.sub(r"[ \t]+", " ", ln).strip()
+            for ln in stripped.splitlines()
+        ]
+        return "\n".join(ln for ln in lines if ln)
     out = re.sub(r"\s+", " ", stripped).strip()
     return out
