@@ -1527,6 +1527,38 @@ class GenerateExtractRootCauseTests(unittest.TestCase):
         )
         self.assertIn("towel", pred.lower())
 
+    def test_hint_packing_keeps_art_content_under_budget(self):
+        from openeqa_memory import _pack_memory_hint_text
+
+        noise = "\n".join([f"OBJECTS: filler item {i}, chair, table, lamp" for i in range(80)])
+        blob = (
+            "SUMMARY: bedroom filler\n"
+            f"{noise}\n"
+            "ART_CONTENT: wooden pier extending into water\n"
+            "SPATIAL: air vent is above the painting\n"
+        )
+        packed = _pack_memory_hint_text(
+            blob,
+            question="What does the painting in the bathroom depict?",
+            max_chars=500,
+        )
+        self.assertIn("pier", packed.lower())
+        self.assertLessEqual(len(packed), 500)
+
+    def test_hint_packing_not_crowded_out_by_couch_extra(self):
+        from openeqa_memory import _pack_memory_hint_text, _hint_relevance_terms
+
+        # Regression: "nap" ⊂ "depict" used to inject couch extras that outranked ART.
+        terms = _hint_relevance_terms("What does the painting in the bathroom depict?")
+        self.assertNotIn("couch", terms)
+        noise = "\n".join(
+            [f"OBJECTS: filler chair {i}, table, lamp, couch, plant" for i in range(120)]
+        )
+        blob = noise + "\nART_CONTENT: a wooden pier extending into calm water\nROOM: bathroom\n"
+        packed = _pack_memory_hint_text(blob, question="What does the painting in the bathroom depict?", max_chars=3500)
+        self.assertIn("pier", packed.lower())
+        self.assertIn("art_content", packed.lower())
+
 
 class MemoryTextSanitizeTests(unittest.TestCase):
     def test_sanitize_strips_timestamps(self):

@@ -886,9 +886,11 @@ def _recover_qa_from_memory(
         if not pool:
             continue
         selected = select_events_for_qa(pool, question) or pool
-        hint = memory_hint_from_events(selected)
+        hint = memory_hint_from_events(selected, question=question)
         # Also try a wider hint over the full pool when top-k is thin.
-        wide = memory_hint_from_events(pool, top_k=min(24, len(pool)))
+        wide = memory_hint_from_events(
+            pool, top_k=min(24, len(pool)), question=question
+        )
         for candidate in (hint, wide):
             recovered = _try(candidate)
             if recovered:
@@ -994,7 +996,7 @@ def _run_qa(
         (draft_policy or {}).get("top_memory_preview") or ""
     )
     if selected_events:
-        rebuilt = memory_hint_from_events(selected_events)
+        rebuilt = memory_hint_from_events(selected_events, question=question)
         if len(rebuilt) >= len(memory_hint or ""):
             memory_hint = rebuilt
     print(

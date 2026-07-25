@@ -1759,29 +1759,148 @@ def _event_confidence(event: Any) -> float:
     return float(conf) if conf is not None else 0.8
 
 
+def _hint_relevance_terms(question: str) -> List[str]:
+    """Content nouns from the question used to pack normalize hints."""
+    q_l = (question or "").lower()
+    tokens = set(re.findall(r"[a-z]{3,}", q_l))
+    stop = _QUESTION_STOPWORDS | {
+        "what", "where", "which", "when", "how", "does", "did", "can", "should",
+        "this", "that", "have", "from", "into", "about", "above", "below",
+        "under", "between", "left", "right", "near", "next", "many", "much",
+    }
+    terms = [t for t in re.findall(r"[a-z]{3,}", q_l) if t not in stop]
+
+    def _has(*words: str) -> bool:
+        # Word-token match only — avoid "nap" ⊂ "depict", "on" ⊂ everything.
+        return any(w in tokens for w in words)
+
+    extras: List[str] = []
+    if _has("paint", "painting", "picture", "depict", "depicted", "animal", "art"):
+        extras.extend(["art_content", "painting", "picture", "frame"])
+    if _has("open", "opened", "closed", "light", "lights", "curtain", "curtains", "door", "doors"):
+        extras.extend(["states", "curtain", "lights"])
+    if _has("above", "below", "between", "left", "right", "under", "hanging"):
+        extras.extend(["spatial", "localization", "vent", "microwave", "towel", "light"])
+    if _has("material", "made"):
+        extras.extend(["attributes", "glass", "wood", "metal"])
+    if _has("pattern", "color", "colour"):
+        extras.extend(["attributes", "leopard", "stripe"])
+    if _has("shoe", "shoes", "hat", "cool", "towel", "dry", "nap"):
+        extras.extend(["functional_cues", "rack", "fan", "towel", "couch"])
+    return list(dict.fromkeys(terms + extras))
+
+
+def _pack_memory_hint_text(blob: str, question: str = "", max_chars: int = 8000) -> str:
+    """Pack caption text for normalize: keep structured/question-relevant lines first.
+
+    Naive ``hint[:3500]`` often dropped ART_CONTENT / SPATIAL / STATES that the
+    generate extractors need, so memory-present gold never reached normalize.
+    """
+    text = (blob or "").strip()
+    if not text:
+        return ""
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+    terms = _hint_relevance_terms(question)
+    # Weak extras that appear in almost every OBJECTS dump — do not let them
+    # outrank ART_CONTENT / SPATIAL when packing under budget.
+    weak_terms = {"couch", "lamp", "table", "chair", "plant", "frame", "light"}
+    strong_terms = [t for t in terms if t not in weak_terms]
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return text[:max_chars].rstrip()
+
+    _STRUCT_HI = re.compile(
+        r"^(?:art_content|states|spatial|localization|attributes|"
+        r"functional_cues|world_cues)\s*:",
+        re.I,
+    )
+    _STRUCT_MID = re.compile(r"^(?:objects|room|summary)\s*:", re.I)
+
+    def _score(line: str) -> int:
+        ll = line.lower()
+        score = 0
+        if _STRUCT_HI.match(ll):
+            score += 40
+        elif _STRUCT_MID.match(ll):
+            score += 6
+        for t in strong_terms:
+            if t in ll:
+                score += 5
+        for t in weak_terms:
+            if t in terms and t in ll:
+                score += 1
+        # Dense bindings are high value.
+        if ll.count(":") >= 1 and ll.count(";") >= 1:
+            score += 3
+        return score
+
+    # Phase 1: always reserve structured high-value lines (question-agnostic).
+    must: List[Tuple[int, str]] = []
+    rest: List[Tuple[int, str]] = []
+    for idx, line in enumerate(lines):
+        if _STRUCT_HI.match(line):
+            must.append((idx, line))
+        else:
+            rest.append((idx, line))
+
+    chosen: List[Tuple[int, str]] = []
+    used = 0
+
+    def _try_add(idx: int, line: str, *, allow_partial: bool = False) -> bool:
+        nonlocal used
+        add = len(line) + (1 if chosen else 0)
+        if used + add <= max_chars:
+            chosen.append((idx, line))
+            used += add
+            return True
+        if allow_partial and not chosen:
+            remain = max_chars - used
+            if remain > 40:
+                chosen.append((idx, line[:remain].rstrip()))
+                used = max_chars
+                return True
+        return False
+
+    for idx, line in must:
+        if used >= max_chars:
+            break
+        _try_add(idx, line, allow_partial=True)
+
+    ranked = sorted(rest, key=lambda iv: (-_score(iv[1]), iv[0]))
+    for idx, line in ranked:
+        if used >= max_chars:
+            break
+        if not _try_add(idx, line):
+            continue
+    if not chosen:
+        return text[:max_chars].rstrip()
+    chosen.sort(key=lambda iv: iv[0])
+    return "\n".join(line for _, line in chosen)
+
+
 def memory_hint_from_events(
     events: List[Any],
     *,
     top_k: Optional[int] = None,
     max_chars: Optional[int] = None,
+    question: str = "",
 ) -> str:
-    """Full summary+details text for normalize fallback (not truncated preview)."""
+    """Full summary+details text for normalize fallback (question-aware packing)."""
     k = top_k if top_k is not None else qa_memory_top_k()
     if max_chars is None:
-        max_chars = max(2000, int(os.environ.get("OPENEQA_QA_HINT_CHARS", "3500")))
+        max_chars = max(4000, int(os.environ.get("OPENEQA_QA_HINT_CHARS", "8000")))
     parts: List[str] = []
     for event in (events or [])[: max(1, k)]:
         raw_content = (
-            f"{getattr(event, 'summary', None) or ''} "
+            f"{getattr(event, 'summary', None) or ''}\n"
             f"{getattr(event, 'details', None) or ''}"
         ).strip()
         content = sanitize_memory_text_for_inference(raw_content)
         if content:
             parts.append(content)
-    hint = " ".join(parts).strip()
-    if max_chars > 0 and len(hint) > max_chars:
-        hint = hint[:max_chars].rstrip()
-    return hint
+    hint = "\n".join(parts).strip()
+    return _pack_memory_hint_text(hint, question=question, max_chars=max_chars)
 
 
 def events_to_memory_items(events: List[Any]) -> List[Dict[str, Any]]:
@@ -5445,7 +5564,7 @@ def compute_draft_policy(question: str, events: List[Any]) -> Dict[str, Any]:
         top_preview = sanitize_memory_text_for_inference(
             (getattr(hint_source[0], "summary", None) or "")[:200]
         )[:120]
-        top_hint = memory_hint_from_events(hint_source)
+        top_hint = memory_hint_from_events(hint_source, question=question)
 
     if os.environ.get("OPENEQA_SD_SPEED", "").strip().lower() in ("1", "true", "yes"):
         if not hard_conflict and max_draft_steps < 3 and margin >= 1.5:

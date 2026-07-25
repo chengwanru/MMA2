@@ -209,8 +209,14 @@ def main() -> None:
         selected = select_events_for_qa(events, question) if events else []
         # Prefer selected window; fall back to wider pool when extract is empty
         # (mirrors QA recover path — select-miss should not hide generate gains).
-        hint_sel = memory_hint_from_events(selected or events)
-        hint_wide = memory_hint_from_events(events, top_k=min(24, len(events))) if events else ""
+        hint_sel = memory_hint_from_events(selected or events, question=question)
+        hint_wide = (
+            memory_hint_from_events(
+                events, top_k=min(24, len(events)), question=question
+            )
+            if events
+            else ""
+        )
         raw_for_norm = old_pred if not old_pred.startswith("ERROR") else "ERROR"
         new_pred, _ = normalize_qa_prediction(
             raw_for_norm, question=question, memory_hint=hint_sel
@@ -220,9 +226,15 @@ def main() -> None:
                 raw_for_norm, question=question, memory_hint=hint_wide
             )
             if alt and not alt.startswith("ERROR"):
-                # Keep alt when it improves over selected-only / old.
-                if not new_pred or new_pred.startswith("ERROR") or (
-                    _good(gold, alt) and not _good(gold, new_pred or "")
+                old_ok = _good(gold, old_pred)
+                new_ok = _good(gold, new_pred or "")
+                alt_ok = _good(gold, alt)
+                # Prefer wider hint when it fixes a wrong answer, or when selected
+                # path was a no-op on a miss.
+                if (
+                    (alt_ok and not new_ok)
+                    or (not old_ok and alt.strip() != (old_pred or "").strip())
+                    or (not new_pred or new_pred.startswith("ERROR"))
                 ):
                     new_pred = alt
                     hint_sel = hint_wide
