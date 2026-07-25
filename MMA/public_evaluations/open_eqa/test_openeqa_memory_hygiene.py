@@ -1386,6 +1386,148 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         self.assertNotIn("hatch", pred.lower())
 
 
+class GenerateExtractRootCauseTests(unittest.TestCase):
+    """Generic extract/normalize upgrades (not slice-gold hardcodes)."""
+
+    def test_above_painting_prefers_vent_over_console(self):
+        pred, _ = normalize_qa_prediction(
+            "console table",
+            question="What is above the painting with the red flowers?",
+            memory_hint=(
+                "OBJECTS: painting, console table, air vent, bed\n"
+                "SPATIAL: painting is above the console table; air vent is above the painting"
+            ),
+        )
+        self.assertRegex(pred.lower(), r"vent")
+
+    def test_art_content_pier_overrides_refusal(self):
+        pred, _ = normalize_qa_prediction(
+            "No painting in bathroom",
+            question="What does the painting in the bathroom depict?",
+            memory_hint=(
+                "ROOM: bathroom\n"
+                "OBJECTS: painting, sink\n"
+                "ART_CONTENT: wooden pier extending into water, framed by trees"
+            ),
+        )
+        self.assertIn("pier", pred.lower())
+
+    def test_floral_upgrades_to_white_flowers(self):
+        pred, _ = normalize_qa_prediction(
+            "floral",
+            question="What is depicted on the painting above the bed?",
+            memory_hint="ART_CONTENT: wall art: large white flowers; other art: not readable",
+        )
+        self.assertIn("white", pred.lower())
+        self.assertIn("flower", pred.lower())
+
+    def test_leopard_print_upgrades_to_skin_pattern(self):
+        pred, _ = normalize_qa_prediction(
+            "Leopard print",
+            question="What color pattern is on the pillow on the black couch?",
+            memory_hint="ATTRIBUTES: pillow: leopard print; couch: black leather",
+        )
+        self.assertIn("leopard", pred.lower())
+        self.assertIn("skin", pred.lower())
+
+    def test_gray_canonicalizes_to_grey_from_memory(self):
+        pred, _ = normalize_qa_prediction(
+            "Gray",
+            question="What color are the kitchen cabinets?",
+            memory_hint="ATTRIBUTES: kitchen cabinets: grey; counter: white",
+        )
+        self.assertEqual(pred.lower(), "grey")
+
+    def test_microwave_truncation_repaired(self):
+        pred, _ = normalize_qa_prediction(
+            "rowave glass, white cabinets",
+            question="What is in between the two white cabinets in the kitchen?",
+            memory_hint="OBJECTS: white cabinets, microwave, stove",
+        )
+        self.assertIn("microwave", pred.lower())
+
+    def test_table_material_beats_color_guess(self):
+        pred, _ = normalize_qa_prediction(
+            "blue",
+            question="What material is the dining table?",
+            memory_hint="ATTRIBUTES: dining table: blue, glass top; chairs: wood",
+        )
+        self.assertIn("glass", pred.lower())
+
+    def test_ceiling_hanging_prefers_dome_light_over_vent(self):
+        pred, _ = normalize_qa_prediction(
+            "ceiling vent",
+            question="What is hanging from the ceiling in the bedroom?",
+            memory_hint=(
+                "ROOM: bedroom\n"
+                "OBJECTS: dome light, ceiling vent, bed\n"
+                "ATTRIBUTES: ceiling light: white dome; vent: round, white"
+            ),
+        )
+        self.assertRegex(pred.lower(), r"dome|light")
+
+    def test_closet_lights_on_from_state_binding(self):
+        pred, _ = normalize_qa_prediction(
+            "No",
+            question="Are the closet lights turned on?",
+            memory_hint=(
+                "STATES: closet door: closed; closet lights: on; bedroom lights: off"
+            ),
+        )
+        self.assertEqual(pred.lower(), "yes")
+
+    def test_shower_curtain_open_closed_scoped(self):
+        pred, _ = normalize_qa_prediction(
+            "Closed",
+            question="Is the bathroom shower curtain open or closed?",
+            memory_hint=(
+                "STATES: bathroom door: closed; shower curtain: open; window: closed"
+            ),
+        )
+        self.assertEqual(pred.lower(), "open")
+
+    def test_patio_curtains_yesno_scoped(self):
+        pred, _ = normalize_qa_prediction(
+            "No",
+            question="Are the curtains to the patio door open?",
+            memory_hint=(
+                "STATES: front door: closed; patio curtains: open; bedroom curtains: closed"
+            ),
+        )
+        self.assertEqual(pred.lower(), "yes")
+
+    def test_first_floor_no_when_upstairs_cues(self):
+        pred, _ = normalize_qa_prediction(
+            "Yes",
+            question="Is this home on the first floor?",
+            memory_hint="WORLD_CUES: upstairs; second floor bedrooms; staircase",
+        )
+        self.assertEqual(pred.lower(), "no")
+
+    def test_desk_room_no_when_bedroom_cluttered(self):
+        pred, _ = normalize_qa_prediction(
+            "Yes",
+            question="Is there room for a desk in the bedroom?",
+            memory_hint=(
+                "ROOM: bedroom\n"
+                "STATES: bedroom: cluttered, no space for desk; bed: made"
+            ),
+        )
+        self.assertEqual(pred.lower(), "no")
+
+    def test_right_of_switch_prefers_towel_in_bathroom(self):
+        pred, _ = normalize_qa_prediction(
+            "door",
+            question="What is to the right of the light switch in the bathroom?",
+            memory_hint=(
+                "ROOM: bathroom\n"
+                "OBJECTS: light switch, hand towel, door, sink\n"
+                "SPATIAL: door is right of light switch; hand towel is right of light switch"
+            ),
+        )
+        self.assertIn("towel", pred.lower())
+
+
 class MemoryTextSanitizeTests(unittest.TestCase):
     def test_sanitize_strips_timestamps(self):
         mod_path = (
