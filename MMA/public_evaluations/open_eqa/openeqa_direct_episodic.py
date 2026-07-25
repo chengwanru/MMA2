@@ -621,11 +621,16 @@ def _baseline_vl_context():
             os.environ["MMA_TARGET_ONLY"] = prev_target_only
 
 
-def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
+def _describe_frame_batch(
+    image_paths: List[str],
+    question: str = "",
+    *,
+    use_cache: bool = True,
+) -> str:
     del question  # shared episodic store must stay question-neutral
 
     cache_file = _get_caption_cache_path(image_paths)
-    if cache_file.exists():
+    if use_cache and cache_file.exists():
         print(
             f"  [Direct Episodic Cache Hit] Reusing offline caption: {cache_file.name}",
             flush=True,
@@ -729,7 +734,8 @@ def precompute_captions_for_frames(
             )
             continue
         try:
-            text = _describe_frame_batch(chunk)
+            # When skip_existing=False (--force), bypass disk cache so VL rewrites.
+            text = _describe_frame_batch(chunk, use_cache=skip_existing)
             if text.strip():
                 stats["miss"] += 1
             else:
