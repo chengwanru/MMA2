@@ -109,7 +109,7 @@ def _apply_precompute_env() -> None:
     os.environ.setdefault("MMA_SPECULATIVE_BASELINE", "1")
     os.environ.setdefault("MMA_TARGET_ONLY", "1")
     os.environ.setdefault("OPENEQA_DIRECT_EPISODIC", "1")
-    os.environ.setdefault("OPENEQA_EPISODIC_MAX_TOKENS", "1024")
+    os.environ.setdefault("OPENEQA_EPISODIC_MAX_TOKENS", "640")
     os.environ.setdefault("OPENEQA_VL_MAX_PIXELS", "401408")
     # Avoid sticky QA knobs polluting caption.
     os.environ.pop("MMA_BASELINE_TOOLS", None)

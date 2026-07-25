@@ -155,7 +155,7 @@ class CaptionSchemaTests(unittest.TestCase):
         self.assertEqual(report["leak_flags"], [])
         self.assertGreaterEqual(report["score"], 0.7)
 
-    def test_quality_flags_leaky_not_visible(self):
+    def test_harden_collapses_leaky_not_visible(self):
         raw = (
             "SUMMARY: bathroom: sink\n"
             "DETAILS:\n"
@@ -168,8 +168,23 @@ class CaptionSchemaTests(unittest.TestCase):
             "multiple showers, multiple tubs, broom, cooler, opener, "
             "door pull lever, door pull knob\n"
         )
-        report = caption_quality_report(raw)
-        self.assertIn("long_not_visible", report["leak_flags"])
+        out = harden_caption_text(raw)
+        self.assertRegex(out, r"(?im)^NOT_VISIBLE:\s*none\b")
+        self.assertRegex(out, r"(?im)^ART_CONTENT:\s*none\b")
+        self.assertNotIn("sofa (couch)", out.lower())
+        report = caption_quality_report(out)
+        self.assertNotIn("long_not_visible", report["leak_flags"])
+
+    def test_synonym_boost_ignores_not_visible_sofa(self):
+        raw = (
+            "SUMMARY: hallway: stairs\n"
+            "DETAILS:\n"
+            "ROOM: hallway/entryway\n"
+            "OBJECTS: stairs, railing\n"
+            "NOT_VISIBLE: sofa, bed, fridge\n"
+        )
+        out = harden_caption_text(raw).lower()
+        self.assertNotIn("sofa (couch)", out)
 
     def test_harden_boosts_dataset_wide_synonyms(self):
         raw = (

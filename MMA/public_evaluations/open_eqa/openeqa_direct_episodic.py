@@ -221,6 +221,63 @@ def _infer_room_label(blob: str) -> str:
     return "unknown"
 
 
+def _split_listish(text: str) -> List[str]:
+    parts = re.split(r"\s*[,;|]\s*", (text or "").strip())
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _sanitize_not_visible(text: str, max_items: int = 5) -> str:
+    """Collapse VL checklist dumps / token-fill repeats into a short list."""
+    t = (text or "").strip()
+    if not t or t.lower() in ("none", "n/a", "not visible"):
+        return "none"
+    items = _split_listish(t)
+    # Dedup while preserving order (token-fill often repeats the same 5 nouns).
+    seen = set()
+    uniq: List[str] = []
+    for it in items:
+        key = it.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(it)
+    # Long checklist = prompt regurgitation, not a useful absence log.
+    if len(items) >= 12 or len(t) > 220 or len(uniq) >= 10:
+        return "none"
+    return ", ".join(uniq[:max_items]) if uniq else "none"
+
+
+def _sanitize_world_cues(text: str, max_items: int = 3) -> str:
+    t = (text or "").strip()
+    if not t or t.lower() in ("none", "n/a", "not visible"):
+        return "none"
+    items = _split_listish(t)
+    if len(items) >= 8 or t.count(";") >= 4 or len(t) > 240:
+        keep = [x for x in items if len(x) <= 60][:max_items]
+        return "; ".join(keep) if keep else "none"
+    return "; ".join(items[:max_items]) if items else "none"
+
+
+def _strip_section_for_synonyms(summary: str, normalized: Dict[str, str]) -> str:
+    """Evidence-only blob for synonym boosts (never read NOT_VISIBLE)."""
+    parts = [summary]
+    for sec in (
+        "ROOM",
+        "OBJECTS",
+        "ATTRIBUTES",
+        "STATES",
+        "LOCALIZATION",
+        "SPATIAL",
+        "ART_CONTENT",
+        "FUNCTIONAL_CUES",
+        "WORLD_CUES",
+    ):
+        val = (normalized.get(sec) or "").strip()
+        if val and val.lower() not in ("none", "n/a", "not visible"):
+            parts.append(f"{sec}: {val}")
+    return "\n".join(parts).lower()
+
+
 def harden_caption_text(text: str) -> str:
     """Normalize SUMMARY/DETAILS section headers and fill missing OpenEQA fields."""
     raw = (text or "").strip()
@@ -267,6 +324,12 @@ def harden_caption_text(text: str) -> str:
             k = "NOT_VISIBLE"
         normalized[k] = val
 
+    # Post-VL hygiene: kill checklist dumps even when the model ignores the prompt.
+    if "NOT_VISIBLE" in normalized:
+        normalized["NOT_VISIBLE"] = _sanitize_not_visible(normalized["NOT_VISIBLE"])
+    if "WORLD_CUES" in normalized:
+        normalized["WORLD_CUES"] = _sanitize_world_cues(normalized["WORLD_CUES"])
+
     room = (normalized.get("ROOM") or "").strip()
     if not room or room.lower() in ("n/a", "none", "unknown"):
         guess = _infer_room_label(f"{summary}\n{details}")
@@ -284,7 +347,8 @@ def harden_caption_text(text: str) -> str:
         summary = f"{room}: scene observation"
 
     # Dataset-wide synonym aliases (from full OpenEQA gold lexicon, not slice-specific).
-    blob_l = f"{summary}\n{details}".lower()
+    # Never mine NOT_VISIBLE — hallway dumps must not invent "sofa (couch)".
+    blob_l = _strip_section_for_synonyms(summary, normalized)
     extras: List[str] = []
     if any(tok in blob_l for tok in ("picture", "frame", "artwork", "poster")) and "painting" not in blob_l:
         extras.append("wall art aka paintings/pictures/frames")
@@ -578,8 +642,9 @@ def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
     from mma.llm_api.llm_client import LLMClient
     from mma.schemas.llm_config import LLMConfig
 
-    # Structured DETAILS for all 7 OpenEQA families need a larger budget.
-    max_tokens = int(os.environ.get("OPENEQA_EPISODIC_MAX_TOKENS", "1024"))
+    # Cap tokens: 1024 invited runaway NOT_VISIBLE checklist fill; 640 is enough
+    # for binding-first captions (override with OPENEQA_EPISODIC_MAX_TOKENS).
+    max_tokens = int(os.environ.get("OPENEQA_EPISODIC_MAX_TOKENS", "640"))
     llm_config = LLMConfig(
         model="qwen3-vl-speculative",
         model_endpoint_type="speculative_memory",
