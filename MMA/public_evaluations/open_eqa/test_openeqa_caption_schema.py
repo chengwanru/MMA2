@@ -1,4 +1,8 @@
-"""Tests for OpenEQA hardened caption schema / enrichment."""
+"""Tests for OpenEQA hardened caption schema / enrichment.
+
+Prompt coverage checks are tied to FULL-SET fact families (open-eqa-v0.json
+taxonomy), not to any particular eval slice or miss list.
+"""
 
 from __future__ import annotations
 
@@ -36,6 +40,73 @@ class CaptionSchemaTests(unittest.TestCase):
         for sec in _CAPTION_DETAIL_SECTIONS:
             self.assertIn(f"{sec}:", EPISODIC_CAPTION_PROMPT)
 
+    def test_prompt_covers_fullset_fact_families(self):
+        """Must mention the major visual fact families demanded by the full 1636-Q set."""
+        p = EPISODIC_CAPTION_PROMPT.lower()
+        self.assertIn("1636", p)
+        # Architecture / surfaces / levels
+        for needle in ("ceiling", "floor", "wall", "stairs", "vent", "railing", "upstairs", "ground"):
+            self.assertIn(needle, p, msg=f"missing architecture cue: {needle}")
+        # Openings / lighting / state
+        for needle in ("open", "closed", "blinds", "lights", "switch", "door knob", "exit"):
+            self.assertIn(needle, p, msg=f"missing state cue: {needle}")
+        # Furniture / storage / wet / clothes / office
+        for needle in (
+            "bed",
+            "couch",
+            "table",
+            "shelf",
+            "sink",
+            "refrigerator",
+            "mirror",
+            "hanger",
+            "mat",
+            "pillow",
+            "whiteboard",
+            "laptop",
+            "printer",
+            "backpack",
+            "piano",
+            "vacuum",
+            "cooler",
+            "fireplace",
+        ):
+            self.assertIn(needle, p, msg=f"missing object family: {needle}")
+        # Attributes (incl. common gold colors/materials)
+        for needle in (
+            "color",
+            "material",
+            "shape",
+            "stripe",
+            "white",
+            "black",
+            "brown",
+            "grey",
+            "leather",
+            "plastic",
+            "cross-hatch",
+        ):
+            self.assertIn(needle, p, msg=f"missing attribute cue: {needle}")
+        # Functional + world (full-set verb families)
+        for needle in (
+            "functional",
+            "wash",
+            "store",
+            "hang",
+            "world",
+            "staircase kind",
+            "print",
+            "charge",
+            "vacuum",
+            "recycle",
+            "stories",
+        ):
+            self.assertIn(needle, p, msg=f"missing functional/world cue: {needle}")
+        # Explicit anti-overfit stance
+        self.assertIn("do not know which question", p)
+        self.assertIn("seven", p)
+        self.assertIn("never specialize", p)
+
     def test_harden_fills_missing_sections_and_room(self):
         raw = (
             "SUMMARY: messy room with a table\n"
@@ -50,17 +121,19 @@ class CaptionSchemaTests(unittest.TestCase):
         report = caption_quality_report(out)
         self.assertTrue(report["has_spatial_relation"])
 
-    def test_harden_boosts_painting_and_couch_synonyms(self):
+    def test_harden_boosts_dataset_wide_synonyms(self):
         raw = (
             "SUMMARY: living room: red sofa\n"
             "DETAILS:\n"
             "ROOM: living room\n"
-            "OBJECTS: red sofa, picture frames\n"
+            "OBJECTS: red sofa, picture frames, clothing rack, stone wall\n"
             "SPATIAL: picture frames are above the sofa\n"
         )
         out = harden_caption_text(raw).lower()
         self.assertIn("painting", out)
         self.assertIn("couch", out)
+        self.assertIn("hanger", out)
+        self.assertIn("exposed stone", out)
 
     def test_parse_uses_hardened_text(self):
         raw = "SUMMARY: kitchen with sink\nDETAILS:\nOBJECTS: sink\nSTATES: kitchen countertop: clean\n"

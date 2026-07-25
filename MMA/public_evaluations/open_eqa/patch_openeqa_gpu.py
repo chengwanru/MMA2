@@ -75,7 +75,7 @@ def _describe_frame_batch(image_paths, question=""):
     from mma.schemas.llm_config import LLMConfig
     llm_config = LLMConfig(
         model="qwen3-vl-speculative", model_endpoint_type="speculative_memory",
-        context_window=8192, max_tokens=int(os.environ.get("OPENEQA_EPISODIC_MAX_TOKENS", "384")),
+        context_window=8192, max_tokens=int(os.environ.get("OPENEQA_EPISODIC_MAX_TOKENS", "1024")),
     )
     client = LLMClient.create(llm_config=llm_config)
     if client is None:

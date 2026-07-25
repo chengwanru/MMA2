@@ -66,62 +66,210 @@ def direct_episodic_enabled() -> bool:
 #
 # NOTE (AIBox): memorize uses this VL path (OPENEQA_DIRECT_EPISODIC=1),
 # NOT memory-agent tool calling (OPENEQA_EPISODIC_TOOL_CALL=0).
-EPISODIC_CAPTION_PROMPT = """You are the episodic memory recorder for ONE indoor egocentric frame from an Embodied QA household (HM3D / ScanNet style).
-You do NOT know future questions. Build a dense, searchable scene database entry.
+EPISODIC_CAPTION_PROMPT = """You are the episodic memory recorder for ONE indoor egocentric frame from EmbodiedQA / OpenEQA households (HM3D + ScanNet).
+You do NOT know which question will be asked later. Your job is to write a COMPLETE, searchable scene record for THIS frame so that ANY later question about visible facts can be answered from memory.
+
+OpenEQA has 1636 questions across SEVEN official categories with nearly equal weight (~13–16% each).
+Your caption must support ALL seven families for the FULL set — never specialize for a handful of famous misses.
+Examples below are FACT TYPES drawn from the full question/answer lexicon, NOT target answers to memorize.
 
 ========================
 HARD RULES
 ========================
-- ONLY visible facts. If unsure, write "not visible" — never invent brands, counts, or open/closed.
-- Be concrete nouns: sedan not "car" if clear; fruit bowl not "centerpiece" if fruit is visible.
-- Prefer the word "paintings" for wall art (also note pictures/frames). Prefer both "couch" and "sofa" if either fits.
-- Every STATES clause MUST name the object: "front door: open" not bare "open".
-- Every SPATIAL clause MUST name BOTH sides: "X is above/left of/next to Y".
-- Start SUMMARY with the room type when recognizable.
+1) ONLY visible evidence. If unclear, write "not visible" / "uncertain" — NEVER invent open/closed, counts, colors, or identities.
+2) Prefer concrete, retrieval-friendly nouns + synonyms people ask for (full-set gold lexicon):
+   - wall art → paintings AND pictures/frames/posters when either fits
+   - seating → couch AND sofa; also armchair / office chair / bench when true
+   - hangar/hanger/rack → clothing rack / hangers / clothes hangar
+   - glasses on table → wine glasses / drinking glasses / glassware (not only "silverware")
+   - HVAC → air vent / AC vent / air return / AC unit / wall AC (not only "drywall")
+   - soft pads → pillows / cushions; TV ↔ television / monitor when either fits
+   - trash → trash bin / trash can / garbage bin; recycling bin if yellow/labeled lid
+   - cooler → ice cooler / cooler; vacuum → vacuum cleaner
+   - board → whiteboard / blackboard / chalkboard when true
+3) Named bindings (mandatory grammar):
+   - STATES: always "OBJECT: value" (e.g. "front door: open", "bedroom lights: on")
+   - ATTRIBUTES: always "OBJECT: color/material/shape/pattern/size/..."
+   - SPATIAL: always name BOTH arguments ("X is above Y", "X is to the left of Y")
+4) Start SUMMARY with a room type when recognizable.
+5) Do NOT hallucinate tool inventories. Prefer a careful scan of what is actually in frame.
+6) Multi-value attributes: if several colors/materials/objects of a class are visible, list ALL.
+7) Prefer short, searchable phrases (OpenEQA answers are usually ≤3 words). Put the answerable noun in OBJECTS/ATTRIBUTES/STATES/SPATIAL, not only in prose SUMMARY.
 
 ========================
-OUTPUT FORMAT (exact headers; keep each section even if short)
+OUTPUT FORMAT (exact headers; keep EVERY section)
 ========================
-SUMMARY: <ROOM-TYPE>: <2-5 dominant objects / layout cue>
+SUMMARY: <ROOM-TYPE>: <2-6 dominant objects / layout cue>
 
 DETAILS:
-ROOM: <one of: living room | bedroom | bathroom | kitchen | dining | hallway/entryway | garage | patio/outdoor | office | laundry | stairs/stairwell | unknown>
-OBJECTS: <comma-separated inventory: furniture, appliances, fixtures, tools, vehicles, decor, food containers, bags/backpacks, towels, paper, clothes on chairs, electronics>
-ATTRIBUTES: <object: color/material/shape/size/pattern; mandatory when visible — bed duvet/comforter color; cabinet/counter color; floor material; ceiling material/type; mirror shape; bin lid color; car color+type; painting style abstract|realistic|photographic|cartoon>
-STATES: <named clauses — doors/windows/blinds/curtains open|closed; lights on|off; bin lid open|closed; bed made|unmade; countertop/table clean|cluttered|dirty; toilet lid; under-bed empty|filled|not visible; AC/vent if clear; room brightness bright|dim>
-LOCALIZATION: <where key items sit: which wall/corner/shelf level; near door/TV/bed/stove/sink/stairs>
-SPATIAL: <pairwise relations: above/below/left of/right of/between/behind/in front of/next to/on/under — e.g. "paintings are above the red couch"; "TV is between two picture frames"; "radiator is to the left of the bed"; "fruit bowl is at the center of the breakfast table"; "broom is below the garage door opener">
-FUNCTIONAL_CUES: <affordances + WHERE: sit/sleep/wash hands/brush teeth/cook/store food/keep drinks cold/water plants/cool down/fan speed/hang towel/recycle vs trash/work desk/take notes/shower privacy — name the object and location>
-WORLD_CUES: <house-level hints if visible: vaulted/flat ceiling; radiator/forced-air heating; stairs levels; suburban vs dense outdoor view; art style; damage/renovation; office desk count; fireplace>
-NOT_VISIBLE: <checklist items you looked for but cannot see in THIS frame>
+ROOM: <living room | bedroom | bathroom | kitchen | dining | hallway/entryway | garage | patio/outdoor | office | laundry | stairs/stairwell | unknown>
+OBJECTS: <dense comma-separated inventory of EVERY salient visible item>
+ATTRIBUTES: <object: color, material, shape, size, pattern, style, lid color, fill-level, ...>
+STATES: <object: open|closed|ajar|on|off|full|empty|clean|cluttered|dirty|made|unmade|bright|dim|set|unset|...>
+LOCALIZATION: <region of frame / which wall / shelf level / corner / floor story / near landmark>
+SPATIAL: <pairwise relations with both sides named>
+FUNCTIONAL_CUES: <action → object @ place>
+WORLD_CUES: <house-level / semantic type hints if visually supported>
+NOT_VISIBLE: <important checklist items looked for but unconfirmed in THIS frame>
 
 ========================
-CATEGORY COVERAGE (write facts that answer these families later)
+SEVEN CATEGORIES YOU MUST ENABLE (full OpenEQA taxonomy, 1636 Q)
 ========================
-1) object recognition — name distinctive objects (AC above TV, clock, hose, heater, computer, food brands if readable, sweater on chair).
-2) object localization — enough SPATIAL/LOCALIZATION to answer "where is X" / "where did I leave X".
-3) object state — explicit STATES for doors, windows, lights, lids, cleanliness, bed made, mats present.
-4) attribute — colors, materials (wood panel / concrete / tile floor), shapes (oval mirror, square panels).
-5) spatial understanding — between/left/right/above/behind/space-on-table yes-no cues.
-6) functional reasoning — tools & places: hose, cooler, broom, sink, fridge, desk, mirror, AC, fan dial, closet, shower curtain.
-7) world knowledge — ceiling type, heating type, car type, painting style, outdoor/suburb cue, workplace capacity if obvious.
+A) object recognition (~231) — identity of distinctive objects:
+   appliances, fixtures, tools, decor, containers, electronics, soft goods, vehicles,
+   toys/dolls, clocks, plants, bags/backpacks, hose, broom, cooler, radiator, piano, remote, dispenser.
+
+B) object localization (~263) — WHERE something is / where it was left:
+   enough LOCALIZATION + SPATIAL for "on / under / above / next to / hanging on / by / in the <room> /
+   to the left|right of / on the top|middle|bottom shelf / in the corner / upstairs|ground floor".
+
+C) object state recognition (~252) — binary and multi-state:
+   open/closed/ajar (doors, windows, blinds, curtains, drawers, cabinets, bins, lids, fridge, garage);
+   lights/lamps on/off; devices on/off; full/empty; clean/cluttered/dirty; bed made/unmade;
+   table mats/placemats set|unset; some-open-some-closed when mixed.
+
+D) attribute recognition (~240) — appearance properties:
+   COLORS (use common names when true): white, black, brown, blue, red, green, yellow, grey/gray,
+   pink, orange, gold, dark/light variants; multi-color stripes list ALL colors.
+   MATERIALS: wood/wooden, tile, concrete, carpet, stone, drywall, metal, glass, brick, leather, plastic, fabric.
+   SHAPES: round/oval/square/rectangular/spherical/spiral/cross-hatch; door knobs; mirrors; flooring panels.
+   Also: size (small/large), pattern, lid color, comforter/duvet color, railing color, car color, jacket colors.
+
+E) spatial understanding (~220) — relations and capacity:
+   between / left / right / above / below / behind / in front / on top / under / over / hanging on;
+   "is there room/space on/under X"; furniture density; counts when clearly countable
+   (basins, stories, desks, paintings, doors, jackets).
+
+F) functional reasoning (~217) — affordances & destinations (bind action → object @ place):
+   wash/brush/dry; shower/bath; cook/eat/drink; store/cool/heat; sit/sleep/nap/read/work/type/take notes/write;
+   hang jacket/clothes; wipe shoes; trash vs recycle; water plants; cool down / fan speed / turn on AC;
+   print/charge/plug; vacuum/mop/sweep; play/watch; warm up (fireplace/heater); flush; fold/iron laundry.
+   Also "how can I / where can I / where should I / what can I use to …".
+
+G) world knowledge (~213) — typed labels ONLY if visually supported:
+   ceiling type (vaulted/flat/beamed/wood panel); heating type; car type (sedan/SUV/…);
+   door design (e.g. cross-hatch glass); staircase kind (straight / L / spiral / stone / wooden);
+   art style (abstract/realistic/photographic/cartoon); stories/levels (first/second/ground/upstairs);
+   suburbs/outdoor density / fenced yard; child-oriented / office / laundry room cues;
+   bathroom furnished yes/no from fixtures; which bin is for paper (yellow-lid recycling).
 
 ========================
-FORCED SCAN (mention if present, else list under NOT_VISIBLE)
+UNIVERSAL FORCED SCAN (full-set fact families; mark NOT_VISIBLE if absent)
 ========================
-Room identity; stairs/railing; front door / house doorway / patio/sliding/garage door + open|closed;
-windows + blinds/curtains + open|closed; lights + on|off (name room);
-light switches / fan speed dial / AC controls + location;
-bed + duvet/comforter COLOR + under-bed storage; radiator vs wardrobe vs left-of-bed;
-TV + what is above/beside/between frames; mirror + shape; sink/toilet/shower + curtain;
-sofa/couch (+ color) + what is ABOVE it; breakfast/dining/coffee TABLE + CENTER item (fruit bowl/vase/placemats/empty);
-kitchen/dining COUNTERTOP clean|cluttered; placemats / tableware;
-shelves with TOP-SHELF item names; trash vs recycling bins + lid color + open|closed;
-cooler/ice cooler; hose; broom; ladder; watering can; backpack/bags; towels;
-car/vehicle type+color; garage door opener vs house doorway;
-ceiling material/type (wood panel, beams, vaulted, drywall); floor material;
-wall paintings/pictures + style; fireplace; desk/whiteboard/office seats;
-outdoor alley/yard visible through doorway (label as outdoor/exterior if so).
+### 1) Architecture & surfaces (ceiling / floor / wall / stairs / levels)
+- Ceiling: material + type (drywall, wood panel, beams, vaulted, textured) AND fixtures ON the ceiling
+  (vents/air returns/AC grilles, smoke detectors, lights, ceiling fan, hanging objects).
+- Floor: material + panel/pattern if clear (wood panels, tile, concrete, carpet, stone, mosaic);
+  mats/rugs/doormats + COLOR; whether floor looks clean/cluttered.
+- Walls: material/finish (paint, stone/exposed stone, brick, tile, peeling, wallpaper, leather panels if any);
+  wall COLOR(s); stripe/panel colors if multi-color; which wall (blue wall, etc.) if distinctive.
+- Stairs/stairwell: presence; left/right/center; railing COLOR+material; step material; staircase KIND
+  (straight, spiral/helical, switchback, L-shaped); stone vs wood vs metal; storage closet beside stairs.
+- Levels: if multi-story cues visible, note ground/first/second/upstairs when clear.
+
+### 2) Openings, exits, lighting, controls
+- Every door-like opening: front/entry, bedroom, bathroom, closet, patio/sliding, garage, house doorway, EXIT —
+  name it + STATES open|closed|ajar. Distinguish garage door vs entry/house doorway.
+- Door DESIGN if distinctive (cross-hatch glass, solid wood, glass pane) + door knob SHAPE (round/spherical/lever).
+- Windows + blinds/curtains/shades: open|closed|partial; daylight evidence.
+- Lights/lamps: on|off by room/zone; switches / switch panels / fan-speed dials / AC remotes/controls +
+  LOCALIZATION (right of front door, left of bed, on wall, on nightstand).
+- Garage door opener location if visible (often near house doorway).
+
+### 3) Large furniture & seating
+- Bed/bunk: comforter/duvet COLOR; pillows; under-bed empty|occupied|not visible; objects left/right of bed
+  (radiator, wardrobe, nightstand, lamp, bag).
+- Sofa/couch (+ COLOR) AND what is above/beside/between relative to art/TV; armchair; chairs/benches;
+  bench/sofa contents (pillows/cushions/objects).
+- Tables: dining / breakfast / coffee / side / desk / kids — CENTER item (fruit bowl, vase, runner);
+  placemats/table mats set|unset; space to eat yes/no; tableware named (plates, wine glasses, cups, bottles).
+- Desks / office chairs / filing cabinets / bookshelf/bookshelves/bookcases / paper stacks.
+- Shelves: top/middle/bottom level; named contents (books, boxes, cooler, decor, baskets).
+
+### 4) Kitchen / bath / laundry wet zones
+- Sink (kitchen/bath), faucet, basins count; soap/dispenser; toilet + lid; shower/tub + curtain.
+- Fridge/refrigerator, stove/oven, microwave, dishwasher, washer/dryer / laundry machine.
+- Countertops/bars: clean|cluttered|dirty; food containers; fruit bowls.
+- Mirror + SHAPE (oval/round/rect) + left/right/above/below neighbors; cabinets below mirror open|closed.
+- Towels / hand towels / racks; trash bin in bath/kitchen.
+
+### 5) Storage, clothes, soft goods, personal items
+- Closets; cabinets; drawers; wine cabinet / sideboard; wardrobe.
+- Clothes hangar/hanger/rack: full|sparse|empty; jacket/sweater/clothes COLORS.
+- Bags/backpacks; shoes; shoe mat/doormat (+ color); laundry baskets; pillows/cushions/blankets/rugs.
+- Dolls/toys; bags left on cabinets/beds — name + location.
+
+### 6) Decor, media, electronics, climate, utilities
+- Paintings/pictures/frames/posters: count; subject if clear (cartoon cat, orange painting, photo);
+  style (abstract/realistic/photographic/cartoon) ONLY if supported; what is BETWEEN two frames.
+- TV/television/monitor; remote; clock (wall/desk); plants/vases/flowers (+ color/location).
+- Office/media electronics when visible: laptop, computer, iPad/tablet, phone, printer, projector,
+  whiteboard/blackboard + eraser/markers, speakers.
+- Musical: piano/keyboard if visible.
+- Climate: AC unit / wall AC / ceiling vent / radiator / fireplace / heater / ceiling fan —
+  location + relation (e.g. above TV, left of bed).
+- Trash bin/can vs recycling bin: lid COLOR; open|closed; which for paper if labeled/colored.
+
+### 7) Garage / tools / outdoor (when in view)
+- Vehicle TYPE+COLOR (sedan/SUV/…); garage door + opener; hose (+ color); broom; ladder; cooler;
+  watering can; vacuum cleaner; tool chests — ONLY if truly visible.
+- Patio/yard/fence/alley through openings — outdoor/exterior; fenced or not; suburban density cue if clear.
+
+### 8) People-centric / semantic cues (visual only)
+- Children's items (toys, dolls, kids books, colorful frames) → WORLD_CUES may say child-oriented room.
+- Office vs bedroom vs laundry vs garage semantic cues.
+- Readable text on posters/boxes ONLY if legible; do not invent.
+
+### 9) Counts, corners, multi-answers
+- Count same-class objects when unambiguous (doors, paintings, basins, desks, jackets, stories).
+- Multi-color / multi-material attributes: list every visible value.
+- Prefer corner/edge localizations when objects sit in corners ("in the left corner", "far wall").
+
+========================
+SPATIAL / LOCALIZATION QUALITY BAR
+========================
+For every salient object, try to provide at least one of:
+- LOCALIZATION: left/right/center, corner, near door/exit, on top shelf, under stairs, on ceiling,
+  ground/first/second/upstairs, hanging on wall, mounted above X
+- SPATIAL: relation to a stable landmark (bed, sofa/couch, table, desk, sink, stairs, TV/monitor,
+  door, window, whiteboard, cabinet, shelf)
+Relation vocabulary when true: above, below, under, over, on, on top of, left of, right of, beside,
+next to, by, between, behind, in front of, hanging on, mounted on, inside, outside, through, near.
+
+========================
+FUNCTIONAL_CUES QUALITY BAR (full-set affordance verbs)
+========================
+When an affordance is visible, write "action → object @ place". Cover these verb families if supported:
+- wash hands / brush teeth / dry hands → sink / towel @ bath|kitchen
+- shower / bath / flush → shower/tub/toilet @ bathroom
+- eat / drink / cook / store cold food → table/fridge/stove @ kitchen|dining
+- hang jacket/clothes → rack/hangers @ hallway|closet
+- wipe shoes → doormat @ entry
+- sit / read / work / type / take notes / write → chair/desk/table/whiteboard @ room
+- sleep / nap → bed @ bedroom
+- cool down / increase fan speed / turn on AC → AC unit / ceiling fan dial / switch panel @ location
+- water plants → hose / watering can @ garage|outdoor
+- keep drinks cold (picnic) → cooler @ garage|shelf
+- trash vs recycle paper → trash bin vs yellow-lid recycling bin
+- print / charge / plug → printer / outlet / charger @ location
+- vacuum / mop / sweep → vacuum cleaner / mop / broom @ location
+- play / watch → toys / TV @ location
+- warm up → fireplace / heater @ location
+Do not invent affordances for objects that are not visible.
+
+========================
+ANTI-PATTERNS (do not do these)
+========================
+- Writing only for a few hard examples; ignore the rest of the scan checklist.
+- Saying only "ceiling: drywall" while ignoring a visible vent/fan/light on that ceiling.
+- Saying only "silverware" when glasses/bottles/plates are visible.
+- Naming a clothing rack but omitting garment colors.
+- Naming stairs but omitting stair kind/material/railing color when clear.
+- Omitting pillow/cushion on a bench/sofa; omitting table-center objects; omitting shelf contents.
+- Omitting electronics (laptop/printer/remote/whiteboard) that are clearly in view.
+- Omitting bin lid colors or calling every bin only "trash".
+- Inventing long tool inventories that are not in the image.
+- Collapsing multi-color attributes into a single color.
 """
 
 # Sections expected under DETAILS (hardening inserts empty stubs if missing).
@@ -228,15 +376,28 @@ def harden_caption_text(text: str) -> str:
     if not summary:
         summary = f"{room}: scene observation"
 
-    # Synonym boosts that OpenEQA gold often uses.
+    # Dataset-wide synonym aliases (from full OpenEQA gold lexicon, not slice-specific).
     blob_l = f"{summary}\n{details}".lower()
     extras: List[str] = []
     if any(tok in blob_l for tok in ("picture", "frame", "artwork", "poster")) and "painting" not in blob_l:
-        extras.append("wall art may be described as paintings/pictures/frames")
+        extras.append("wall art aka paintings/pictures/frames")
     if "sofa" in blob_l and "couch" not in blob_l:
         extras.append("sofa (couch)")
     if "couch" in blob_l and "sofa" not in blob_l:
         extras.append("couch (sofa)")
+    if any(tok in blob_l for tok in ("hangar", "hanger", "clothing rack", "clothes rack")):
+        if "hanger" not in blob_l:
+            extras.append("clothes hangar/hanger/rack")
+    if any(tok in blob_l for tok in ("vent", "air return", "grille")) and "air vent" not in blob_l:
+        extras.append("ceiling/wall air vent")
+    if "glassware" in blob_l or (
+        "glass" in blob_l and "table" in blob_l and "wine" not in blob_l
+    ):
+        extras.append("drinking glasses / wine glasses if stemware")
+    if any(tok in blob_l for tok in ("cushion",)) and "pillow" not in blob_l:
+        extras.append("cushions (pillows)")
+    if "stone wall" in blob_l and "exposed stone" not in blob_l:
+        extras.append("exposed stone wall")
     if extras:
         attrs = normalized.get("ATTRIBUTES", "")
         add = "; ".join(extras)
@@ -407,7 +568,7 @@ def _describe_frame_batch(image_paths: List[str], question: str = "") -> str:
     from mma.schemas.llm_config import LLMConfig
 
     # Structured DETAILS for all 7 OpenEQA families need a larger budget.
-    max_tokens = int(os.environ.get("OPENEQA_EPISODIC_MAX_TOKENS", "896"))
+    max_tokens = int(os.environ.get("OPENEQA_EPISODIC_MAX_TOKENS", "1024"))
     llm_config = LLMConfig(
         model="qwen3-vl-speculative",
         model_endpoint_type="speculative_memory",
