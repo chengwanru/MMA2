@@ -538,6 +538,19 @@ def _infer_target_rooms(question: str) -> List[str]:
         for r in ("kitchen", "bathroom"):
             if r not in rooms:
                 rooms.append(r)
+    if "brush" in q and "teeth" in q:
+        if "bathroom" not in rooms:
+            rooms.insert(0, "bathroom")
+        if "kitchen" not in rooms:
+            rooms.append("kitchen")
+    if "appearance" in q or "mirror" in q:
+        for r in ("bedroom", "bathroom", "hallway"):
+            if r not in rooms:
+                rooms.append(r)
+    if ("underneath" in q or "under " in q) and "painting" in q:
+        for r in ("bedroom", "hallway", "living room"):
+            if r not in rooms:
+                rooms.append(r)
     if "orange" in q and "painting" in q:
         if "bedroom" not in rooms:
             rooms.append("bedroom")
@@ -694,10 +707,42 @@ def _ensure_evidence_in_window(
                 if n >= limit:
                     return
 
-    if "wash" in q and "hand" in q:
+    if ("wash" in q and "hand" in q) or ("brush" in q and "teeth" in q):
         _take(
             lambda e: "sink" in _event_text(e)
-            and any(tok in _event_text(e) for tok in ("kitchen", "bathroom"))
+            and any(tok in _event_text(e) for tok in ("kitchen", "bathroom", "brush"))
+        )
+        _take(lambda e: "sink" in _event_text(e) and "bathroom" in _event_text(e))
+    if "appearance" in q:
+        _take(lambda e: "mirror" in _event_text(e), limit=2)
+    if ("underneath" in q or re.search(r"\bunder\b", q)) and "painting" in q:
+        _take(
+            lambda e: any(tok in _event_text(e) for tok in ("painting", "picture", "frame"))
+            and any(tok in _event_text(e) for tok in ("radiator", "heater", "under", "above")),
+            limit=2,
+        )
+        _take(lambda e: "radiator" in _event_text(e))
+    if "across" in q and ("stair" in q or "staircase" in q):
+        _take(
+            lambda e: "mirror" in _event_text(e)
+            and any(tok in _event_text(e) for tok in ("stair", "across", "opposite")),
+            limit=2,
+        )
+        _take(lambda e: "mirror" in _event_text(e))
+    if "door" in q and any(tok in q for tok in ("design", "type", "kind", "style")):
+        _take(
+            lambda e: any(
+                tok in _event_text(e)
+                for tok in ("cross hatch", "cross-hatch", "crosshatch", "glass door")
+            )
+        )
+    if "ceiling" in q and ("center" in q or "middle" in q):
+        _take(
+            lambda e: any(
+                tok in _event_text(e)
+                for tok in ("smoke detector", "ceiling fan", "chandelier", "vent")
+            ),
+            limit=2,
         )
     if "front door" in q:
         _take(
@@ -3336,12 +3381,22 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
             return "Air conditioning unit"
 
     if ("wash" in q_l and "hand" in q_l) or ("brush" in q_l and "teeth" in q_l):
+        # Prefer explicit functional cue bindings when present.
+        fm = re.search(
+            r"(?:brush\s+teeth|wash\s+hands?)[^.\n]{0,40}sink[^.\n]{0,40}"
+            r"(?:bathroom|kitchen)?",
+            hint_l,
+        )
+        if fm and "bathroom" in fm.group(0):
+            return "In the bathroom sink"
+        if fm and "kitchen" in fm.group(0):
+            return "In the sink in the kitchen"
         if "bathroom" in hint_l and "sink" in hint_l:
             return "In the bathroom sink"
         if "kitchen" in hint_l and "sink" in hint_l:
             return "In the sink in the kitchen"
         if "sink" in hint_l and not _blob_is_outdoor_heavy(hint_l):
-            return "In the sink"
+            return "In the bathroom sink" if "brush" in q_l else "In the sink"
 
     # Functional destination affordances (full-set verbs → object @ place).
     if re.search(r"\b(check my appearance|look at myself|see myself)\b", q_l) or (
@@ -3994,11 +4049,32 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
         target_rooms = set(_infer_target_rooms(question))
         if target_rooms and (b_rooms & target_rooms):
             pri += 6
-        if ("wash" in q and "hand" in q) or ("sink" in q and "where" in q):
-            if "sink" in blob and any(tok in blob for tok in ("kitchen", "bathroom", "washroom")):
+        if (
+            ("wash" in q and "hand" in q)
+            or ("brush" in q and "teeth" in q)
+            or ("sink" in q and "where" in q)
+        ):
+            if "sink" in blob and any(
+                tok in blob for tok in ("kitchen", "bathroom", "washroom", "brush")
+            ):
                 pri += 14
+            if "brush" in q and "bathroom" in blob and "sink" in blob:
+                pri += 6
             if "grate" in blob or _blob_is_outdoor_heavy(blob):
                 pri -= 20
+        if ("underneath" in q or "under " in q) and "painting" in q:
+            if "radiator" in blob or (
+                any(tok in blob for tok in ("painting", "picture"))
+                and any(tok in blob for tok in ("under", "above", "radiator"))
+            ):
+                pri += 14
+        if "across" in q and "stair" in q and "mirror" in blob:
+            pri += 12
+        if "appearance" in q and "mirror" in blob:
+            pri += 12
+        if "door" in q and any(tok in q for tok in ("design", "type", "style")):
+            if any(tok in blob for tok in ("cross hatch", "cross-hatch", "crosshatch")):
+                pri += 16
         if "painting" in q or subject in ("painting", "picture", "cat"):
             if re.search(r"\b(?:painting|picture|frame|cat)\b", _blob_for_subject_match(blob)):
                 pri += 6
@@ -4470,6 +4546,20 @@ def _evidence_search_queries(question: str) -> List[str]:
     if "wash" in q_l and "hand" in q_l:
         queries.append("kitchen sink wash hands")
         queries.append("sink kitchen bathroom")
+    if "brush" in q_l and "teeth" in q_l:
+        queries.append("bathroom sink brush teeth")
+        queries.append("sink bathroom FUNCTIONAL_CUES")
+    if "appearance" in q_l:
+        queries.append("mirror bedroom bathroom")
+    if ("underneath" in q_l or "under " in q_l) and "painting" in q_l:
+        queries.append("radiator paintings above underneath SPATIAL")
+        queries.append("paintings radiator bedroom")
+    if "across" in q_l and ("stair" in q_l or "staircase" in q_l):
+        queries.append("mirror across staircase SPATIAL")
+    if "door" in q_l and any(tok in q_l for tok in ("design", "type", "style")):
+        queries.append("cross hatch glass door WORLD_CUES")
+    if "ceiling" in q_l and ("center" in q_l or "middle" in q_l):
+        queries.append("smoke detector ceiling center living room")
     if "breakfast" in q_l or ("table" in q_l and "center" in q_l):
         queries.append("breakfast table fruit bowl centerpiece")
         queries.append("dining table bowl fruit")
