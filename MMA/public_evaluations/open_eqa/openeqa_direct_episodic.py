@@ -66,35 +66,34 @@ def direct_episodic_enabled() -> bool:
 #
 # NOTE (AIBox): memorize uses this VL path (OPENEQA_DIRECT_EPISODIC=1),
 # NOT memory-agent tool calling (OPENEQA_EPISODIC_TOOL_CALL=0).
+#
+# v5 design: prefer short OBJECT:value bindings + pairwise SPATIAL over long
+# taxonomy dumps. NOT_VISIBLE must stay tiny (anti-leak). ART_CONTENT is a
+# first-class channel for wall-art depictions.
 EPISODIC_CAPTION_PROMPT = """You are the episodic memory recorder for ONE indoor egocentric frame from EmbodiedQA / OpenEQA households (HM3D + ScanNet).
-You do NOT know which question will be asked later. Your job is to write a COMPLETE, searchable scene record for THIS frame so that ANY later question about visible facts can be answered from memory.
+You do NOT know which question will be asked later. Write a SHORT, searchable scene record so later questions about visible facts can be answered from memory.
 
-OpenEQA has 1636 questions across SEVEN official categories with nearly equal weight (~13–16% each).
-Your caption must support ALL seven families for the FULL set — never specialize for a handful of famous misses.
-Examples below are FACT TYPES drawn from the full question/answer lexicon, NOT target answers to memorize.
+OpenEQA has 1636 questions across SEVEN official categories (~13–16% each).
+Support ALL seven families for the FULL set — never specialize for a handful of famous misses.
+Examples below are FACT TYPES, NOT answers to memorize.
 
 ========================
 HARD RULES
 ========================
-1) ONLY visible evidence. If unclear, write "not visible" / "uncertain" — NEVER invent open/closed, counts, colors, or identities.
-2) Prefer concrete, retrieval-friendly nouns + synonyms people ask for (full-set gold lexicon):
-   - wall art → paintings AND pictures/frames/posters when either fits
-   - seating → couch AND sofa; also armchair / office chair / bench when true
-   - hangar/hanger/rack → clothing rack / hangers / clothes hangar
-   - glasses on table → wine glasses / drinking glasses / glassware (not only "silverware")
-   - HVAC → air vent / AC vent / air return / AC unit / wall AC (not only "drywall")
-   - soft pads → pillows / cushions; TV ↔ television / monitor when either fits
-   - trash → trash bin / trash can / garbage bin; recycling bin if yellow/labeled lid
-   - cooler → ice cooler / cooler; vacuum → vacuum cleaner
-   - board → whiteboard / blackboard / chalkboard when true
-3) Named bindings (mandatory grammar):
-   - STATES: always "OBJECT: value" (e.g. "front door: open", "bedroom lights: on")
-   - ATTRIBUTES: always "OBJECT: color/material/shape/pattern/size/..."
-   - SPATIAL: always name BOTH arguments ("X is above Y", "X is to the left of Y")
+1) ONLY what is clearly visible. If unsure, omit it. NEVER invent open/closed, counts, colors, identities, or "implied by …".
+2) Prefer BINDINGS over laundry lists. Put answerable nouns in ATTRIBUTES / STATES / SPATIAL / ART_CONTENT, not only in SUMMARY prose.
+3) Mandatory grammar:
+   - ATTRIBUTES: "object: value" (color / material / shape / pattern / size / lid color / content)
+   - STATES: "object: open|closed|ajar|on|off|full|empty|clean|cluttered|dirty|made|unmade|set|unset"
+   - SPATIAL: name BOTH sides ("X is above Y", "X is between A and B", "X is to the left of Y")
+   - FUNCTIONAL_CUES: "action → object @ place" ONLY when the object is visible
 4) Start SUMMARY with a room type when recognizable.
-5) Do NOT hallucinate tool inventories. Prefer a careful scan of what is actually in frame.
-6) Multi-value attributes: if several colors/materials/objects of a class are visible, list ALL.
-7) Prefer short, searchable phrases (OpenEQA answers are usually ≤3 words). Put the answerable noun in OBJECTS/ATTRIBUTES/STATES/SPATIAL, not only in prose SUMMARY.
+5) Multi-value: if several colors/materials/same-class objects are visible, list ALL as separate bindings.
+6) Synonyms when either fits: painting/picture/frame/poster; couch/sofa; hanger/hangar/clothing rack;
+   wine glasses/drinking glasses; air vent/AC vent/air return; pillow/cushion; trash bin/trash can;
+   recycling bin (yellow lid); cooler; vacuum cleaner; whiteboard/blackboard.
+7) Keep NOT_VISIBLE SHORT (≤5 items). Prefer empty/"none" over dumping checklist vocab.
+8) Do NOT copy prompt taxonomies, enum lists, or "multiple-*" phrases into any section.
 
 ========================
 OUTPUT FORMAT (exact headers; keep EVERY section)
@@ -103,173 +102,80 @@ SUMMARY: <ROOM-TYPE>: <2-6 dominant objects / layout cue>
 
 DETAILS:
 ROOM: <living room | bedroom | bathroom | kitchen | dining | hallway/entryway | garage | patio/outdoor | office | laundry | stairs/stairwell | unknown>
-OBJECTS: <dense comma-separated inventory of EVERY salient visible item>
-ATTRIBUTES: <object: color, material, shape, size, pattern, style, lid color, fill-level, ...>
-STATES: <object: open|closed|ajar|on|off|full|empty|clean|cluttered|dirty|made|unmade|bright|dim|set|unset|...>
-LOCALIZATION: <region of frame / which wall / shelf level / corner / floor story / near landmark>
+OBJECTS: <short comma-separated inventory of salient visible items (not every pixel)>
+ATTRIBUTES: <object: color|material|shape|pattern|size|… ; …>
+STATES: <object: open|closed|on|off|… ; …>
+LOCALIZATION: <region / wall / shelf level / corner / story / near landmark>
 SPATIAL: <pairwise relations with both sides named>
+ART_CONTENT: <what wall art / painting / picture depicts if readable; else none / not readable>
 FUNCTIONAL_CUES: <action → object @ place>
-WORLD_CUES: <house-level / semantic type hints if visually supported>
-NOT_VISIBLE: <important checklist items looked for but unconfirmed in THIS frame>
+WORLD_CUES: <≤3 visually supported house-level labels; else none>
+NOT_VISIBLE: <≤5 important absences only; else none>
 
 ========================
-SEVEN CATEGORIES YOU MUST ENABLE (full OpenEQA taxonomy, 1636 Q)
+SEVEN CATEGORIES (full OpenEQA taxonomy, 1636 Q) — enable with BINDINGS
 ========================
-A) object recognition (~231) — identity of distinctive objects:
-   appliances, fixtures, tools, decor, containers, electronics, soft goods, vehicles,
-   toys/dolls, clocks, plants, bags/backpacks, hose, broom, cooler, radiator, piano, remote, dispenser.
+A) object recognition — name distinctive visible items:
+   appliances, fixtures, tools, decor, electronics, soft goods, vehicles, toys/dolls, clocks,
+   plants, bags/backpacks, hose, broom, cooler, radiator, piano, remote, dispenser, whiteboard,
+   laptop, printer, vacuum, fireplace, sink, refrigerator, mirror, hanger, mat, pillow.
 
-B) object localization (~263) — WHERE something is / where it was left:
-   enough LOCALIZATION + SPATIAL for "on / under / above / next to / hanging on / by / in the <room> /
-   to the left|right of / on the top|middle|bottom shelf / in the corner / upstairs|ground floor".
+B) object localization — LOCALIZATION + SPATIAL for:
+   on / under / above / next to / hanging on / by / in the <room> / left|right of /
+   top|middle|bottom shelf / corner / upstairs|ground floor.
 
-C) object state recognition (~252) — binary and multi-state:
-   open/closed/ajar (doors, windows, blinds, curtains, drawers, cabinets, bins, lids, fridge, garage);
-   lights/lamps on/off; devices on/off; full/empty; clean/cluttered/dirty; bed made/unmade;
-   table mats/placemats set|unset; some-open-some-closed when mixed.
+C) object state recognition — subject-scoped STATES:
+   doors/windows/blinds/curtains/drawers/cabinets/bins/lids/fridge/garage: open|closed|ajar;
+   lights/lamps: on|off; bed made/unmade; floor/counter clean|cluttered|dirty; mats set|unset.
 
-D) attribute recognition (~240) — appearance properties:
-   COLORS (use common names when true): white, black, brown, blue, red, green, yellow, grey/gray,
-   pink, orange, gold, dark/light variants; multi-color stripes list ALL colors.
-   MATERIALS: wood/wooden, tile, concrete, carpet, stone, drywall, metal, glass, brick, leather, plastic, fabric.
-   SHAPES: round/oval/square/rectangular/spherical/spiral/cross-hatch; door knobs; mirrors; flooring panels.
-   Also: size (small/large), pattern, lid color, comforter/duvet color, railing color, car color, jacket colors.
+D) attribute recognition — OBJECT:value for color/material/shape/pattern:
+   COLORS when true: white, black, brown, blue, red, green, yellow, grey/gray, pink, orange, gold;
+   MATERIALS: wood/wooden, tile, concrete, carpet, stone, drywall, metal, glass, brick, leather, plastic, fabric;
+   SHAPES: round/oval/square/rectangular/spherical/spiral/cross-hatch (door knob / mirror / panels);
+   also stripe patterns, railing color, comforter color, lid color.
 
-E) spatial understanding (~220) — relations and capacity:
+E) spatial understanding — pairwise relations + clear counts:
    between / left / right / above / below / behind / in front / on top / under / over / hanging on;
-   "is there room/space on/under X"; furniture density; counts when clearly countable
-   (basins, stories, desks, paintings, doors, jackets).
+   count basins, stories, desks, paintings, doors, jackets when unambiguous.
 
-F) functional reasoning (~217) — affordances & destinations (bind action → object @ place):
-   wash/brush/dry; shower/bath; cook/eat/drink; store/cool/heat; sit/sleep/nap/read/work/type/take notes/write;
-   hang jacket/clothes; wipe shoes; trash vs recycle; water plants; cool down / fan speed / turn on AC;
-   print/charge/plug; vacuum/mop/sweep; play/watch; warm up (fireplace/heater); flush; fold/iron laundry.
-   Also "how can I / where can I / where should I / what can I use to …".
+F) functional reasoning — ONLY if object visible: wash/brush/dry; store/cool/heat; hang; sit/sleep/nap;
+   print/charge; vacuum; recycle; cool down / fan / AC; warm up (fireplace/heater).
 
-G) world knowledge (~213) — typed labels ONLY if visually supported:
-   ceiling type (vaulted/flat/beamed/wood panel); heating type; car type (sedan/SUV/…);
-   door design (e.g. cross-hatch glass); staircase kind (straight / L / spiral / stone / wooden);
-   art style (abstract/realistic/photographic/cartoon); stories/levels (first/second/ground/upstairs);
-   suburbs/outdoor density / fenced yard; child-oriented / office / laundry room cues;
-   bathroom furnished yes/no from fixtures; which bin is for paper (yellow-lid recycling).
+G) world knowledge — ≤3 typed labels ONLY if visually supported:
+   ceiling type; staircase kind; door design (cross-hatch glass); art style; stories/levels;
+   outdoor/fenced yard; child-oriented / office / laundry cues; yellow-lid recycling for paper.
 
 ========================
-UNIVERSAL FORCED SCAN (full-set fact families; mark NOT_VISIBLE if absent)
+SCAN PRIORITY (write bindings for what you SEE; skip what you don't)
 ========================
-### 1) Architecture & surfaces (ceiling / floor / wall / stairs / levels)
-- Ceiling: material + type (drywall, wood panel, beams, vaulted, textured) AND fixtures ON the ceiling
-  (vents/air returns/AC grilles, smoke detectors, lights, ceiling fan, hanging objects).
-- Floor: material + panel/pattern if clear (wood panels, tile, concrete, carpet, stone, mosaic);
-  mats/rugs/doormats + COLOR; whether floor looks clean/cluttered.
-- Walls: material/finish (paint, stone/exposed stone, brick, tile, peeling, wallpaper, leather panels if any);
-  wall COLOR(s); stripe/panel colors if multi-color; which wall (blue wall, etc.) if distinctive.
-- Stairs/stairwell: presence; left/right/center; railing COLOR+material; step material; staircase KIND
-  (straight, spiral/helical, switchback, L-shaped); stone vs wood vs metal; storage closet beside stairs.
-- Levels: if multi-story cues visible, note ground/first/second/upstairs when clear.
-
-### 2) Openings, exits, lighting, controls
-- Every door-like opening: front/entry, bedroom, bathroom, closet, patio/sliding, garage, house doorway, EXIT —
-  name it + STATES open|closed|ajar. Distinguish garage door vs entry/house doorway.
-- Door DESIGN if distinctive (cross-hatch glass, solid wood, glass pane) + door knob SHAPE (round/spherical/lever).
-- Windows + blinds/curtains/shades: open|closed|partial; daylight evidence.
-- Lights/lamps: on|off by room/zone; switches / switch panels / fan-speed dials / AC remotes/controls +
-  LOCALIZATION (right of front door, left of bed, on wall, on nightstand).
-- Garage door opener location if visible (often near house doorway).
-
-### 3) Large furniture & seating
-- Bed/bunk: comforter/duvet COLOR; pillows; under-bed empty|occupied|not visible; objects left/right of bed
-  (radiator, wardrobe, nightstand, lamp, bag).
-- Sofa/couch (+ COLOR) AND what is above/beside/between relative to art/TV; armchair; chairs/benches;
-  bench/sofa contents (pillows/cushions/objects).
-- Tables: dining / breakfast / coffee / side / desk / kids — CENTER item (fruit bowl, vase, runner);
-  placemats/table mats set|unset; space to eat yes/no; tableware named (plates, wine glasses, cups, bottles).
-- Desks / office chairs / filing cabinets / bookshelf/bookshelves/bookcases / paper stacks.
-- Shelves: top/middle/bottom level; named contents (books, boxes, cooler, decor, baskets).
-
-### 4) Kitchen / bath / laundry wet zones
-- Sink (kitchen/bath), faucet, basins count; soap/dispenser; toilet + lid; shower/tub + curtain.
-- Fridge/refrigerator, stove/oven, microwave, dishwasher, washer/dryer / laundry machine.
-- Countertops/bars: clean|cluttered|dirty; food containers; fruit bowls.
-- Mirror + SHAPE (oval/round/rect) + left/right/above/below neighbors; cabinets below mirror open|closed.
-- Towels / hand towels / racks; trash bin in bath/kitchen.
-
-### 5) Storage, clothes, soft goods, personal items
-- Closets; cabinets; drawers; wine cabinet / sideboard; wardrobe.
-- Clothes hangar/hanger/rack: full|sparse|empty; jacket/sweater/clothes COLORS.
-- Bags/backpacks; shoes; shoe mat/doormat (+ color); laundry baskets; pillows/cushions/blankets/rugs.
-- Dolls/toys; bags left on cabinets/beds — name + location.
-
-### 6) Decor, media, electronics, climate, utilities
-- Paintings/pictures/frames/posters: count; subject if clear (cartoon cat, orange painting, photo);
-  style (abstract/realistic/photographic/cartoon) ONLY if supported; what is BETWEEN two frames.
-- TV/television/monitor; remote; clock (wall/desk); plants/vases/flowers (+ color/location).
-- Office/media electronics when visible: laptop, computer, iPad/tablet, phone, printer, projector,
-  whiteboard/blackboard + eraser/markers, speakers.
-- Musical: piano/keyboard if visible.
-- Climate: AC unit / wall AC / ceiling vent / radiator / fireplace / heater / ceiling fan —
-  location + relation (e.g. above TV, left of bed).
-- Trash bin/can vs recycling bin: lid COLOR; open|closed; which for paper if labeled/colored.
-
-### 7) Garage / tools / outdoor (when in view)
-- Vehicle TYPE+COLOR (sedan/SUV/…); garage door + opener; hose (+ color); broom; ladder; cooler;
-  watering can; vacuum cleaner; tool chests — ONLY if truly visible.
-- Patio/yard/fence/alley through openings — outdoor/exterior; fenced or not; suburban density cue if clear.
-
-### 8) People-centric / semantic cues (visual only)
-- Children's items (toys, dolls, kids books, colorful frames) → WORLD_CUES may say child-oriented room.
-- Office vs bedroom vs laundry vs garage semantic cues.
-- Readable text on posters/boxes ONLY if legible; do not invent.
-
-### 9) Counts, corners, multi-answers
-- Count same-class objects when unambiguous (doors, paintings, basins, desks, jackets, stories).
-- Multi-color / multi-material attributes: list every visible value.
-- Prefer corner/edge localizations when objects sit in corners ("in the left corner", "far wall").
+1) Architecture: ceiling/floor/wall material; ceiling fixtures (vent, lights, ceiling fan); stairs + railing color + staircase kind; upstairs/ground if clear.
+2) Openings & lights: named doors + EXIT; blinds/curtains open|closed; lights on|off by zone; switches; door knob shape if distinctive.
+3) Furniture: bed/couch/sofa/table/desk/shelf + key contents (pillows, fruit bowl, books); shelf level.
+4) Wet zones: sink + basin count; toilet; shower/tub + curtain; fridge/refrigerator; microwave; mirror shape/neighbors; towels/racks.
+5) Storage & personal: closet/wardrobe; hanger/rack + garment colors; backpack; shoes; doormat/mat color.
+6) Decor & climate: paintings/pictures (+ ART_CONTENT); TV; plants; AC/vent/radiator/fireplace/heater/fan + SPATIAL to landmark; trash vs recycling lid color.
+7) Garage/outdoor when in view: sedan/car color+type; hose; broom; cooler; vacuum; patio/fence — ONLY if truly visible.
 
 ========================
-SPATIAL / LOCALIZATION QUALITY BAR
+QUALITY BARS
 ========================
-For every salient object, try to provide at least one of:
-- LOCALIZATION: left/right/center, corner, near door/exit, on top shelf, under stairs, on ceiling,
-  ground/first/second/upstairs, hanging on wall, mounted above X
-- SPATIAL: relation to a stable landmark (bed, sofa/couch, table, desk, sink, stairs, TV/monitor,
-  door, window, whiteboard, cabinet, shelf)
-Relation vocabulary when true: above, below, under, over, on, on top of, left of, right of, beside,
-next to, by, between, behind, in front of, hanging on, mounted on, inside, outside, through, near.
+SPATIAL: for each salient object, at least one of LOCALIZATION or a pairwise SPATIAL to a stable landmark
+  (bed, sofa/couch, table, desk, sink, stairs, TV, door, mirror, cabinet, shelf).
+ART_CONTENT: if any painting/picture/frame/poster is readable, describe the depicted subject in a few words
+  (flowers, animals, landscape, pier, people, abstract shapes). If present but unreadable: "not readable".
+  If no wall art: "none". Never invent art subjects from style guesses.
+FUNCTIONAL_CUES: "action → object @ place" only for visible affordances (dry → hand towel @ rack;
+  cool → ceiling fan @ bathroom; hang → clothes hanger @ closet). Leave empty/"none" if none.
+WORLD_CUES: at most 3 short labels. Never dump multi-appliance / door-pull taxonomies.
 
 ========================
-FUNCTIONAL_CUES QUALITY BAR (full-set affordance verbs)
+ANTI-PATTERNS
 ========================
-When an affordance is visible, write "action → object @ place". Cover these verb families if supported:
-- wash hands / brush teeth / dry hands → sink / towel @ bath|kitchen
-- shower / bath / flush → shower/tub/toilet @ bathroom
-- eat / drink / cook / store cold food → table/fridge/stove @ kitchen|dining
-- hang jacket/clothes → rack/hangers @ hallway|closet
-- wipe shoes → doormat @ entry
-- sit / read / work / type / take notes / write → chair/desk/table/whiteboard @ room
-- sleep / nap → bed @ bedroom
-- cool down / increase fan speed / turn on AC → AC unit / ceiling fan dial / switch panel @ location
-- water plants → hose / watering can @ garage|outdoor
-- keep drinks cold (picnic) → cooler @ garage|shelf
-- trash vs recycle paper → trash bin vs yellow-lid recycling bin
-- print / charge / plug → printer / outlet / charger @ location
-- vacuum / mop / sweep → vacuum cleaner / mop / broom @ location
-- play / watch → toys / TV @ location
-- warm up → fireplace / heater @ location
-Do not invent affordances for objects that are not visible.
-
-========================
-ANTI-PATTERNS (do not do these)
-========================
-- Writing only for a few hard examples; ignore the rest of the scan checklist.
-- Saying only "ceiling: drywall" while ignoring a visible vent/fan/light on that ceiling.
-- Saying only "silverware" when glasses/bottles/plates are visible.
-- Naming a clothing rack but omitting garment colors.
-- Naming stairs but omitting stair kind/material/railing color when clear.
-- Omitting pillow/cushion on a bench/sofa; omitting table-center objects; omitting shelf contents.
-- Omitting electronics (laptop/printer/remote/whiteboard) that are clearly in view.
-- Omitting bin lid colors or calling every bin only "trash".
-- Inventing long tool inventories that are not in the image.
-- Collapsing multi-color attributes into a single color.
+- Long NOT_VISIBLE checklists that regurgitate this prompt.
+- "implied by", "probably", "appears to be a multiple-*" speculation.
+- OBJECTS-only captions with empty ATTRIBUTES/STATES/SPATIAL/ART_CONTENT.
+- Naming ceiling material while ignoring a visible vent/fan/light on that ceiling.
+- Collapsing multi-color attributes into one color; inventing tool inventories not in frame.
 """
 
 # Sections expected under DETAILS (hardening inserts empty stubs if missing).
@@ -280,6 +186,7 @@ _CAPTION_DETAIL_SECTIONS: Tuple[str, ...] = (
     "STATES",
     "LOCALIZATION",
     "SPATIAL",
+    "ART_CONTENT",
     "FUNCTIONAL_CUES",
     "WORLD_CUES",
     "NOT_VISIBLE",
@@ -331,7 +238,7 @@ def harden_caption_text(text: str) -> str:
     buf: List[str] = []
     header_re = re.compile(
         r"^(ROOM|OBJECTS|ATTRIBUTES|STATES|LOCALIZATION|SPATIAL|"
-        r"FUNCTIONAL_CUES|WORLD_CUES|NOT_VISIBLE)\s*:\s*(.*)$",
+        r"ART_CONTENT|ART|PAINTING_CONTENT|FUNCTIONAL_CUES|WORLD_CUES|NOT_VISIBLE)\s*:\s*(.*)$",
         re.I,
     )
     for line in details.splitlines():
@@ -340,8 +247,6 @@ def harden_caption_text(text: str) -> str:
             if current is not None:
                 section_map[current] = "\n".join(buf).strip()
             current = hm.group(1).upper()
-            if current == "FUNCTIONAL_CUES":
-                current = "FUNCTIONAL_CUES"
             buf = [hm.group(2).strip()] if hm.group(2).strip() else []
         else:
             buf.append(line)
@@ -356,6 +261,8 @@ def harden_caption_text(text: str) -> str:
             k = "FUNCTIONAL_CUES"
         elif k.startswith("WORLD"):
             k = "WORLD_CUES"
+        elif k in ("ART_CONTENT", "ART", "PAINTING_CONTENT") or k.startswith("ART"):
+            k = "ART_CONTENT"
         elif k == "NOT_VISIBLE" or k.startswith("NOT_VISIBLE"):
             k = "NOT_VISIBLE"
         normalized[k] = val
@@ -405,30 +312,114 @@ def harden_caption_text(text: str) -> str:
 
     detail_lines = ["DETAILS:"]
     for sec in _CAPTION_DETAIL_SECTIONS:
-        val = (normalized.get(sec) or "").strip() or "not visible"
+        raw_val = (normalized.get(sec) or "").strip()
+        if raw_val:
+            val = raw_val
+        elif sec in ("ART_CONTENT", "WORLD_CUES", "FUNCTIONAL_CUES", "NOT_VISIBLE"):
+            # Prefer "none" over "not visible" so checklist vocab does not leak.
+            val = "none"
+        else:
+            val = "not visible"
         detail_lines.append(f"{sec}: {val}")
     return f"SUMMARY: {summary}\n" + "\n".join(detail_lines)
 
 
+def _section_value(hardened: str, sec: str) -> str:
+    m = re.search(rf"^{sec}:\s*(.*)$", hardened, re.I | re.M)
+    return (m.group(1).strip() if m else "")
+
+
+def _count_named_bindings(section_text: str) -> int:
+    """Count 'object: value' bindings (semicolon- or comma-separated)."""
+    t = (section_text or "").strip()
+    if not t or t.lower() in ("not visible", "n/a", "none"):
+        return 0
+    # Split on ; first, else on commas that look like new bindings.
+    parts = re.split(r"\s*;\s*", t)
+    if len(parts) == 1 and t.count(",") >= 2 and t.count(":") >= 2:
+        parts = re.split(r"\s*,\s*", t)
+    n = 0
+    for part in parts:
+        part = part.strip()
+        if ":" in part and not part.lower().startswith(("http:", "room:")):
+            left, right = part.split(":", 1)
+            if left.strip() and right.strip():
+                n += 1
+    return n
+
+
 def caption_quality_report(text: str) -> Dict[str, Any]:
-    """Lightweight quality metrics for probes / logging (no GPU)."""
+    """Structural caption quality metrics for probes / logging (no GPU).
+
+    Higher binding counts + fewer leak flags ≈ better memory-ready captions.
+    """
     hardened = harden_caption_text(text)
     missing = []
     weak = []
+    section_vals: Dict[str, str] = {}
     for sec in _CAPTION_DETAIL_SECTIONS:
-        m = re.search(rf"^{sec}:\s*(.*)$", hardened, re.I | re.M)
-        val = (m.group(1).strip() if m else "")
-        if not m:
+        val = _section_value(hardened, sec)
+        section_vals[sec] = val
+        if not val:
             missing.append(sec)
         elif val.lower() in ("not visible", "n/a", "none", ""):
             weak.append(sec)
+
+    attrs = section_vals.get("ATTRIBUTES", "")
+    states = section_vals.get("STATES", "")
+    spatial = section_vals.get("SPATIAL", "")
+    art = section_vals.get("ART_CONTENT", "")
+    not_vis = section_vals.get("NOT_VISIBLE", "")
+    world = section_vals.get("WORLD_CUES", "")
+
+    attr_bindings = _count_named_bindings(attrs)
+    state_bindings = _count_named_bindings(states)
+    spatial_pairs = len(
+        re.findall(
+            r"\b(above|below|left of|right of|between|next to|beside|behind|"
+            r"in front of|under|over|on top of|hanging on|mounted on)\b",
+            spatial,
+            re.I,
+        )
+    )
+    art_present = bool(art) and art.lower() not in ("not visible", "n/a", "none", "not readable")
+    # Leak heuristics (prompt regurgitation / hedging).
+    blob_l = hardened.lower()
+    leak_flags: List[str] = []
+    if "implied by" in blob_l or re.search(r"\bimplied\b", blob_l):
+        leak_flags.append("implied")
+    if blob_l.count("multiple ") >= 2:
+        leak_flags.append("multiple_taxonomy")
+    if not_vis.lower() not in ("none", "n/a", "not visible", "") and (
+        not_vis.count(",") >= 6 or len(not_vis) > 220
+    ):
+        leak_flags.append("long_not_visible")
+    if world.count(",") >= 8 or world.count(";") >= 4:
+        leak_flags.append("world_dump")
+
+    # Core sections that should usually be non-empty for a usable frame.
+    core_weak = [s for s in ("OBJECTS", "ATTRIBUTES", "STATES", "SPATIAL") if s in weak]
+    # Simple 0–1 score for offline A/B of caption caches.
+    score = 0.0
+    score += 0.15 if attr_bindings >= 1 else 0.0
+    score += 0.10 if attr_bindings >= 3 else 0.0
+    score += 0.15 if state_bindings >= 1 else 0.0
+    score += 0.20 if spatial_pairs >= 1 else 0.0
+    score += 0.10 if spatial_pairs >= 2 else 0.0
+    score += 0.10 if art_present else 0.0
+    score += 0.10 if "FUNCTIONAL_CUES" not in weak else 0.0
+    score += 0.10 if not leak_flags else 0.0
+    score -= 0.05 * len(core_weak)
+    score = max(0.0, min(1.0, round(score, 3)))
+
     room_m = re.search(r"^ROOM:\s*(.+)$", hardened, re.I | re.M)
     return {
         "chars": len(hardened),
         "missing_sections": missing,
         "weak_sections": weak,
         "room": (room_m.group(1).strip() if room_m else ""),
-        "has_spatial_relation": bool(
+        "has_spatial_relation": spatial_pairs >= 1
+        or bool(
             re.search(
                 r"\b(above|below|left of|right of|between|next to|behind|"
                 r"in front of|center of|middle of|under|on the)\b",
@@ -436,7 +427,14 @@ def caption_quality_report(text: str) -> Dict[str, Any]:
                 re.I,
             )
         ),
-        "has_named_state": bool(re.search(r":\s*(open|closed|on|off|clean|dirty)", hardened, re.I)),
+        "has_named_state": state_bindings >= 1
+        or bool(re.search(r":\s*(open|closed|on|off|clean|dirty)", hardened, re.I)),
+        "attr_bindings": attr_bindings,
+        "state_bindings": state_bindings,
+        "spatial_pairs": spatial_pairs,
+        "art_content_present": art_present,
+        "leak_flags": leak_flags,
+        "score": score,
     }
 
 
@@ -487,6 +485,15 @@ def _entity_tags_from_text(text: str) -> List[str]:
     _add("fruit bowl" in blob or "bowl of fruit" in blob, "entity:fruit_bowl")
     _add("fireplace" in blob, "entity:fireplace")
     _add(any(tok in blob for tok in ("painting", "paintings")), "entity:painting")
+    _add(
+        bool(
+            re.search(
+                r"art_content:\s*(?!none\b|not readable\b|not visible\b|n/a\b).+",
+                blob,
+            )
+        ),
+        "entity:art_content",
+    )
     _add("sink" in blob, "entity:sink")
     _add("fridge" in blob or "refrigerator" in blob, "entity:fridge")
     _add("desk" in blob, "entity:desk")
@@ -518,8 +525,12 @@ def _enrich_details(summary: str, details: str) -> str:
     extra_lines.append(
         "CaptionQuality: "
         f"room={quality.get('room') or '?'} "
-        f"spatial={int(bool(quality.get('has_spatial_relation')))} "
-        f"state={int(bool(quality.get('has_named_state')))} "
+        f"score={quality.get('score', 0):.2f} "
+        f"attr={quality.get('attr_bindings', 0)} "
+        f"state={quality.get('state_bindings', 0)} "
+        f"spatial={quality.get('spatial_pairs', 0)} "
+        f"art={int(bool(quality.get('art_content_present')))} "
+        f"leaks={','.join(quality.get('leak_flags') or []) or 'none'} "
         f"weak={','.join(quality.get('weak_sections') or []) or 'none'}"
     )
     if extra_lines:

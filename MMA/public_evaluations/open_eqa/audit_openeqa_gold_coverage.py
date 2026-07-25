@@ -8,10 +8,15 @@ tokens appear in (a) any caption and (b) the selected QA window.
 This is the fast full-set gate before a formal QA run.
 
 Example (AIBox):
-  export OPENEQA_CAPTION_CACHE=/workspace/openeqa_caption_cache
+  export OPENEQA_CAPTION_CACHE=/workspace/openeqa_caption_cache_v5
   python audit_openeqa_gold_coverage.py \\
-    --multimodal data/open-eqa-multimodal-20_offset40.json \\
-    --out results/gold_coverage_offset40.json
+    --multimodal data/open-eqa-multimodal-50_offset100.json \\
+    --out results/gold_coverage_offset100_v5.json
+
+Reports:
+  - gold_in_any_caption / gold_in_selected on EVIDENCE text (NOT_VISIBLE stripped)
+  - structural caption score (bindings / spatial / art / leak flags)
+  - raw_any for comparison against older leaky caches
 """
 
 from __future__ import annotations
@@ -29,8 +34,12 @@ _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from openeqa_direct_episodic import _get_caption_cache_path  # noqa: E402
+from openeqa_direct_episodic import (  # noqa: E402
+    _get_caption_cache_path,
+    caption_quality_report,
+)
 from openeqa_memory import (  # noqa: E402
+    _evidence_text,
     select_events_for_qa,
 )
 
@@ -179,10 +188,27 @@ def audit_row(row: Dict[str, Any]) -> Dict[str, Any]:
     all_blob = "\n".join(
         f"{e.summary}\n{e.details}" for e in events
     )
+    # Honest evidence blob: strip NOT_VISIBLE / implied / taxonomy dumps.
+    evidence_blob = _evidence_text(all_blob)
     cov_all = _gold_coverage(all_blob, gold, question)
+    cov_ev = _gold_coverage(evidence_blob, gold, question)
     selected = select_events_for_qa(events, question) if events else []
     sel_blob = "\n".join(f"{e.summary}\n{e.details}" for e in selected)
-    cov_sel = _gold_coverage(sel_blob, gold, question)
+    cov_sel = _gold_coverage(_evidence_text(sel_blob), gold, question)
+
+    quality_scores: List[float] = []
+    leak_counts = Counter()
+    attr_sum = state_sum = spatial_sum = art_n = 0
+    for e in events:
+        qrep = caption_quality_report(f"SUMMARY: {e.summary}\nDETAILS:\n{e.details}")
+        quality_scores.append(float(qrep.get("score") or 0.0))
+        attr_sum += int(qrep.get("attr_bindings") or 0)
+        state_sum += int(qrep.get("state_bindings") or 0)
+        spatial_sum += int(qrep.get("spatial_pairs") or 0)
+        art_n += int(bool(qrep.get("art_content_present")))
+        for flag in qrep.get("leak_flags") or []:
+            leak_counts[flag] += 1
+
     return {
         "question_id": row.get("question_id") or row.get("id"),
         "category": category,
@@ -192,10 +218,20 @@ def audit_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "n_events": len(events),
         "cache_hits": hits,
         "cache_misses": misses,
-        "gold_in_any_caption": cov_all["phrase"] or cov_all["ratio"] >= 0.5,
+        # Raw (legacy) vs evidence-cleaned gold hit — prefer evidence for caption quality.
+        "gold_in_any_caption_raw": cov_all["phrase"] or cov_all["ratio"] >= 0.5,
+        "gold_in_any_caption": cov_ev["phrase"] or cov_ev["ratio"] >= 0.5,
         "gold_in_selected": cov_sel["phrase"] or cov_sel["ratio"] >= 0.5,
-        "any_ratio": round(cov_all["ratio"], 3),
+        "any_ratio": round(cov_ev["ratio"], 3),
         "sel_ratio": round(cov_sel["ratio"], 3),
+        "caption_score_mean": round(
+            (sum(quality_scores) / len(quality_scores)) if quality_scores else 0.0, 3
+        ),
+        "attr_bindings_sum": attr_sum,
+        "state_bindings_sum": state_sum,
+        "spatial_pairs_sum": spatial_sum,
+        "art_content_frames": art_n,
+        "leak_flags": dict(leak_counts),
         "select_top": (selected[0].summary[:120] if selected else ""),
     }
 
@@ -241,14 +277,37 @@ def main() -> None:
     rows = [audit_row(r) for r in data]
     n = len(rows) or 1
     any_hit = sum(1 for r in rows if r["gold_in_any_caption"])
+    any_raw = sum(1 for r in rows if r.get("gold_in_any_caption_raw"))
     sel_hit = sum(1 for r in rows if r["gold_in_selected"])
     empty = sum(1 for r in rows if r["n_events"] == 0)
+    score_vals = [float(r.get("caption_score_mean") or 0.0) for r in rows if r["n_events"] > 0]
+    leak_total = Counter()
+    for r in rows:
+        for k, v in (r.get("leak_flags") or {}).items():
+            leak_total[k] += int(v)
 
     summary = {
         "n": len(rows),
         "any_pct": round(100.0 * any_hit / n, 1),
+        "any_raw_pct": round(100.0 * any_raw / n, 1),
         "sel_pct": round(100.0 * sel_hit / n, 1),
         "empty_mem": empty,
+        "caption_score_mean": round(
+            (sum(score_vals) / len(score_vals)) if score_vals else 0.0, 3
+        ),
+        "attr_bindings_mean": round(
+            sum(int(r.get("attr_bindings_sum") or 0) for r in rows) / n, 2
+        ),
+        "state_bindings_mean": round(
+            sum(int(r.get("state_bindings_sum") or 0) for r in rows) / n, 2
+        ),
+        "spatial_pairs_mean": round(
+            sum(int(r.get("spatial_pairs_sum") or 0) for r in rows) / n, 2
+        ),
+        "art_content_rate": round(
+            100.0 * sum(1 for r in rows if int(r.get("art_content_frames") or 0) > 0) / n, 1
+        ),
+        "leak_flags": dict(leak_total),
         "by_category": _agg(rows, "category"),
         "by_surface": _agg(rows, "surface"),
         "misses_selected_but_in_caption": [
@@ -273,8 +332,18 @@ def main() -> None:
     }
 
     print(
-        f"=== gold coverage: any={summary['any_pct']}%  "
-        f"selected={summary['sel_pct']}%  empty_mem={empty}/{len(rows)} ===",
+        f"=== gold coverage (evidence): any={summary['any_pct']}%  "
+        f"selected={summary['sel_pct']}%  raw_any={summary['any_raw_pct']}%  "
+        f"empty_mem={empty}/{len(rows)} ===",
+        flush=True,
+    )
+    print(
+        f"=== caption structure: score={summary['caption_score_mean']:.3f}  "
+        f"attr={summary['attr_bindings_mean']:.1f}  "
+        f"state={summary['state_bindings_mean']:.1f}  "
+        f"spatial={summary['spatial_pairs_mean']:.1f}  "
+        f"art_rate={summary['art_content_rate']:.1f}%  "
+        f"leaks={summary['leak_flags'] or {}} ===",
         flush=True,
     )
     print("--- by category ---", flush=True)
