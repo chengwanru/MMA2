@@ -1197,6 +1197,46 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         self.assertFalse(pred.upper().startswith("ERROR"))
         self.assertIn("bedroom", pred.lower())
 
+    def test_strips_not_visible_radiator_false_positive(self):
+        hint = (
+            "OBJECTS: stairs, paintings\n"
+            "SPATIAL: paintings above the stairs\n"
+            "NOT_VISIBLE: radiator, fireplace, heater, smoke detector"
+        )
+        pred, _ = normalize_qa_prediction(
+            "carpeted stairs",
+            question="What is underneath the four paintings upstairs?",
+            memory_hint=hint,
+        )
+        # Must NOT invent radiator from NOT_VISIBLE checklist.
+        self.assertNotIn("radiator", pred.lower())
+
+    def test_rejects_inventory_dump_for_where(self):
+        hint = (
+            "OBJECTS: doll, light brown wooden cabinet\n"
+            "SPATIAL: doll is on top of the light brown wooden cabinet"
+        )
+        pred, _ = normalize_qa_prediction(
+            "Orter, pillow, rug, doormat, shoes, bag/backpack, doll, toy, poster",
+            question="Where is the doll?",
+            memory_hint=hint,
+        )
+        self.assertIn("cabinet", pred.lower())
+        self.assertNotIn("pillow", pred.lower())
+
+    def test_door_design_ignores_shape_taxonomy_leak(self):
+        hint = (
+            "OBJECTS: wooden front door\n"
+            "ATTRIBUTES: front door: wooden panel\n"
+            "shapes; round; oval; square; rectangular; spherical; spiral; cross-hatch; multi-color"
+        )
+        pred, _ = normalize_qa_prediction(
+            "wooden door with panel design",
+            question="What type of door design is featured prominently in this home?",
+            memory_hint=hint,
+        )
+        self.assertNotIn("hatch", pred.lower())
+
 
 class MemoryTextSanitizeTests(unittest.TestCase):
     def test_sanitize_strips_timestamps(self):

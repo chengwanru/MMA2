@@ -124,6 +124,72 @@ def _strip_not_visible_section(text: str) -> str:
     return re.split(r"\bNOT_VISIBLE\s*:", text or "", maxsplit=1, flags=re.I)[0]
 
 
+def _strip_prompt_checklist_leakage(text: str) -> str:
+    """Drop caption lines that regurgitate the prompt's taxonomy / enum lists.
+
+    Hardened episodic prompts list shapes/colors/verbs as reminders; VL often
+    copies them into ATTRIBUTES/NOT_VISIBLE. Those tokens must not count as
+    scene evidence (e.g. bare 'cross-hatch' or 'radiator' in a vocab dump).
+    """
+    keep: List[str] = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        lower = line.lower()
+        # Long semicolon / slash taxonomies from the prompt.
+        if line.count(";") >= 3 or lower.count(" / ") >= 3:
+            if any(
+                tok in lower
+                for tok in (
+                    "cross-hatch", "multi-color", "multi-material", "spherical",
+                    "spiral", "not visible", "placemat", "functional_cues",
+                )
+            ):
+                continue
+        # Enum-like shape/color lists without an object binding ("x: value").
+        if (
+            ":" not in line.split(",", 1)[0]
+            and sum(
+                1
+                for tok in (
+                    "round", "oval", "square", "rectangular", "spherical",
+                    "spiral", "cross-hatch", "stripe",
+                )
+                if tok in lower
+            )
+            >= 3
+        ):
+            continue
+        keep.append(raw)
+    return "\n".join(keep)
+
+
+def _evidence_text(text: str) -> str:
+    """Memory text safe for answer extraction (no NOT_VISIBLE / prompt leaks)."""
+    return _strip_prompt_checklist_leakage(_strip_not_visible_section(text or ""))
+
+
+def _looks_like_inventory_list(text: str) -> bool:
+    """Comma-heavy object laundry lists are not valid where/what answers."""
+    t = (text or "").strip()
+    if not t:
+        return False
+    if t.count(",") >= 3:
+        return True
+    if t.count("/") >= 3 and t.count(",") >= 1:
+        return True
+    return bool(
+        re.search(
+            r"\b(?:pillow|rug|doormat|shoes|backpack|poster|painting)\b.+"
+            r"\b(?:pillow|rug|doormat|shoes|backpack|poster|painting)\b.+"
+            r"\b(?:pillow|rug|doormat|shoes|backpack|poster|painting)\b",
+            t,
+            re.I,
+        )
+    )
+
+
 def _door_closed(blob: str) -> bool:
     return bool(_DOOR_CLOSED_RE.search(blob or ""))
 
@@ -1908,7 +1974,7 @@ _COLOR_WORDS = (
 
 def _extract_color_answer(text: str, question: str = "") -> str:
     """Pull a short color phrase from model output or memory for color questions."""
-    blob = (text or "").strip()
+    blob = _evidence_text(sanitize_memory_text_for_inference((text or "").strip()))
     if not blob:
         return ""
     q_l = (question or "").lower()
@@ -1917,6 +1983,33 @@ def _extract_color_answer(text: str, question: str = "") -> str:
     subject = _question_subject_noun(question)
     lowered = blob.lower()
     bed_bedding_q = any(tok in q_l for tok in ("comforter", "duvet", "bedding", "bed cover"))
+
+    # Flowers / plants: bind color to the flower NP, not table/wall/elsewhere.
+    if "flower" in q_l or "flowers" in q_l:
+        near = re.search(
+            rf"\b((?:dark|light|bright|pale)\s+)?({'|'.join(_COLOR_WORDS)})\s+"
+            rf"(?:flowers?|petals?|blooms?)\b",
+            lowered,
+        )
+        if near:
+            phrase = ((near.group(1) or "") + near.group(2)).strip()
+            return phrase[0].upper() + phrase[1:] if phrase else ""
+        after = re.search(
+            rf"\b(?:flowers?|petals?|blooms?)\b[^.]{{0,40}}"
+            rf"\b((?:dark|light|bright|pale)\s+)?({'|'.join(_COLOR_WORDS)})\b",
+            lowered,
+        )
+        if after:
+            phrase = ((after.group(1) or "") + after.group(2)).strip()
+            return phrase[0].upper() + phrase[1:] if phrase else ""
+        # "ATTRIBUTES: flowers: white" / "flower vase: white"
+        attr = re.search(
+            rf"\bflowers?\b\s*:\s*((?:dark|light|bright|pale)\s+)?({'|'.join(_COLOR_WORDS)})\b",
+            lowered,
+        )
+        if attr:
+            phrase = ((attr.group(1) or "") + attr.group(2)).strip()
+            return phrase[0].upper() + phrase[1:] if phrase else ""
 
     # Bed/comforter: prefer duvet/comforter color, not carpet/wall/headboard.
     if bed_bedding_q or subject in ("bed", "comforter", "duvet"):
@@ -2020,7 +2113,7 @@ def normalize_qa_prediction(
         if fallback:
             return _finalize(fallback, raw_text)
     q_l = (question or "").lower()
-    hint_l = (memory_hint or "").lower()
+    hint_l = _evidence_text(memory_hint or "").lower()
     open_closed_q = is_open_closed_question(question)
     yes_no_q = (not open_closed_q) and bool(
         re.match(r"^(is|are|do|does|did|can|could|should|was|were|has|have)\b", q_l)
@@ -2091,12 +2184,16 @@ def normalize_qa_prediction(
 
     # Color questions: extract before accepting long scene dumps.
     if color_q:
-        color = _extract_color_answer(raw_text, question)
-        if color:
-            return _finalize(color, raw_text)
-        color = _extract_color_answer(memory_hint, question)
-        if color:
-            return _finalize(color, raw_text)
+        color_mem = _extract_color_answer(memory_hint, question)
+        color_raw = _extract_color_answer(raw_text, question)
+        # Flower/plant colors: prefer memory binding over a free-floating model color.
+        if "flower" in q_l or "plant" in q_l:
+            if color_mem:
+                return _finalize(color_mem, raw_text)
+        if color_raw:
+            return _finalize(color_raw, raw_text)
+        if color_mem:
+            return _finalize(color_mem, raw_text)
 
     action = _extract_functional_action(raw_text, question)
     if action:
@@ -2114,6 +2211,18 @@ def normalize_qa_prediction(
     # Where questions: reject scene titles / pose-only / self-landmark; prefer spatial spans.
     if _is_where_question(question):
         cleaned_where = _clean_phrase(raw_text, yes_no_q=False)
+        # Inventory laundry lists are never valid where-answers.
+        if cleaned_where and (
+            _looks_like_inventory_list(cleaned_where)
+            or _looks_like_scene_or_inventory_dump(cleaned_where)
+        ):
+            loc = _extract_location_from_memory(memory_hint, question)
+            if loc:
+                return _finalize(loc, raw_text)
+            dest = _answer_from_memory_hint(memory_hint, question)
+            if dest:
+                return _finalize(dest, raw_text)
+            cleaned_where = ""
         # Wash/brush / appearance / warmup: prefer functional memory destinations.
         if (
             ("wash" in q_l and "hand" in q_l)
@@ -2838,6 +2947,7 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
         return ""
     family, landmark = parsed
     blob = sanitize_memory_text_for_inference((hint or "").strip())
+    blob = _evidence_text(blob)
     if not blob:
         return ""
     hint_l = blob.lower()
@@ -3045,6 +3155,7 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
 def _extract_location_from_memory(hint: str, question: str) -> str:
     """Extract a short location phrase near the asked subject (generic where-QA)."""
     blob = sanitize_memory_text_for_inference((hint or "").strip())
+    blob = _evidence_text(blob)
     if not blob:
         return ""
     hint_l = blob.lower()
@@ -3318,6 +3429,7 @@ def _purpose_tool_overrides_prediction(
 def _answer_from_memory_hint(hint: str, question: str) -> str:
     """When the model copies timestamps/meta, recover answer from top memory row."""
     blob = sanitize_memory_text_for_inference((hint or "").strip())
+    blob = _evidence_text(blob)
     if not blob:
         return ""
     q_l = (question or "").lower()
@@ -3342,6 +3454,29 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
             return "No"
         if _door_open(hint_l):
             return "Yes"
+
+    # "Are all the X doors open?" — require subject-door evidence; don't flip No
+    # from unrelated closed doors (fridge/cabinets/front door).
+    if yes_no_q and "all" in q_l and "open" in q_l and "door" in q_l:
+        subject = "bedroom" if "bedroom" in q_l else (
+            "bathroom" if "bathroom" in q_l else ""
+        )
+        scope = hint_l
+        if subject:
+            # Prefer lines/clauses mentioning the subject doors.
+            scoped = re.findall(
+                rf"[^.\n]*\b{subject}\b[^.\n]*\bdoors?\b[^.\n]*|"
+                rf"[^.\n]*\bdoors?\b[^.\n]*\b{subject}\b[^.\n]*",
+                hint_l,
+            )
+            if scoped:
+                scope = " | ".join(scoped)
+        if re.search(r"\bclosed\b", scope) and not re.search(r"\bopen\b", scope):
+            return "No"
+        if re.search(r"\bopen\b", scope) and not re.search(r"\bclosed\b", scope):
+            return "Yes"
+        # Ambiguous / no subject-door state: do not guess from other doors.
+        return ""
 
     if yes_no_q and ("garbage bin" in q_l or "trash bin" in q_l or "bin open" in q_l):
         if re.search(r"\bbin\b[^.]{0,24}\bopen\b|\bopen\b[^.]{0,24}\bbin\b", hint_l):
@@ -3439,17 +3574,27 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
 
     # World-knowledge style facts from WORLD_CUES / ATTRIBUTES when asked.
     if "door" in q_l and any(tok in q_l for tok in ("design", "type", "kind", "style")):
-        # Do not match bare "door" in "door design:" labels.
+        # Require door-bound evidence — ignore prompt taxonomy leaks listing
+        # "cross-hatch" among shapes.
         m = re.search(
+            r"(?:world_cues|attributes)\s*:[^\n]{0,120}"
             r"\b(cross[-\s]?hatch(?:ed)?(?:\s+glass)?(?:\s+door)?|"
-            r"glass\s+pane\s+door|solid\s+wood\s+door|"
-            r"(?:ornate\s+)?(?:wooden|wood)\s+door)\b",
+            r"glass\s+pane\s+door|solid\s+wood\s+door|(?:ornate\s+)?(?:wooden|wood)\s+door)\b",
             hint_l,
         )
+        if not m:
+            m = re.search(
+                r"\b(?:front\s+)?door(?:\s+design)?\s*:\s*"
+                r"(cross[-\s]?hatch(?:ed)?(?:\s+glass)?(?:\s+door)?|"
+                r"glass\s+pane|solid\s+wood|wooden|wood panel)[^\n,;]{0,40}",
+                hint_l,
+            )
         if m:
             phrase = re.sub(r"\s+", " ", m.group(1).replace("-", " ")).strip()
             if "cross" in phrase and "hatch" in phrase and "door" not in phrase:
                 phrase = f"{phrase} glass door"
+            if phrase in ("wooden", "wood", "wood panel", "glass pane"):
+                phrase = f"{phrase} door" if "door" not in phrase else phrase
             return phrase[0].upper() + phrase[1:]
     if "stories" in q_l or ("story" in q_l and "how many" in q_l) or "floors" in q_l:
         m = re.search(
