@@ -1182,6 +1182,21 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         self.assertIn("hatch", pred.lower())
 
+    def test_error_recovers_where_blue_cabinet_room(self):
+        hint = (
+            "ROOM: bedroom\n"
+            "OBJECTS: blue cabinet, bed, nightstand\n"
+            "LOCALIZATION: blue cabinet against the wall in the upstairs bedroom"
+        )
+        pred, _ = normalize_qa_prediction(
+            "ERROR",
+            question="Where is the blue cabinet?",
+            memory_hint=hint,
+        )
+        self.assertTrue(pred)
+        self.assertFalse(pred.upper().startswith("ERROR"))
+        self.assertIn("bedroom", pred.lower())
+
 
 class MemoryTextSanitizeTests(unittest.TestCase):
     def test_sanitize_strips_timestamps(self):

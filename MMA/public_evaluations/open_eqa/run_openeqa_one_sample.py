@@ -778,6 +778,105 @@ def _qa_direct_sd_with_fallback(mma_agent, formatted: str, question: str) -> str
     return _qa_direct_sd_send(mma_agent, formatted, question, baseline_only=True)
 
 
+def _load_caption_cache_events(image_paths: List[str]) -> List[Any]:
+    """Build pseudo-events from OPENEQA_CAPTION_CACHE (no VL / no agent)."""
+    from openeqa_direct_episodic import _get_caption_cache_path
+
+    class _CapEvent:
+        def __init__(self, summary: str, details: str = ""):
+            self.summary = summary
+            self.details = details
+            self.confidence = 0.8
+            self.tree_path = ["openeqa", "scene"]
+
+    events: List[Any] = []
+    if not image_paths:
+        return events
+    candidates: List[List[str]] = [list(image_paths)]
+    candidates.extend([[p] for p in image_paths])
+    seen = set()
+    for group in candidates:
+        cache_file = _get_caption_cache_path(group)
+        key = str(cache_file)
+        if key in seen or not cache_file.is_file():
+            continue
+        seen.add(key)
+        try:
+            raw = cache_file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        parts = re.split(r"(?=SUMMARY:\s)", raw, flags=re.I)
+        parts = [p.strip() for p in parts if p.strip()] or [raw]
+        for part in parts:
+            sm = re.search(r"SUMMARY:\s*(.+?)(?:\n|$)", part, re.I)
+            dm = re.search(r"DETAILS:\s*(.+)", part, re.I | re.S)
+            summary = (sm.group(1).strip() if sm else part.splitlines()[0])[:500]
+            details = (dm.group(1).strip() if dm else part)[:8000]
+            if summary or details:
+                events.append(_CapEvent(summary or "Scene", details or part))
+    return events
+
+
+def _recover_qa_from_memory(
+    question: str,
+    *,
+    memory_hint: str = "",
+    selected_events: Optional[List[Any]] = None,
+    mma_agent: Any = None,
+    sample: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Answer from episodic / caption-cache when VL QA crashes or returns ERROR."""
+    from openeqa_memory import (
+        list_reranked_episodic_for_question,
+        memory_hint_from_events,
+        select_events_for_qa,
+    )
+
+    def _try(hint: str) -> str:
+        if not (hint or "").strip():
+            return ""
+        ans, _ = normalize_qa_prediction(
+            "ERROR", question=question, memory_hint=hint
+        )
+        ans = (ans or "").strip()
+        if ans and not ans.upper().startswith("ERROR"):
+            return ans
+        return ""
+
+    recovered = _try(memory_hint)
+    if recovered:
+        return recovered
+
+    event_pools: List[List[Any]] = []
+    if selected_events:
+        event_pools.append(list(selected_events))
+    if mma_agent is not None:
+        try:
+            event_pools.append(list_reranked_episodic_for_question(mma_agent, question))
+        except Exception as exc:
+            print(f"  [qa] recover: list episodic failed: {exc}", flush=True)
+    image_paths = []
+    if sample:
+        image_paths = _image_paths_from_sample(sample) or []
+    if image_paths:
+        caps = _load_caption_cache_events([str(p) for p in image_paths])
+        if caps:
+            event_pools.append(caps)
+
+    for pool in event_pools:
+        if not pool:
+            continue
+        selected = select_events_for_qa(pool, question) or pool
+        hint = memory_hint_from_events(selected)
+        # Also try a wider hint over the full pool when top-k is thin.
+        wide = memory_hint_from_events(pool, top_k=min(24, len(pool)))
+        for candidate in (hint, wide):
+            recovered = _try(candidate)
+            if recovered:
+                return recovered
+    return ""
+
+
 def _run_qa(
     sample: Dict[str, Any],
     config_path: str,
@@ -788,58 +887,89 @@ def _run_qa(
         return "ERROR:qa:empty question", "", None
 
     _apply_qa_env()
-
-    agent = _init_agent(config_path, for_qa=True)
-    _set_chat_topic(_mma_core(agent), question)
-    draft_policy = prepare_draft_policy_for_agent(_mma_core(agent), question)
-    selected_events = get_qa_ranked_events()
-    if not selected_events:
-        episodic_debug = collect_episodic_debug(_mma_core(agent), question=question)
-        episodic_total = int(episodic_debug.get("episodic_total") or 0)
-        if episodic_total == 0:
-            return (
-                f"ERROR:qa:no episodic memory in {home_dir} "
-                "(memorize phase may have failed or HOME mismatch)",
-                "",
-                None,
-            )
-        print(
-            f"  [qa] WARN: rerank returned 0 events (episodic_total={episodic_total})",
-            flush=True,
-        )
-    if draft_policy:
-        print(
-            "  [qa] draft_policy: "
-            f"steps={draft_policy.get('max_draft_steps')} "
-            f"bias={draft_policy.get('memory_bias_scale')} "
-            f"margin={draft_policy.get('rerank_margin')} "
-            f"conflict={draft_policy.get('memory_conflict')}",
-            flush=True,
-        )
-    formatted = _format_eqa_question(question)
-    if _qa_uses_direct_sd():
-        raw_prediction = _qa_direct_sd_with_fallback(_mma_core(agent), formatted, question)
-    else:
-        raw_prediction = _qa_send(agent, formatted)
-    if not raw_prediction and _is_yes_no_question(question):
-        fallback = (
-            "Based on episodic memory only, answer with exactly one word: Yes or No.\n\n"
-            f"Question: {question}"
-        )
-        print("  [qa] empty first response; retrying yes/no fallback", flush=True)
-        if _qa_uses_direct_sd():
-            raw_prediction = _qa_direct_sd_with_fallback(_mma_core(agent), fallback, question)
-        else:
-            raw_prediction = _qa_send(agent, fallback)
-    if not raw_prediction:
-        print("  [qa] empty response after retries (normalize may use memory hint)", flush=True)
-
     from openeqa_memory import memory_hint_from_events
+
+    agent = None
+    draft_policy: Dict[str, Any] = {}
+    selected_events: List[Any] = []
+    raw_prediction = ""
+    formatted = _format_eqa_question(question)
+    memory_hint = ""
+    init_error = ""
+
+    try:
+        agent = _init_agent(config_path, for_qa=True)
+        _set_chat_topic(_mma_core(agent), question)
+        draft_policy = prepare_draft_policy_for_agent(_mma_core(agent), question) or {}
+        selected_events = get_qa_ranked_events()
+        if not selected_events:
+            episodic_debug = collect_episodic_debug(_mma_core(agent), question=question)
+            episodic_total = int(episodic_debug.get("episodic_total") or 0)
+            if episodic_total == 0:
+                # Still try caption-cache recovery before hard-failing.
+                recovered = _recover_qa_from_memory(
+                    question, sample=sample
+                )
+                if recovered:
+                    print(
+                        f"  [qa] recovered from caption cache (empty episodic): "
+                        f"{recovered[:80]!r}",
+                        flush=True,
+                    )
+                    return recovered, "", None
+                return (
+                    f"ERROR:qa:no episodic memory in {home_dir} "
+                    "(memorize phase may have failed or HOME mismatch)",
+                    "",
+                    None,
+                )
+            print(
+                f"  [qa] WARN: rerank returned 0 events (episodic_total={episodic_total})",
+                flush=True,
+            )
+        if draft_policy:
+            print(
+                "  [qa] draft_policy: "
+                f"steps={draft_policy.get('max_draft_steps')} "
+                f"bias={draft_policy.get('memory_bias_scale')} "
+                f"margin={draft_policy.get('rerank_margin')} "
+                f"conflict={draft_policy.get('memory_conflict')}",
+                flush=True,
+            )
+        try:
+            if _qa_uses_direct_sd():
+                raw_prediction = _qa_direct_sd_with_fallback(
+                    _mma_core(agent), formatted, question
+                )
+            else:
+                raw_prediction = _qa_send(agent, formatted)
+            if not raw_prediction and _is_yes_no_question(question):
+                fallback = (
+                    "Based on episodic memory only, answer with exactly one word: "
+                    "Yes or No.\n\n"
+                    f"Question: {question}"
+                )
+                print("  [qa] empty first response; retrying yes/no fallback", flush=True)
+                if _qa_uses_direct_sd():
+                    raw_prediction = _qa_direct_sd_with_fallback(
+                        _mma_core(agent), fallback, question
+                    )
+                else:
+                    raw_prediction = _qa_send(agent, fallback)
+        except Exception as exc:
+            init_error = f"vl_send:{exc}"
+            print(f"  [qa] VL send failed: {exc}", flush=True)
+            traceback.print_exc()
+            raw_prediction = ""
+    except Exception as exc:
+        init_error = f"init:{exc}"
+        print(f"  [qa] agent init/policy failed: {exc}", flush=True)
+        traceback.print_exc()
+        raw_prediction = ""
 
     memory_hint = (draft_policy or {}).get("top_memory_hint") or (
         (draft_policy or {}).get("top_memory_preview") or ""
     )
-    # Always rebuild from the selected QA window — policy hint can be empty/stale.
     if selected_events:
         rebuilt = memory_hint_from_events(selected_events)
         if len(rebuilt) >= len(memory_hint or ""):
@@ -847,9 +977,11 @@ def _run_qa(
     print(
         f"  [qa] memory_hint_chars={len(memory_hint or '')} "
         f"selected={len(selected_events or [])} "
-        f"raw_empty={not bool(raw_prediction)}",
+        f"raw_empty={not bool(raw_prediction)} "
+        f"init_error={init_error or 'none'}",
         flush=True,
     )
+
     prediction, _ = normalize_qa_prediction(
         raw_prediction,
         question=question,
@@ -861,27 +993,27 @@ def _run_qa(
             if line and not line.startswith("ERROR"):
                 prediction = line[:200]
                 break
-    # Last resort: empty/ERROR model output → recover from episodic hint.
+
     pred_s = (prediction or "").strip()
-    if (
-        (not pred_s or pred_s == "ERROR" or pred_s.startswith("ERROR:"))
-        and memory_hint
-    ):
-        recovered, _ = normalize_qa_prediction(
-            "ERROR",
-            question=question,
+    if not pred_s or pred_s == "ERROR" or pred_s.startswith("ERROR:"):
+        recovered = _recover_qa_from_memory(
+            question,
             memory_hint=memory_hint,
+            selected_events=selected_events,
+            mma_agent=_mma_core(agent) if agent is not None else None,
+            sample=sample,
         )
-        if recovered and not recovered.strip().upper().startswith("ERROR"):
-            print(f"  [qa] recovered from memory_hint: {recovered[:80]!r}", flush=True)
+        if recovered:
+            print(f"  [qa] recovered from memory/captions: {recovered[:80]!r}", flush=True)
             prediction = recovered
             if not raw_prediction:
                 raw_prediction = "ERROR"
-    sd_stats = collect_speculative_sd_stats()
+
+    sd_stats = collect_speculative_sd_stats() if agent is not None else {}
     qa_answer_source = _qa_answer_source(raw_prediction, prediction)
 
     debug_payload: Optional[Dict[str, Any]] = None
-    if debug_enabled():
+    if debug_enabled() and agent is not None:
         debug_payload = collect_qa_debug(
             sample,
             _mma_core(agent),
@@ -895,7 +1027,8 @@ def _run_qa(
         write_debug_file(home_dir, "qa", debug_payload)
         log_debug_summary(debug_payload, "qa")
 
-    if not prediction or prediction == "ERROR":
+    pred_s = (prediction or "").strip()
+    if not pred_s or pred_s == "ERROR" or pred_s.startswith("ERROR:"):
         return "ERROR:qa:agent returned ERROR (see stderr_tail)", "", debug_payload
     return prediction, "", debug_payload
 
@@ -941,8 +1074,23 @@ def main() -> None:
         else:
             prediction, _, debug_payload = _run_all(sample, args.config, home_dir)
     except Exception:
-        prediction = "ERROR:exception"
         stderr_tail = traceback.format_exc()
+        prediction = "ERROR:exception"
+        # Last ditch: caption-cache extract without a living agent.
+        if args.phase in ("qa", "all"):
+            try:
+                recovered = _recover_qa_from_memory(
+                    sample.get("question") or "",
+                    sample=sample,
+                )
+                if recovered:
+                    print(
+                        f"  [qa] exception recovered via captions: {recovered[:80]!r}",
+                        flush=True,
+                    )
+                    prediction = recovered
+            except Exception:
+                stderr_tail = (stderr_tail + "\n" + traceback.format_exc())[-4000:]
 
     out: Dict[str, Any] = {
         "prediction": prediction,

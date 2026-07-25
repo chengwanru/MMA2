@@ -3561,6 +3561,32 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
         loc = _extract_location_from_memory(blob, question)
         if loc:
             return loc
+        # Subject present but no SPATIAL line: fall back to ROOM / upstairs cue.
+        subject = _question_subject_noun(question)
+        if subject and _blob_has_subject(hint_l, subject):
+            # Prefer explicit "upstairs bedroom" style phrases near the subject.
+            for alias in _subject_alias_terms(subject) or (subject,):
+                m = re.search(
+                    rf"\b{re.escape(alias)}\b[^.\n]{{0,80}}"
+                    rf"\b(upstairs\s+bedroom|bedroom|bathroom|kitchen|living room|"
+                    rf"hallway|garage|dining)\b|"
+                    rf"\b(upstairs\s+bedroom|bedroom|bathroom|kitchen|living room|"
+                    rf"hallway|garage|dining)\b[^.\n]{{0,80}}\b{re.escape(alias)}\b",
+                    hint_l,
+                )
+                if m:
+                    room = next(
+                        (g for g in m.groups() if g),
+                        "",
+                    )
+                    if room:
+                        return f"In the {room}"
+            rooms = _blob_room_tags(hint_l)
+            for preferred in (
+                "bedroom", "bathroom", "kitchen", "living room", "hallway", "garage",
+            ):
+                if preferred in rooms:
+                    return f"In the {preferred}"
 
     if _question_purpose_terms(question):
         tool = _extract_purpose_tool_from_memory(blob, question)
