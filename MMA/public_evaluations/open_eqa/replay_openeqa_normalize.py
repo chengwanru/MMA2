@@ -143,8 +143,6 @@ def main() -> None:
     good_old = good_new = 0
 
     def _good(gold: str, pred: str) -> bool:
-        from openeqa_memory import _norm  # type: ignore
-        # local match consistent with summary
         import re as _re
         if not pred or str(pred).startswith("ERROR"):
             return False
