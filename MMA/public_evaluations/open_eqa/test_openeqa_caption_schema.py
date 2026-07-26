@@ -86,6 +86,8 @@ class CaptionSchemaTests(unittest.TestCase):
             "material",
             "shape",
             "stripe",
+            "checkered",
+            "roman",
             "white",
             "black",
             "brown",
@@ -93,6 +95,9 @@ class CaptionSchemaTests(unittest.TestCase):
             "leather",
             "plastic",
             "cross-hatch",
+            "basket",
+            "tucked",
+            "fenced",
         ):
             self.assertIn(needle, p, msg=f"missing attribute cue: {needle}")
         # Functional + world (full-set verb families)

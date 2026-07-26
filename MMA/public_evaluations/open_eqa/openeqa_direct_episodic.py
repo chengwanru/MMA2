@@ -85,14 +85,16 @@ HARD RULES
 2) Prefer BINDINGS over laundry lists. Put answerable nouns in ATTRIBUTES / STATES / SPATIAL / ART_CONTENT, not only in SUMMARY prose.
 3) Mandatory grammar:
    - ATTRIBUTES: "object: value" (color / material / shape / pattern / size / lid color / content)
-   - STATES: "object: open|closed|ajar|on|off|full|empty|clean|cluttered|dirty|made|unmade|set|unset"
+   - STATES: "object: open|closed|ajar|on|off|full|empty|clean|cluttered|dirty|made|unmade|set|unset|
+     tucked in|pulled out|fenced|unfenced" (furniture seating + outdoor enclosure when visible)
    - SPATIAL: name BOTH sides ("X is above Y", "X is between A and B", "X is to the left of Y")
    - FUNCTIONAL_CUES: "action → object @ place" ONLY when the object is visible
 4) Start SUMMARY with a room type when recognizable.
 5) Multi-value: if several colors/materials/same-class objects are visible, list ALL as separate bindings.
 6) Synonyms when either fits: painting/picture/frame/poster; couch/sofa; hanger/hangar/clothing rack;
    wine glasses/drinking glasses; air vent/AC vent/air return; pillow/cushion; trash bin/trash can;
-   recycling bin (yellow lid); cooler; vacuum cleaner; whiteboard/blackboard.
+   recycling bin (yellow lid); cooler; vacuum cleaner; whiteboard/blackboard;
+   basket/fruit basket/fruit bowl/bowl (open countertop containers).
 7) Keep NOT_VISIBLE SHORT (≤5 items). Prefer empty/"none" over dumping checklist vocab.
 8) Do NOT copy prompt taxonomies, enum lists, or "multiple-*" phrases into any section.
 
@@ -127,35 +129,45 @@ B) object localization — LOCALIZATION + SPATIAL for:
 
 C) object state recognition — subject-scoped STATES:
    doors/windows/blinds/curtains/drawers/cabinets/bins/lids/fridge/garage: open|closed|ajar;
-   lights/lamps: on|off; bed made/unmade; floor/counter clean|cluttered|dirty; mats set|unset.
+   lights/lamps: on|off; bed made/unmade; floor/counter clean|cluttered|dirty; mats set|unset;
+   bar stools/chairs at island or table: tucked in|pulled out when clear;
+   yard/patio/backyard enclosure: fenced|unfenced ONLY if the fence (or clear absence) is visible.
 
 D) attribute recognition — OBJECT:value for color/material/shape/pattern:
    COLORS when true: white, black, brown, blue, red, green, yellow, grey/gray, pink, orange, gold;
    MATERIALS: wood/wooden, tile, concrete, carpet, stone, drywall, metal, glass, brick, leather, plastic, fabric;
    SHAPES: round/oval/square/rectangular/spherical/spiral/cross-hatch (door knob / mirror / panels);
-   also stripe patterns, railing color, comforter color, lid color.
+   PATTERNS when clear: checkered/plaid, striped, solid; multi-color rugs → list ALL colors (e.g. red and white);
+   readable text on clocks/signs: numbering style (Roman numerals / Arabic digits) in ATTRIBUTES;
+   also railing color, comforter color, lid color.
 
 E) spatial understanding — pairwise relations + clear counts:
    between / left / right / above / below / behind / in front / on top / under / over / hanging on;
    count basins, stories, desks, paintings, doors, jackets when unambiguous.
 
 F) functional reasoning — ONLY if object visible: wash/brush/dry; store/cool/heat; hang; sit/sleep/nap;
-   print/charge; vacuum; recycle; cool down / fan / AC; warm up (fireplace/heater).
+   print/charge; vacuum; recycle; cool down / fan / AC; warm up (fireplace/heater);
+   store produce/items → visible basket|fruit bowl|bowl|bin|tray @ counter|island|table.
 
 G) world knowledge — ≤3 typed labels ONLY if visually supported:
    ceiling type; staircase kind; door design (cross-hatch glass); art style; stories/levels;
-   outdoor/fenced yard; child-oriented / office / laundry cues; yellow-lid recycling for paper.
+   outdoor/patio/yard + fenced|unfenced when enclosure is visible; child-oriented / office / laundry;
+   yellow-lid recycling for paper.
 
 ========================
 SCAN PRIORITY (write bindings for what you SEE; skip what you don't)
 ========================
 1) Architecture: ceiling/floor/wall material; ceiling fixtures (vent, lights, ceiling fan); stairs + railing color + staircase kind; upstairs/ground if clear.
 2) Openings & lights: named doors + EXIT; blinds/curtains open|closed; lights on|off by zone; switches; door knob shape if distinctive.
-3) Furniture: bed/couch/sofa/table/desk/shelf + key contents (pillows, fruit bowl, books); shelf level.
+3) Furniture: bed/couch/sofa/table/desk/shelf + key contents (pillows, fruit bowl/basket, books); shelf level;
+   rugs under tables: color + pattern + SPATIAL ("rug is under dining table"); seating tuck state at island/table.
 4) Wet zones: sink + basin count; toilet; shower/tub + curtain; fridge/refrigerator; microwave; mirror shape/neighbors; towels/racks.
-5) Storage & personal: closet/wardrobe; hanger/rack + garment colors; backpack; shoes; doormat/mat color.
-6) Decor & climate: paintings/pictures (+ ART_CONTENT); TV; plants; AC/vent/radiator/fireplace/heater/fan + SPATIAL to landmark; trash vs recycling lid color.
-7) Garage/outdoor when in view: sedan/car color+type; hose; broom; cooler; vacuum; patio/fence — ONLY if truly visible.
+5) Storage & personal: closet/wardrobe; hanger/rack + garment colors; backpack; shoes; doormat/mat color;
+   open containers on counters (basket/bowl/bin/tray) → OBJECTS + SPATIAL + store FUNCTIONAL when clear.
+6) Decor & climate: paintings/pictures (+ ART_CONTENT); clocks (face color + numeral style if readable); TV; plants;
+   AC/vent/radiator/fireplace/heater/fan + SPATIAL to landmark; trash vs recycling lid color.
+7) Garage/outdoor when in view: sedan/car color+type; hose; broom; cooler; vacuum; patio/yard;
+   if outdoor is visible, state fence/fenced OR unfenced — ONLY from clear visual evidence.
 
 ========================
 QUALITY BARS
@@ -166,8 +178,10 @@ ART_CONTENT: if any painting/picture/frame/poster is readable, describe the depi
   (flowers, animals, landscape, pier, people, abstract shapes). If present but unreadable: "not readable".
   If no wall art: "none". Never invent art subjects from style guesses.
 FUNCTIONAL_CUES: "action → object @ place" only for visible affordances (dry → hand towel @ rack;
-  cool → ceiling fan @ bathroom; hang → clothes hanger @ closet). Leave empty/"none" if none.
+  cool → ceiling fan @ bathroom; hang → clothes hanger @ closet;
+  store → fruit bowl @ kitchen counter). Leave empty/"none" if none.
 WORLD_CUES: at most 3 short labels. Never dump multi-appliance / door-pull taxonomies.
+  When patio/yard is visible, prefer a fence status label over vague "outdoor" alone.
 
 ========================
 ANTI-PATTERNS

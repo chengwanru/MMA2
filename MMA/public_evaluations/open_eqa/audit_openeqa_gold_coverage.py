@@ -81,7 +81,24 @@ def _yes_no_evidence_terms(question: str) -> List[str]:
         return ["placemat", "place mat", "table mat", "mat"]
     if "open" in q or "closed" in q:
         return ["open", "closed"]
+    if "fence" in q or "fenced" in q:
+        # Enclosure status — not mere "patio/yard/outdoor".
+        return ["fenced", "unfenced", "fencing", "fence", "no fence"]
+    if "tuck" in q:
+        return ["tucked", "tucked in", "pulled out", "pushed in"]
+    if "space" in q and ("under" in q or "storage" in q or "enough" in q):
+        return ["space under", "under-bed", "clearance", "empty under", "storage under"]
     return []
+
+
+def _term_in_blob(term: str, blob: str) -> bool:
+    """Substring for multi-word terms; word-boundary for single tokens (fence vs unfenced)."""
+    t = _norm(term)
+    if not t or not blob:
+        return False
+    if " " in t or ":" in t:
+        return t in blob
+    return bool(re.search(rf"\b{re.escape(t)}\b", blob))
 
 
 def _gold_coverage(blob: str, gold: str, question: str = "") -> Dict[str, Any]:
@@ -93,7 +110,7 @@ def _gold_coverage(blob: str, gold: str, question: str = "") -> Dict[str, Any]:
     # Yes/No gold: credit semantic evidence in caption, not the word "yes".
     if g.rstrip(".") in ("yes", "no"):
         evidence = _yes_no_evidence_terms(question)
-        if evidence and any(_norm(e) in b for e in evidence):
+        if evidence and any(_term_in_blob(e, b) for e in evidence):
             return {"phrase": True, "token_hit": 1, "token_total": 1, "ratio": 1.0}
         return {"phrase": False, "token_hit": 0, "token_total": 1, "ratio": 0.0}
     phrase = g in b or any(len(p) > 4 and p in b for p in g.split(", "))
