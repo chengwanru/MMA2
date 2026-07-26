@@ -276,8 +276,11 @@ def _apply_qa_env() -> None:
         os.environ.pop("MMA_TARGET_ONLY", None)
         os.environ.pop("MMA_BASELINE_TOOLS", None)
     if _qa_uses_direct_sd():
-        # Text-only direct SD: visual routing embed pass is unnecessary and can fail on VL targets.
-        os.environ["MMA_ENABLE_VISUAL_ROUTING"] = "0"
+        # Text-only direct SD: VR off by default (embed pass can fail on some VL targets).
+        # Explicit MMA_ENABLE_VISUAL_ROUTING=1 keeps routing on for ablations / paper runs.
+        _vr = os.environ.get("MMA_ENABLE_VISUAL_ROUTING", "0").strip().lower()
+        if _vr not in ("1", "true", "yes"):
+            os.environ["MMA_ENABLE_VISUAL_ROUTING"] = "0"
         os.environ.setdefault("OPENEQA_QA_DIRECT_SD", "1")
 
 
