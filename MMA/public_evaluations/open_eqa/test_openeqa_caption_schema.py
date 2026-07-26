@@ -48,6 +48,19 @@ class CaptionSchemaTests(unittest.TestCase):
         self.assertIn("bindings", p)
         self.assertIn("do not copy prompt taxonomies", p)
 
+    def test_prompt_kitchen_appliance_and_handle_hanging(self):
+        p = EPISODIC_CAPTION_PROMPT.lower()
+        for needle in (
+            "microwave",
+            "wall oven",
+            "stovetop",
+            "oven handle",
+            "towel",
+            "oven mitt",
+            "kitchen appliance checklist",
+        ):
+            self.assertIn(needle, p, msg=f"missing kitchen cue: {needle}")
+
     def test_prompt_covers_fullset_fact_families(self):
         """Must mention the major visual fact families demanded by the full 1636-Q set."""
         p = EPISODIC_CAPTION_PROMPT.lower()

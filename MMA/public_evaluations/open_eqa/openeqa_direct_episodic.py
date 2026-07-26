@@ -96,6 +96,10 @@ HARD RULES
    recycling bin (yellow lid); cooler; vacuum cleaner; whiteboard/blackboard;
    basket/fruit basket/fruit bowl/bowl (open countertop containers).
 7) Keep NOT_VISIBLE SHORT (≤5 items). Prefer empty/"none" over dumping checklist vocab.
+   Never dump a kitchen appliance checklist (microwave/stove/sink/toaster/…) into NOT_VISIBLE
+   just because they are "usual" kitchens — only list an item if you looked for that landmark
+   in THIS frame and it is clearly absent. If a microwave/oven is hard to see, OMIT it;
+   do not park it in NOT_VISIBLE.
 8) Do NOT copy prompt taxonomies, enum lists, or "multiple-*" phrases into any section.
 
 ========================
@@ -161,12 +165,21 @@ SCAN PRIORITY (write bindings for what you SEE; skip what you don't)
 2) Openings & lights: named doors + EXIT; blinds/curtains open|closed; lights on|off by zone; switches; door knob shape if distinctive.
 3) Furniture: bed/couch/sofa/table/desk/shelf + key contents (pillows, fruit bowl/basket, books); shelf level;
    rugs under tables: color + pattern + SPATIAL ("rug is under dining table"); seating tuck state at island/table.
-4) Wet zones: sink + basin count; toilet; shower/tub + curtain; fridge/refrigerator; microwave; mirror shape/neighbors; towels/racks.
-5) Storage & personal: closet/wardrobe; hanger/rack + garment colors; backpack; shoes; doormat/mat color;
+4) Wet zones: sink + basin count; toilet; shower/tub + curtain; fridge/refrigerator; mirror shape/neighbors; towels/racks.
+5) Kitchen appliances (when the cooking wall is in view — name each visible unit separately):
+   - stove / cooktop / range (burners or glass cooktop under a vent hood)
+   - oven / wall oven (door with handle; may be under cooktop OR built into cabinets)
+   - microwave / microwave oven (usually a shorter box above the stove/oven or in upper cabinets;
+     do NOT call a wall oven a microwave, and do NOT call a microwave an oven)
+   - For each named appliance: OBJECTS + LOCALIZATION + at least one SPATIAL to stove/oven/hood/cabinets
+     (e.g. "microwave is above the oven", "microwave is above the stovetop").
+   - Soft goods on appliance handles: towel / hand towel / oven mitt / cloth hanging from oven or stove
+     handle → put in OBJECTS + SPATIAL ("towel is hanging from the oven handle"), never only in SUMMARY.
+6) Storage & personal: closet/wardrobe; hanger/rack + garment colors; backpack; shoes; doormat/mat color;
    open containers on counters (basket/bowl/bin/tray) → OBJECTS + SPATIAL + store FUNCTIONAL when clear.
-6) Decor & climate: paintings/pictures (+ ART_CONTENT); clocks (face color + numeral style if readable); TV; plants;
+7) Decor & climate: paintings/pictures (+ ART_CONTENT); clocks (face color + numeral style if readable); TV; plants;
    AC/vent/radiator/fireplace/heater/fan + SPATIAL to landmark; trash vs recycling lid color.
-7) Garage/outdoor when in view: sedan/car color+type; hose; broom; cooler; vacuum; patio/yard;
+8) Garage/outdoor when in view: sedan/car color+type; hose; broom; cooler; vacuum; patio/yard;
    if outdoor is visible, state fence/fenced OR unfenced — ONLY from clear visual evidence.
 
 ========================
@@ -187,6 +200,9 @@ WORLD_CUES: at most 3 short labels. Never dump multi-appliance / door-pull taxon
 ANTI-PATTERNS
 ========================
 - Long NOT_VISIBLE checklists that regurgitate this prompt.
+- Parking microwave/stove/sink/oven in NOT_VISIBLE as a kitchen vocab dump.
+- Calling a built-in microwave a "wall oven" (or the reverse) without checking size/placement.
+- Ignoring a towel/mitt hanging on an oven or stove handle when the handle is visible.
 - "implied by", "probably", "appears to be a multiple-*" speculation.
 - OBJECTS-only captions with empty ATTRIBUTES/STATES/SPATIAL/ART_CONTENT.
 - Naming ceiling material while ignoring a visible vent/fan/light on that ceiling.
