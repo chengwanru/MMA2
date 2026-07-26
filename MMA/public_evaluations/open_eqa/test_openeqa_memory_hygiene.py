@@ -224,6 +224,28 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         self.assertNotIn("multiple microwaves", ev)
         self.assertIn("gold frame", ev)
 
+    def test_evidence_keeps_later_frames_after_not_visible(self):
+        """Concatenated captions must not truncate at the first NOT_VISIBLE."""
+        from openeqa_memory import _evidence_text
+
+        raw = (
+            "SUMMARY: living room couch\n"
+            "ROOM: living room\n"
+            "OBJECTS: couch\n"
+            "NOT_VISIBLE: none\n"
+            "SUMMARY: kitchen with fruit bowl\n"
+            "ROOM: kitchen\n"
+            "OBJECTS: fruit bowl, basket\n"
+            "ATTRIBUTES: clock: blue face, Roman numerals\n"
+            "WORLD_CUES: fenced yard\n"
+            "NOT_VISIBLE: sink\n"
+        )
+        ev = _evidence_text(raw).lower()
+        self.assertIn("fruit bowl", ev)
+        self.assertIn("roman numerals", ev)
+        self.assertIn("fenced", ev)
+        self.assertNotIn("not_visible", ev)
+
     def test_pattern_binds_to_pillow_not_sofa_color(self):
         pred, _ = normalize_qa_prediction(
             "Black",

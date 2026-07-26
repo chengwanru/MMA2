@@ -131,8 +131,29 @@ _ABOVE_ART_FURNITURE_RE = re.compile(
 
 
 def _strip_not_visible_section(text: str) -> str:
-    """Drop the NOT_VISIBLE checklist so template words cannot fake states."""
-    return re.split(r"\bNOT_VISIBLE\s*:", text or "", maxsplit=1, flags=re.I)[0]
+    """Drop each NOT_VISIBLE block without truncating later frames.
+
+    Multi-frame memory blobs concatenate many captions. A naive
+    ``split(NOT_VISIBLE, maxsplit=1)[0]`` keeps only text before the *first*
+    NOT_VISIBLE and discards every subsequent frame's evidence.
+    """
+    header = re.compile(
+        r"^(SUMMARY|DETAILS|ROOM|OBJECTS|ATTRIBUTES|STATES|LOCALIZATION|"
+        r"SPATIAL|ART_CONTENT|FUNCTIONAL_CUES|WORLD_CUES|NOT_VISIBLE)\s*:",
+        re.I,
+    )
+    keep: List[str] = []
+    skipping = False
+    for raw in (text or "").splitlines():
+        m = header.match(raw.strip())
+        if m:
+            skipping = m.group(1).upper() == "NOT_VISIBLE"
+            if skipping:
+                continue
+        if skipping:
+            continue
+        keep.append(raw)
+    return "\n".join(keep)
 
 
 def _strip_weak_evidence_lines(text: str) -> str:
