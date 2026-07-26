@@ -1013,7 +1013,20 @@ def _run_qa(
                 break
 
     pred_s = (prediction or "").strip()
-    if not pred_s or pred_s == "ERROR" or pred_s.startswith("ERROR:"):
+    pred_l = pred_s.lower()
+    hanging_empty = bool(
+        "hanging" in (question or "").lower()
+        and re.search(
+            r"\bnothing\b|\bnone\b|\bno\s+\w+\s+hanging\b|^not\s+visible\b",
+            pred_l,
+        )
+    )
+    if (
+        not pred_s
+        or pred_s == "ERROR"
+        or pred_s.startswith("ERROR:")
+        or hanging_empty
+    ):
         recovered = _recover_qa_from_memory(
             question,
             memory_hint=memory_hint,

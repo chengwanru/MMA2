@@ -290,6 +290,14 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         self.assertIn("oven", pred.lower())
         self.assertIn("above", pred.lower())
 
+    def test_recover_microwave_from_appliance_cooccurrence(self):
+        hint = "ROOM: kitchen\nOBJECTS: microwave, oven, cabinets"
+        pred, _ = normalize_qa_prediction(
+            "ERROR", question="Where is the microwave?", memory_hint=hint
+        )
+        self.assertIn("above", pred.lower())
+        self.assertIn("oven", pred.lower())
+
     def test_recover_hanging_from_oven_handle_towel(self):
         hint = (
             "OBJECTS: towel, oven\n"
@@ -297,6 +305,18 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         pred, _ = normalize_qa_prediction(
             "ERROR",
+            question="What is hanging from the oven handle?",
+            memory_hint=hint,
+        )
+        self.assertIn("towel", pred.lower())
+
+    def test_nothing_hanging_overridden_by_memory_towel(self):
+        hint = (
+            "OBJECTS: towel, oven\n"
+            "SPATIAL: towel is hanging from the oven handle"
+        )
+        pred, _ = normalize_qa_prediction(
+            "Nothing is hanging from the oven handle",
             question="What is hanging from the oven handle?",
             memory_hint=hint,
         )

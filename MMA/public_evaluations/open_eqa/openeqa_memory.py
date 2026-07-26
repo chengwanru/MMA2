@@ -3932,6 +3932,12 @@ def _is_bad_answer(text: str, *, yes_no_q: bool = False) -> bool:
         return True
     if _is_refusal_answer(phrase):
         return True
+    # Empty hanging answers ("Nothing is hanging…") are not real object IDs.
+    if re.match(
+        r"^(?:nothing|none|n/?a|not\s+visible)(?:\s+is\s+hanging\b.*)?$",
+        lowered,
+    ) or re.match(r"^nothing\s+(?:is\s+)?hanging\b", lowered):
+        return True
     words = re.findall(r"\b[a-zA-Z]+\b", lowered)
     if words and len(words) >= 2 and len(set(words)) == 1 and words[0] in (
         "the",
@@ -4603,6 +4609,14 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
                 cleaned,
                 flags=re.I,
             )
+            # Copula-free captions: "microwave above the oven" → "above the oven"
+            cleaned = re.sub(
+                rf"^\s*(?:the\s+|a\s+|an\s+)?{re.escape(alias)}\s+"
+                rf"(?=(?:to the\s+)?(?:left|right|below|under|above|next|beside|near|behind|in front)\b)",
+                "",
+                cleaned,
+                flags=re.I,
+            )
         # Keep only the clause that still mentions a spatial relation (drop siblings after ';').
         if ";" in cleaned:
             parts = [p.strip() for p in cleaned.split(";") if p.strip()]
@@ -4631,6 +4645,20 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
     if spatial_hits:
         spatial_hits.sort(key=lambda x: x[0], reverse=True)
         return spatial_hits[0][1]
+
+    # Microwave + cooking appliance co-mention (common OpenEQA kitchens) when
+    # captions list the appliance but omit an explicit SPATIAL binding.
+    if subject == "microwave" and any(
+        re.search(rf"\b{re.escape(a)}\b", hint_l) for a in aliases
+    ):
+        if re.search(r"\b(?:stovetop|cooktop)\b", hint_l):
+            out = _finalize_loc("above the stovetop")
+            if out:
+                return out
+        if re.search(r"\b(?:oven|stove)\b", hint_l):
+            out = _finalize_loc("above the oven")
+            if out:
+                return out
 
     # Opener / broom: prefer canonical landmarks when present anywhere in memory.
     if subject in ("opener",) or "opener" in (question or "").lower():
