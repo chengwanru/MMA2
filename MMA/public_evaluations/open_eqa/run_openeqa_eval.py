@@ -323,7 +323,8 @@ def _subprocess_env(use_speculative_baseline: bool, phase: str = "all") -> Dict[
     env.setdefault("MMA_MEMORY_BIAS_SCALE", "0.35")
     env.setdefault("MMA_MEMORY_BIAS_TOP_K", "1")
     env.setdefault("MMA_SD_TARGET_KV_CACHE", "1")
-    env.setdefault("MMA_ENABLE_VISUAL_ROUTING", "1")
+    # Default off for text-only QA; set MMA_ENABLE_VISUAL_ROUTING=1 for VR ablations.
+    env.setdefault("MMA_ENABLE_VISUAL_ROUTING", "0")
 
     if phase == "memorize":
         # Per-frame VL captions (direct episodic); tool-call often collapses 8 frames into 1 summary.
@@ -342,7 +343,10 @@ def _subprocess_env(use_speculative_baseline: bool, phase: str = "all") -> Dict[
         env.pop("OPENEQA_EPISODIC_TOOL_CALL", None)
         env.setdefault("OPENEQA_QA_BASELINE", "0")
         env.setdefault("OPENEQA_QA_DIRECT_SD", "1")
-        env["MMA_ENABLE_VISUAL_ROUTING"] = "0"
+        # Text-only direct SD: VR off by default. Honor explicit MMA_ENABLE_VISUAL_ROUTING=1.
+        _vr = str(env.get("MMA_ENABLE_VISUAL_ROUTING", "0")).strip().lower()
+        if _vr not in ("1", "true", "yes"):
+            env["MMA_ENABLE_VISUAL_ROUTING"] = "0"
         env.pop("MMA_TARGET_ONLY", None)
         if use_speculative_baseline:
             env["MMA_SPECULATIVE_BASELINE"] = "1"

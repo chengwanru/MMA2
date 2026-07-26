@@ -204,7 +204,8 @@ export MMA_SEMANTIC_TOP_K="${MMA_SEMANTIC_TOP_K:-8}"
 export MMA_DRAFT_FAST_SINGLE_STEP="${MMA_DRAFT_FAST_SINGLE_STEP:-1}"
 # Env kept for LTU parity; native HF target still uses full forward unless FORCE=1.
 export MMA_SD_TARGET_KV_CACHE="${MMA_SD_TARGET_KV_CACHE:-1}"
-export MMA_ENABLE_VISUAL_ROUTING="${MMA_ENABLE_VISUAL_ROUTING:-1}"
+# Default off (matches historical MMA@64=26). Set =1 for VR ablations.
+export MMA_ENABLE_VISUAL_ROUTING="${MMA_ENABLE_VISUAL_ROUTING:-0}"
 export OPENEQA_VL_MAX_PIXELS="${OPENEQA_VL_MAX_PIXELS:-401408}"
 
 # AIBox-compatible backend (from use_mma_env.sh; reaffirm here)
@@ -500,13 +501,28 @@ for i, row in enumerate(rows):
     print(f"  [{mark}] ds#{ds_idx}: pred={row.get('prediction')!r} gold={row.get('gold_answer')!r}")
 print(f"=== substring match: {hits}/{len(rows)} (ds {offset}-{offset + max(len(rows)-1, 0)}) ===")
 sd_rates = []
+n_route = 0
+before_n = []
+after_n = []
 for row in rows:
     sd = ((row.get("debug") or {}).get("qa") or {}).get("speculative_stats") or {}
     rate = sd.get("acceptance_rate")
     if rate is not None:
         sd_rates.append(float(rate))
+    if sd.get("memories_after_routing") is not None or sd.get("routing_budget") is not None:
+        n_route += 1
+        if sd.get("memories_before_routing") is not None:
+            before_n.append(int(sd["memories_before_routing"]))
+        if sd.get("memories_after_routing") is not None:
+            after_n.append(int(sd["memories_after_routing"]))
 if sd_rates:
     print(f"=== SD acceptance_rate avg={sum(sd_rates)/len(sd_rates):.3f} n={len(sd_rates)} ===")
+print(f"=== rows_with_routing_stats {n_route} / {len(rows)} ===")
+if before_n and after_n:
+    print(
+        f"=== routing mem avg before={sum(before_n)/len(before_n):.1f} "
+        f"after={sum(after_n)/len(after_n):.1f} ==="
+    )
 PY
 
 echo ""

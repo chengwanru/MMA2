@@ -28,6 +28,7 @@ from openeqa_debug import (
     collect_qa_debug,
     collect_speculative_sd_stats,
     debug_enabled,
+    set_last_direct_sd_stats,
     log_debug_summary,
     write_debug_file,
 )
@@ -691,9 +692,11 @@ def _qa_direct_sd_send(
 
     print(
         f"  [qa] direct_sd: baseline_only={baseline_only} "
-        f"memory_items={len(memory_items)} max_tokens={max_tokens}",
+        f"memory_items={len(memory_items)} max_tokens={max_tokens} "
+        f"visual_routing={os.environ.get('MMA_ENABLE_VISUAL_ROUTING', '0')}",
         flush=True,
     )
+    set_last_direct_sd_stats(None)
     try:
         client = LLMClient.create(llm_config=llm_config, put_inner_thoughts_first=True)
         if client is None:
@@ -712,6 +715,16 @@ def _qa_direct_sd_send(
         request_data["collect_stats"] = True
         request_data["stats_out"] = {}
         response = client.request(request_data)
+        stats = response.get("speculative_stats") or request_data.get("stats_out") or {}
+        if isinstance(stats, dict):
+            set_last_direct_sd_stats(stats)
+            if stats.get("memories_after_routing") is not None:
+                print(
+                    f"  [qa] routing: before={stats.get('memories_before_routing')} "
+                    f"after={stats.get('memories_after_routing')} "
+                    f"budget={stats.get('routing_budget')}",
+                    flush=True,
+                )
         text = (response.get("generated_text") or "").strip()
         if text and is_refusal_answer(text):
             print(f"  [qa] direct_sd refusal={text!r}; treating as empty", flush=True)
@@ -1082,8 +1095,15 @@ def _run_all(
     status, err, mem_debug = _run_memorize(sample, config_path, home_dir)
     if status.startswith("ERROR"):
         return status, err, mem_debug
+    # Always keep lightweight QA stats so VR / SD ablations are auditable
+    # even when OPENEQA_DEBUG=0.
     pred, err, qa_debug = _run_qa(sample, config_path, home_dir)
-    merged = {"memorize": mem_debug, "qa": qa_debug} if debug_enabled() else None
+    if debug_enabled():
+        merged = {"memorize": mem_debug, "qa": qa_debug}
+    elif isinstance(qa_debug, dict) and qa_debug.get("speculative_stats"):
+        merged = {"qa": {"speculative_stats": qa_debug.get("speculative_stats")}}
+    else:
+        merged = None
     return pred, err, merged
 
 

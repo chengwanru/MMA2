@@ -166,14 +166,20 @@ def collect_memorize_debug(
     }
 
 
+_LAST_DIRECT_SD_STATS: Optional[Dict[str, Any]] = None
+
+
 def collect_speculative_sd_stats() -> Optional[Dict[str, Any]]:
-    """Read last QA speculative-decoding stats from cached SpeculativeMemoryClient."""
+    """Read last QA speculative-decoding stats from direct-SD or cached client."""
     if os.environ.get("OPENEQA_COLLECT_SD_STATS", "1").strip().lower() in (
         "0",
         "false",
         "no",
     ):
         return None
+    # Prefer stats stashed by text-only direct SD (OpenEQA QA path).
+    if isinstance(_LAST_DIRECT_SD_STATS, dict) and _LAST_DIRECT_SD_STATS:
+        return dict(_LAST_DIRECT_SD_STATS)
     try:
         from mma.llm_api import llm_client as llm_client_mod
 
@@ -185,6 +191,12 @@ def collect_speculative_sd_stats() -> Optional[Dict[str, Any]]:
         return dict(stats) if stats else None
     except Exception:
         return None
+
+
+def set_last_direct_sd_stats(stats: Optional[Dict[str, Any]]) -> None:
+    """Stash speculative stats from run_openeqa_one_sample direct-SD QA."""
+    global _LAST_DIRECT_SD_STATS
+    _LAST_DIRECT_SD_STATS = dict(stats) if stats else None
 
 
 def collect_qa_debug(
