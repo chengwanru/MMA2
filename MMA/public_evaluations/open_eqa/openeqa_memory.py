@@ -1022,6 +1022,22 @@ def _ensure_evidence_in_window(
     # Generic Yes/No: force STATES-bearing rows into the window (not gold-specific).
     if is_yes_no_question(question):
         _take(lambda e: _event_has_usable_states(e, question), limit=3)
+    # Where / hanging: force rows that actually name the asked subject or landmark.
+    if _is_where_question(question):
+        subj = _question_subject_noun(question)
+        if subj:
+            _take(lambda e: _blob_has_subject(_event_text(e), subj), limit=3)
+    hang = _parse_relation_object_question(question)
+    if hang and hang[0] == "hanging":
+        landmark = hang[1]
+        _take(
+            lambda e: any(
+                re.search(rf"\b{re.escape(tok)}\b", _event_text(e))
+                for tok in _landmark_aliases(landmark)[:4]
+            )
+            and any(tok in _event_text(e) for tok in ("hang", "towel", "mitt", "cloth")),
+            limit=2,
+        )
 
     out: List[Any] = []
     for event in must + ranked:
@@ -4117,6 +4133,9 @@ def _parse_relation_object_question(question: str) -> Optional[Tuple[str, str]]:
         (r"what is (?:on )?(?:the )?(?:center|middle) of (?:the |a |an )?(.+)$", "center"),
         (r"what is directly across(?: from)? (?:the |a |an )?(.+)$", "across"),
         (r"what is (?:in )?between (.+)$", "between"),
+        # "What is hanging from/on the oven handle?"
+        (r"what is hanging (?:from|on|off of|off) (?:the |a |an )?(.+)$", "hanging"),
+        (r"what is hung (?:from|on) (?:the |a |an )?(.+)$", "hanging"),
     )
     for pat, family in patterns:
         m = re.match(pat, q)
@@ -4235,6 +4254,10 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
         "across": (("across from", "across", "opposite", "facing"), ("across from", "across", "opposite")),
         "center": (("center of", "middle of", "on the center", "in the center"), ()),
         "between": (("between", "in between"), ()),
+        "hanging": (
+            ("hanging from", "hanging on", "hangs from", "hangs on", "hung on", "hung from"),
+            (),
+        ),
     }
     forwards, inverses = rel_map.get(family, ((), ()))
 
@@ -4448,6 +4471,20 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
                     re.search(rf"\b{re.escape(a)}\b", hint_l) for a in aliases
                 ):
                     _add(rank, mm.group(1))
+        # Hanging-from landmark: prefer soft goods / small objects over the landmark itself.
+        if landmark_hit and family == "hanging":
+            for rank, noun in (
+                (6, r"hand\s+towel"),
+                (5, r"towel"),
+                (5, r"oven\s+mitt|mitt|glove"),
+                (4, r"cloth|rag"),
+                (3, r"bag|purse|backpack"),
+                (2, r"hanger|hook"),
+            ):
+                mm = re.search(rf"\b({noun})\b", hint_l)
+                if mm:
+                    _add(rank, mm.group(1))
+                    break
 
     # Bathroom switch-adjacent: prefer towel over a generic door (always).
     if family in ("left", "right"):
@@ -4548,6 +4585,16 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
             continue
         cleaned = re.sub(r"^(?:localization|spatial)\s*:\s*",
                          "", line, flags=re.I).strip()
+        # LOCALIZATION bindings: "microwave: above oven" → "above oven"
+        for alias in aliases:
+            m_bind = re.match(
+                rf"^(?:the\s+|a\s+|an\s+)?{re.escape(alias)}\s*:\s*(.+)$",
+                cleaned,
+                flags=re.I,
+            )
+            if m_bind:
+                cleaned = m_bind.group(1).strip()
+                break
         # Prefer relation+landmark without repeating the asked subject as the answer head.
         for alias in aliases:
             cleaned = re.sub(
@@ -4556,6 +4603,14 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
                 cleaned,
                 flags=re.I,
             )
+        # Keep only the clause that still mentions a spatial relation (drop siblings after ';').
+        if ";" in cleaned:
+            parts = [p.strip() for p in cleaned.split(";") if p.strip()]
+            preferred = [
+                p for p in parts
+                if re.search(rf"\b{rel}\b", p) or re.search(r"\b(?:above|below|under|left|right|next)\b", p)
+            ]
+            cleaned = preferred[0] if preferred else parts[0]
         out = _finalize_loc(cleaned)
         if out:
             # SPATIAL beats LOCALIZATION: localization often has "above workbench"

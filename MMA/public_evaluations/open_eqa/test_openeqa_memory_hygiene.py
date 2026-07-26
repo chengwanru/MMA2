@@ -279,6 +279,44 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         top = ((picked[0].summary or "") + "\n" + (picked[0].details or "")).lower()
         self.assertIn("tucked", top)
 
+    def test_recover_microwave_location_from_spatial(self):
+        hint = (
+            "ROOM: kitchen\nOBJECTS: microwave, oven\n"
+            "SPATIAL: microwave is above the oven; oven is left of cabinets"
+        )
+        pred, _ = normalize_qa_prediction(
+            "ERROR", question="Where is the microwave?", memory_hint=hint
+        )
+        self.assertIn("oven", pred.lower())
+        self.assertIn("above", pred.lower())
+
+    def test_recover_hanging_from_oven_handle_towel(self):
+        hint = (
+            "OBJECTS: towel, oven\n"
+            "SPATIAL: towel is hanging from the oven handle"
+        )
+        pred, _ = normalize_qa_prediction(
+            "ERROR",
+            question="What is hanging from the oven handle?",
+            memory_hint=hint,
+        )
+        self.assertIn("towel", pred.lower())
+
+    def test_where_select_force_includes_subject_row(self):
+        noise = _Event(
+            "kitchen: island with stools",
+            "ROOM: kitchen\nOBJECTS: island, stools, chairs",
+        )
+        gold = _Event(
+            "kitchen appliances",
+            "ROOM: kitchen\nOBJECTS: microwave, oven\nSPATIAL: microwave is above the oven",
+        )
+        picked = select_events_for_qa([noise, noise, gold], "Where is the microwave?")
+        blob = " ".join(
+            ((e.summary or "") + " " + (e.details or "")).lower() for e in picked[:3]
+        )
+        self.assertIn("microwave", blob)
+
     def test_spatial_detail_boost_prefers_spatial_section(self):
         weak = _Event(
             "dining room with table and rug",
