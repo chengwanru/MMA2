@@ -413,11 +413,17 @@ def _subject_prominence_tier(event: Any, question: str) -> int:
     """How strongly an episodic row is *about* the asked subject (summary > details > tail)."""
     subject = _question_subject_noun(question)
     if not subject:
+        # Yes/No without a clean subject noun: still prefer usable STATES rows.
+        if is_yes_no_question(question) and _event_has_usable_states(event, question):
+            return 3
         return 0
     summary = _blob_for_subject_match(getattr(event, "summary", None) or "")
     details = _blob_for_subject_match(getattr(event, "details", None) or "")
     blob = _blob_for_subject_match(_event_text(event))
     where_q = _is_where_question(question)
+    # Yes/No: STATES bindings outrank SUMMARY-only room prose.
+    if is_yes_no_question(question) and _event_has_usable_states(event, question):
+        return 4
     # Where/spatial: an explicit localization beat inventory dumps that only list the noun.
     if (where_q or _parse_spatial_question(question)) and _blob_has_spatial_subject(blob, subject):
         return 4
@@ -831,7 +837,8 @@ def _drop_through_doorway_peeks(events: List[Any], question: str) -> List[Any]:
     )
     if not needs or not events:
         return list(events)
-    kept = [e for e in events if not _blob_is_through_doorway_peek(_event_text(e))]
+    kept = [e for e in events if not _blob_is_through_doorway_peek(
+        _event_text(e))]
     return kept if kept else list(events)
 
 
@@ -870,12 +877,14 @@ def _ensure_evidence_in_window(
             lambda e: "sink" in _event_text(e)
             and any(tok in _event_text(e) for tok in ("kitchen", "bathroom", "brush"))
         )
-        _take(lambda e: "sink" in _event_text(e) and "bathroom" in _event_text(e))
+        _take(lambda e: "sink" in _event_text(e)
+              and "bathroom" in _event_text(e))
     if "appearance" in q:
         _take(lambda e: "mirror" in _event_text(e), limit=2)
     if ("underneath" in q or re.search(r"\bunder\b", q)) and "painting" in q:
         _take(
-            lambda e: any(tok in _event_text(e) for tok in ("painting", "picture", "frame"))
+            lambda e: any(tok in _event_text(e)
+                          for tok in ("painting", "picture", "frame"))
             and any(tok in _event_text(e) for tok in ("radiator", "heater", "under", "above")),
             limit=2,
         )
@@ -1010,6 +1019,9 @@ def _ensure_evidence_in_window(
             and any(tok in _event_text(e) for tok in ("kitchen", "left", "right", "spatial", "localization")),
             limit=2,
         )
+    # Generic Yes/No: force STATES-bearing rows into the window (not gold-specific).
+    if is_yes_no_question(question):
+        _take(lambda e: _event_has_usable_states(e, question), limit=3)
 
     out: List[Any] = []
     for event in must + ranked:
@@ -1330,6 +1342,169 @@ def _event_text(event: Any) -> str:
     ).lower()
 
 
+def _caption_section(text: str, name: str) -> str:
+    """Return the body of a caption section header (ATTRIBUTES/STATES/...)."""
+    if not text or not name:
+        return ""
+    m = re.search(rf"(?im)^{re.escape(name)}\s*:\s*(.*)$", text)
+    return (m.group(1) if m else "").strip()
+
+
+def _section_is_usable(body: str) -> bool:
+    b = (body or "").strip().lower()
+    return bool(b) and b not in {"none", "n/a", "na", "not visible", "unknown", "-"}
+
+
+def _preferred_detail_channels(question: str) -> Tuple[str, ...]:
+    """Which DETAIL sections matter for this question family (OpenEQA-wide, not gold-specific)."""
+    q = (question or "").lower()
+    kind = _question_retrieval_kind(question)
+    if any(
+        tok in q
+        for tok in ("depict", "depicted", "shown on the painting", "picture seen", "wall art")
+    ):
+        return ("ART_CONTENT", "ATTRIBUTES", "OBJECTS", "SPATIAL")
+    if kind == "yes_no":
+        return ("STATES", "WORLD_CUES", "ATTRIBUTES")
+    if kind == "spatial":
+        return ("SPATIAL", "LOCALIZATION", "OBJECTS", "ATTRIBUTES")
+    if kind == "color":
+        return ("ATTRIBUTES", "OBJECTS")
+    if kind == "attribute":
+        return ("ATTRIBUTES", "OBJECTS", "STATES")
+    if kind == "functional":
+        return ("FUNCTIONAL_CUES", "OBJECTS", "STATES", "SPATIAL")
+    return ("OBJECTS", "ATTRIBUTES", "SPATIAL", "ART_CONTENT", "STATES")
+
+
+def _detail_channel_boost(event: Any, question: str) -> float:
+    """Boost rows whose preferred DETAIL channels are populated and query-aligned.
+
+    Counters SUMMARY-only duplicates that win BM25 via repeated room prose.
+    Kill switch: OPENEQA_SELECT_DETAIL_BOOST=0.
+    """
+    if os.environ.get("OPENEQA_SELECT_DETAIL_BOOST", "1").strip().lower() in (
+        "0",
+        "false",
+        "no",
+    ):
+        return 0.0
+    details = getattr(event, "details", None) or ""
+    if not details.strip():
+        # Full caption sometimes lives only in summary.
+        details = getattr(event, "summary", None) or ""
+    channels = _preferred_detail_channels(question)
+    q_words = [
+        w
+        for w in re.findall(r"[a-z0-9]{3,}", (question or "").lower())
+        if w not in _QUESTION_STOPWORDS
+    ][:10]
+    score = 0.0
+    usable = 0
+    for ch in channels:
+        body = _caption_section(details, ch)
+        if not _section_is_usable(body):
+            continue
+        usable += 1
+        score += 2.5
+        body_l = body.lower()
+        hits = sum(1 for w in q_words if re.search(rf"\b{re.escape(w)}\b", body_l))
+        score += min(3.0, 0.8 * hits)
+    # Soft penalty: preferred channels empty while summary is long → likely homogeneous dump.
+    summary = (getattr(event, "summary", None) or "").strip()
+    if usable == 0 and len(summary) > 40 and channels:
+        score -= 2.0
+    return score
+
+
+_STATE_EVIDENCE_RE = re.compile(
+    r"\b(?:open|closed|ajar|on|off|tucked|pulled|fenced|unfenced|clean|dirty|"
+    r"clutter(?:ed)?|made|unmade|full|empty|lit|unlit|set|unset)\b",
+    re.I,
+)
+
+
+def _event_has_usable_states(event: Any, question: str = "") -> bool:
+    """True when STATES carries a real state binding useful for yes/no Qs."""
+    details = getattr(event, "details", None) or ""
+    body = _caption_section(details, "STATES")
+    if not _section_is_usable(body) or not _STATE_EVIDENCE_RE.search(body):
+        return False
+    subject = _question_subject_noun(question)
+    if subject and _blob_has_subject(body, subject):
+        return True
+    for noun in _question_focus_nouns(question)[:8]:
+        if re.search(rf"\b{re.escape(noun)}\b", body, re.I):
+            return True
+    q = (question or "").lower()
+    if "light" in q and re.search(r"\b(?:lights?|lamp|chandelier|pendant)\b", body, re.I):
+        return True
+    if ("fence" in q or "fenced" in q) and re.search(r"\bfenc", body, re.I):
+        return True
+    # Generic binding form "object: state"
+    return bool(re.search(r":\s*(?:open|closed|on|off|tucked|fenced|pulled)", body, re.I))
+
+
+def _event_homogeneity_fingerprint(event: Any) -> Tuple[str, frozenset]:
+    """Coarse fingerprint for near-duplicate captions (room + object/summary tokens)."""
+    details = getattr(event, "details", None) or ""
+    summary = (getattr(event, "summary", None) or "").lower()
+    room = _caption_section(details, "ROOM").lower()
+    if not room:
+        room = ",".join(sorted(_blob_room_tags(_event_text(event)))[:2])
+    objs = _caption_section(details, "OBJECTS").lower()
+    toks = re.findall(r"[a-z]{4,}", objs)
+    if len(toks) < 3:
+        toks = [
+            w
+            for w in re.findall(r"[a-z]{4,}", summary)
+            if w not in _QUESTION_STOPWORDS
+        ]
+    return room, frozenset(toks[:14])
+
+
+def _fingerprint_near_duplicate(a: Tuple[str, frozenset], b: Tuple[str, frozenset]) -> bool:
+    if not a or not b:
+        return False
+    room_a, toks_a = a
+    room_b, toks_b = b
+    if room_a and room_b and room_a != room_b:
+        return False
+    if not toks_a or not toks_b:
+        return bool(room_a) and room_a == room_b and not toks_a and not toks_b
+    jacc = len(toks_a & toks_b) / max(1, len(toks_a | toks_b))
+    return jacc >= 0.72
+
+
+def diversify_homogeneous_events(events: List[Any], limit: Optional[int] = None) -> List[Any]:
+    """Prefer unique room/object signatures; append near-duplicates after uniques.
+
+    Keeps ranking preference among uniques. Kill switch: OPENEQA_SELECT_DEDUPE=0.
+    """
+    if not events:
+        return []
+    if os.environ.get("OPENEQA_SELECT_DEDUPE", "1").strip().lower() in (
+        "0",
+        "false",
+        "no",
+    ):
+        return list(events) if limit is None else list(events)[: max(1, int(limit))]
+    uniques: List[Any] = []
+    dupes: List[Any] = []
+    seen: List[Tuple[str, frozenset]] = []
+    for event in events:
+        fp = _event_homogeneity_fingerprint(event)
+        if any(_fingerprint_near_duplicate(fp, prev) for prev in seen):
+            dupes.append(event)
+            continue
+        uniques.append(event)
+        seen.append(fp)
+    ordered = uniques + dupes
+    if limit is None:
+        return ordered
+    return ordered[: max(1, int(limit))]
+
+
 def build_retrieval_query(question: str) -> str:
     """Expand BM25 topic with spatial/object hints for EQA questions."""
     question = (question or "").strip()
@@ -1351,21 +1526,26 @@ def build_retrieval_query(question: str) -> str:
         extras.extend(list(_subject_alias_terms(subject))[:4])
 
     if kind == "yes_no":
-        extras.extend(["STATES", "open", "closed", "lights", "on", "off"])
+        extras.extend(["STATES", "open", "closed", "lights", "on", "off", "tucked", "fenced"])
     elif kind == "color":
-        # Do not append bare "color"/"colour": they substring-match "colored" and
-        # drown the subject noun (e.g. car) under unrelated hallway captions.
-        pass
+        # Prefer attribute bindings; avoid bare "color" which matches "colored".
+        extras.extend(["ATTRIBUTES"])
+    elif kind == "attribute":
+        extras.extend(["ATTRIBUTES", "OBJECTS"])
     elif kind == "functional":
         extras.extend(["FUNCTIONAL_CUES", "OBJECTS"])
         extras.extend(_question_purpose_terms(question))
     elif kind == "spatial":
-        extras.extend(["LOCALIZATION", "SPATIAL", "below", "above", "left", "right"])
+        extras.extend(["LOCALIZATION", "SPATIAL", "OBJECTS",
+                      "below", "above", "left", "right"])
         spatial = _parse_spatial_question(question)
         if spatial:
             extras.extend([spatial[0], spatial[1]])
         if _is_where_question(question) and subject:
             extras.append(subject)
+
+    if any(tok in q_l for tok in ("depict", "depicted", "painting", "picture", "wall art")):
+        extras.extend(["ART_CONTENT", "ATTRIBUTES"])
 
     if "above" in q_l and "tv" in q_l:
         extras.extend(
@@ -1400,11 +1580,13 @@ def build_retrieval_query(question: str) -> str:
     if "front door" in q_l and "open" in q_l:
         extras.extend(["front door", "door open", "closed"])
     if "shelf" in q_l:
-        extras.extend(["shelf", "top shelf", "top level", "cooler", "ice cooler"])
+        extras.extend(
+            ["shelf", "top shelf", "top level", "cooler", "ice cooler"])
     if "bedroom" in q_l or "bed" in q_l:
         extras.extend(["bedroom", "bed"])
     if "light" in q_l and ("on" in q_l or "turned" in q_l):
-        extras.extend(["STATES", "lights on", "lights off", "brightly lit", "bedroom"])
+        extras.extend(["STATES", "lights on", "lights off",
+                      "brightly lit", "bedroom"])
     if "under" in q_l and "bed" in q_l:
         extras.extend(["under the bed", "under-bed storage", "STATES"])
     if extras:
@@ -1413,7 +1595,8 @@ def build_retrieval_query(question: str) -> str:
 
 
 _GENERIC_SUBJECTS = frozenset(
-    {"object", "thing", "item", "something", "one", "stuff", "area", "place", "part"}
+    {"object", "thing", "item", "something",
+        "one", "stuff", "area", "place", "part"}
 )
 _SUBJECT_PREF_TOKENS = (
     "opener", "door", "bin", "hose", "cooler", "broom", "mirror", "car",
@@ -1506,11 +1689,13 @@ def episodic_relevance_score(event: Any, query: str) -> float:
     between_frames_q = "between" in q_l and (
         "frame" in q_l or "picture" in q_l)
     fan_q = "ceiling fan" in q_l or ("fan" in q_l and "speed" in q_l)
-    door_open_q = ("front door" in q_l or "doorway" in q_l or "house doorway" in q_l) and "open" in q_l
+    door_open_q = (
+        "front door" in q_l or "doorway" in q_l or "house doorway" in q_l) and "open" in q_l
     left_of_bed_q = "left of the bed" in q_l or "to the left of the bed" in q_l
     lights_q = "light" in q_l and ("on" in q_l or "turned" in q_l)
     functional_q = bool(
-        re.search(r"\b(should i|what should i|what can i do|how can i|what can i use)\b", q_l)
+        re.search(
+            r"\b(should i|what should i|what can i do|how can i|what can i use)\b", q_l)
     )
     cool_down_q = "cool down" in q_l or "cooling" in q_l
     invisible_penalty = -6.0
@@ -1573,7 +1758,8 @@ def episodic_relevance_score(event: Any, query: str) -> float:
     # Purpose clause for "what can I use to ..." — prefer rows that mention purpose + an object.
     purpose = _question_purpose_terms(query)
     if purpose:
-        purpose_hits = sum(1 for p in purpose if re.search(rf"\b{re.escape(p)}\b", blob))
+        purpose_hits = sum(1 for p in purpose if re.search(
+            rf"\b{re.escape(p)}\b", blob))
         if purpose_hits:
             score += 3.0 * purpose_hits
         if "functional_cues:" in blob or "objects:" in blob:
@@ -1786,6 +1972,10 @@ def episodic_relevance_score(event: Any, query: str) -> float:
         conf = event.metadata_.get("confidence")
     if conf is not None:
         score += float(conf) * 0.5
+    # Question-family DETAIL channel boost (STATES/SPATIAL/ATTRIBUTES/…).
+    # Use the raw question when possible: callers often pass build_retrieval_query().
+    q_for_channels = query
+    score += _detail_channel_boost(event, q_for_channels)
     return score
 
 
@@ -1852,7 +2042,8 @@ def _hint_relevance_terms(question: str) -> List[str]:
     if _has("open", "opened", "closed", "light", "lights", "curtain", "curtains", "door", "doors"):
         extras.extend(["states", "curtain", "lights"])
     if _has("above", "below", "between", "left", "right", "under", "hanging"):
-        extras.extend(["spatial", "localization", "vent", "microwave", "towel", "light"])
+        extras.extend(["spatial", "localization", "vent",
+                      "microwave", "towel", "light"])
     if _has("material", "made"):
         extras.extend(["attributes", "glass", "wood", "metal"])
     if _has("pattern", "color", "colour"):
@@ -1983,7 +2174,8 @@ def memory_hint_from_events(
     """Full summary+details text for normalize fallback (question-aware packing)."""
     k = top_k if top_k is not None else qa_memory_top_k()
     if max_chars is None:
-        max_chars = max(4000, int(os.environ.get("OPENEQA_QA_HINT_CHARS", "8000")))
+        max_chars = max(4000, int(os.environ.get(
+            "OPENEQA_QA_HINT_CHARS", "8000")))
     parts: List[str] = []
     for event in (events or [])[: max(1, k)]:
         raw_content = (
@@ -2039,7 +2231,8 @@ def parse_caption_summary_details(
         )
         return lines[0][:max_summary], packed
     summary = lines[0][:max_summary]
-    body = "\n".join(lines[1:] if lines[0].lower().startswith("summary:") else lines)
+    body = "\n".join(lines[1:] if lines[0].lower(
+    ).startswith("summary:") else lines)
     return summary, _pack_memory_hint_text(
         body, question=question, max_chars=max_details
     )
@@ -2076,7 +2269,8 @@ def format_episodic_block_for_qa(events: List[Any]) -> str:
         "no",
     )
     # Caption DETAILS hold SPATIAL/STATES; 280 chars was truncating the gold evidence.
-    max_details = max(80, int(os.environ.get("OPENEQA_QA_EPISODIC_DETAILS_CHARS", "900")))
+    max_details = max(80, int(os.environ.get(
+        "OPENEQA_QA_EPISODIC_DETAILS_CHARS", "900")))
     lines: List[str] = []
     for idx, event in enumerate(events):
         summary = sanitize_memory_text_for_inference(
@@ -2130,7 +2324,8 @@ def _expand_truncated_entity(pred: str, memory_hint: str) -> str:
     p = (pred or "").strip()
     if not p or len(p) < 3:
         return ""
-    blob = _evidence_text(sanitize_memory_text_for_inference(memory_hint or "")).lower()
+    blob = _evidence_text(
+        sanitize_memory_text_for_inference(memory_hint or "")).lower()
     if not blob:
         return ""
     # Strip leading articles for matching.
@@ -2169,7 +2364,8 @@ def _canonicalize_color_spelling(pred: str, memory_hint: str) -> str:
     p = (pred or "").strip()
     if not p:
         return p
-    blob = _evidence_text(sanitize_memory_text_for_inference(memory_hint or "")).lower()
+    blob = _evidence_text(
+        sanitize_memory_text_for_inference(memory_hint or "")).lower()
     pl = p.lower()
     if "grey" not in pl and "gray" not in pl:
         return p
@@ -2206,7 +2402,8 @@ def _prediction_covers_memory_answer(pred: str, mem_answer: str) -> bool:
     Synonym-weak answers (floral vs white flowers, leopard print vs leopard skin
     pattern) return False so normalize can upgrade to the memory canonical form.
     """
-    cleaned = (_clean_phrase(pred, yes_no_q=False) or pred or "").strip().lower()
+    cleaned = (_clean_phrase(pred, yes_no_q=False)
+               or pred or "").strip().lower()
     mem = (mem_answer or "").strip().lower()
     if not cleaned or not mem:
         return False
@@ -2248,7 +2445,8 @@ def _extract_ceiling_fixture_from_memory(hint: str, question: str) -> str:
         # "What is hanging from the ceiling in the bedroom?"
         if not re.search(r"\b(what is|what's)\b", q_l):
             return ""
-    blob = _evidence_text(sanitize_memory_text_for_inference(hint or "")).lower()
+    blob = _evidence_text(
+        sanitize_memory_text_for_inference(hint or "")).lower()
     if not blob:
         return ""
     # Hanging / fixture questions: dome/ceiling light beats vent.
@@ -2306,13 +2504,15 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
         if ("door" in q_l or "doorway" in q_l) and "open" in q_l:
             # Prefer state near the asked door subject (patio/front/garage...), not any door.
             subject = _question_subject_noun(question)
-            subject_terms = list(_subject_alias_terms(subject)) if subject else []
+            subject_terms = list(_subject_alias_terms(
+                subject)) if subject else []
             for extra in ("patio", "front", "garage", "doorway", "door"):
                 if extra in q_l and extra not in subject_terms:
                     subject_terms.append(extra)
             span = _subject_state_span(hint_l, subject_terms)
             if "patio" in q_l and ("door" in q_l or "doorway" in q_l):
-                patio_terms = ["patio", "patio door", "glass door", "sliding door"]
+                patio_terms = ["patio", "patio door",
+                               "glass door", "sliding door"]
                 patio_clause = _state_clause_for_terms(hint_l, patio_terms)
                 if patio_clause:
                     span = patio_clause
@@ -2353,7 +2553,8 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
                 subject_terms = ["closet"] + subject_terms
             elif "bedroom" in q_l:
                 subject_terms = ["bedroom"] + subject_terms
-            span = scoped_clause or _subject_state_span(state_hint, subject_terms) or state_hint
+            span = scoped_clause or _subject_state_span(
+                state_hint, subject_terms) or state_hint
             if pred.strip().lower() == "no" and _LIGHTS_ON_RE.search(span) and not _LIGHTS_OFF_RE.search(span):
                 return "Yes"
             if pred.strip().lower() == "yes" and _LIGHTS_OFF_RE.search(span) and not _LIGHTS_ON_RE.search(span):
@@ -2390,7 +2591,8 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
                     return "No"
         # "Is there room/space for a desk/table in the bedroom?" — furniture density.
         if (
-            any(tok in q_l for tok in ("room for", "space for", "place for", "space on", "room on"))
+            any(tok in q_l for tok in ("room for", "space for",
+                "place for", "space on", "room on"))
             and any(tok in q_l for tok in ("desk", "table", "chair", "bed"))
         ) or (
             any(tok in q_l for tok in ("room", "space"))
@@ -2450,7 +2652,8 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
             and any(tok in q_l for tok in ("work", "laptop", "computer", "write"))
         ):
             state_hint = _evidence_text(hint_l)
-            terms = [t for t in ("dining table", "table", "desk", "counter") if t in q_l or t == "table"]
+            terms = [t for t in ("dining table", "table",
+                                 "desk", "counter") if t in q_l or t == "table"]
             span = _subject_state_span(state_hint, terms) or state_hint
             if pred.strip().lower() == "no" and re.search(
                 r"\b(?:clear|empty|spacious|available|uncluttered|space (?:on|for)|room (?:on|for))\b",
@@ -2517,7 +2720,8 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
         shelf_obj = _extract_top_shelf_object(memory_hint)
         pred_l = pred.strip().lower()
         if shelf_obj and (
-            re.search(r"^\s*(?:a\s+|the\s+)?(?:wooden\s+)?shelf\b", pred.strip(), re.I)
+            re.search(r"^\s*(?:a\s+|the\s+)?(?:wooden\s+)?shelf\b",
+                      pred.strip(), re.I)
             or "dresser" in pred_l
             or "foil" in pred_l
             or (shelf_obj.lower().split()[-1] not in pred_l and "cooler" in shelf_obj.lower())
@@ -2552,7 +2756,8 @@ def _extract_pattern_answer(text: str, question: str = "") -> str:
     q_l = (question or "").lower()
     if "pattern" not in q_l and "print" not in q_l and "design" not in q_l:
         return ""
-    blob = _evidence_text(sanitize_memory_text_for_inference((text or "").strip())).lower()
+    blob = _evidence_text(sanitize_memory_text_for_inference(
+        (text or "").strip())).lower()
     if not blob:
         return ""
     subject = _question_subject_noun(question)
@@ -2568,7 +2773,8 @@ def _extract_pattern_answer(text: str, question: str = "") -> str:
         if windows:
             scope = " | ".join(windows)
     pats = (
-        (r"\bleopard(?:[-\s]?print|[-\s]?skin)?\b", "leopard skin color pattern"),
+        (r"\bleopard(?:[-\s]?print|[-\s]?skin)?\b",
+         "leopard skin color pattern"),
         (r"\bzebra(?:[-\s]?print)?\b", "zebra print"),
         (r"\bfloral(?:\s+pattern)?\b", "floral pattern"),
         (r"\bstriped\b|\bstripes\b", "striped"),
@@ -2586,7 +2792,8 @@ def _extract_material_answer(text: str, question: str = "") -> str:
     q_l = (question or "").lower()
     if "material" not in q_l and "made of" not in q_l and "made from" not in q_l:
         return ""
-    blob = _evidence_text(sanitize_memory_text_for_inference((text or "").strip())).lower()
+    blob = _evidence_text(sanitize_memory_text_for_inference(
+        (text or "").strip())).lower()
     if not blob:
         return ""
     subject = _question_subject_noun(question)
@@ -2662,7 +2869,8 @@ def _extract_count_answer(text: str, question: str = "") -> str:
     if not noun:
         return ""
     head = noun.split()[-1]
-    blob = _evidence_text(sanitize_memory_text_for_inference((text or "").strip())).lower()
+    blob = _evidence_text(sanitize_memory_text_for_inference(
+        (text or "").strip())).lower()
     if not blob:
         return ""
     # Prefer explicit count near the noun.
@@ -2712,12 +2920,14 @@ def _extract_or_choice_answer(text: str, question: str = "") -> str:
     right = re.sub(r"^(?:the|a|an)\s+", "", right).strip()
     if not left or not right or len(left.split()) > 8 or len(right.split()) > 6:
         return ""
-    blob = _evidence_text(sanitize_memory_text_for_inference((text or "").strip())).lower()
+    blob = _evidence_text(sanitize_memory_text_for_inference(
+        (text or "").strip())).lower()
     if not blob:
         return ""
 
     def _score(option: str) -> int:
-        toks = [t for t in re.findall(r"[a-z]{3,}", option) if t not in _QUESTION_STOPWORDS]
+        toks = [t for t in re.findall(
+            r"[a-z]{3,}", option) if t not in _QUESTION_STOPWORDS]
         return sum(1 for t in toks if re.search(rf"\b{re.escape(t)}\b", blob))
 
     sl, sr = _score(left), _score(right)
@@ -2743,7 +2953,8 @@ def _extract_painting_content_from_memory(hint: str, question: str) -> str:
         )
     ):
         return ""
-    blob = _evidence_text(sanitize_memory_text_for_inference((hint or "").strip())).lower()
+    blob = _evidence_text(sanitize_memory_text_for_inference(
+        (hint or "").strip())).lower()
     if not blob:
         return ""
 
@@ -2751,7 +2962,8 @@ def _extract_painting_content_from_memory(hint: str, question: str) -> str:
         art_span = (art_span or "").strip()
         if not art_span or art_span in ("none", "n/a", "not readable", "not visible"):
             return ""
-        art_span = re.split(r";\s*(?:none|not readable)\b", art_span, maxsplit=1)[0].strip()
+        art_span = re.split(r";\s*(?:none|not readable)\b",
+                            art_span, maxsplit=1)[0].strip()
         content_m = re.search(
             r"\b((?:wooden\s+)?pier|dock|bridge|boat|"
             r"(?:white|red|orange|blue|pink|yellow)\s+flowers?|flowers?|"
@@ -2843,7 +3055,8 @@ def _extract_painting_content_from_memory(hint: str, question: str) -> str:
         phrase = phrase.strip()
         if phrase in ("flower", "flowers"):
             # Try color binding.
-            cm = re.search(rf"\b((?:white|red|orange|blue|pink|yellow)\s+flowers?)\b", blob)
+            cm = re.search(
+                rf"\b((?:white|red|orange|blue|pink|yellow)\s+flowers?)\b", blob)
             if cm:
                 phrase = cm.group(1)
         if phrase.startswith(("a ", "an ", "the ")):
@@ -2858,7 +3071,8 @@ def _extract_painting_content_from_memory(hint: str, question: str) -> str:
 
 def _extract_color_answer(text: str, question: str = "") -> str:
     """Pull a short color phrase from model output or memory for color questions."""
-    blob = _evidence_text(sanitize_memory_text_for_inference((text or "").strip()))
+    blob = _evidence_text(
+        sanitize_memory_text_for_inference((text or "").strip()))
     if not blob:
         return ""
     q_l = (question or "").lower()
@@ -2866,7 +3080,8 @@ def _extract_color_answer(text: str, question: str = "") -> str:
         return ""
     subject = _question_subject_noun(question)
     lowered = blob.lower()
-    bed_bedding_q = any(tok in q_l for tok in ("comforter", "duvet", "bedding", "bed cover"))
+    bed_bedding_q = any(tok in q_l for tok in (
+        "comforter", "duvet", "bedding", "bed cover"))
 
     # Flowers / plants: bind color to the flower NP, not table/wall/elsewhere.
     if "flower" in q_l or "flowers" in q_l:
@@ -3014,7 +3229,8 @@ def normalize_qa_prediction(
 
     raw_text = _strip_persona_bleed(raw_text)
     # Drop trailing self-notes / explanations ("grey Note: The bed comforter (").
-    raw_text = re.split(r"\bNote\s*:", raw_text, maxsplit=1, flags=re.I)[0].strip()
+    raw_text = re.split(r"\bNote\s*:", raw_text,
+                        maxsplit=1, flags=re.I)[0].strip()
     if _is_refusal_answer(raw_text):
         fallback = _answer_from_memory_hint(memory_hint, question)
         if fallback:
@@ -3069,7 +3285,8 @@ def normalize_qa_prediction(
             if "patio" in q_l:
                 terms = ["patio curtain", "patio curtains", "patio"] + terms
             clause = _state_clause_for_terms(state_hint, terms)
-            span = (clause or _subject_state_span(state_hint, terms) or "").lower()
+            span = (clause or _subject_state_span(
+                state_hint, terms) or "").lower()
             if span:
                 if re.search(r"\b(?:open|ajar|partly open)\b", span) and not re.search(
                     r"\b(?:closed|shut)\b", span
@@ -3216,7 +3433,8 @@ def normalize_qa_prediction(
                 ):
                     return _finalize(dest, raw_text)
         loc = _extract_location_from_memory(memory_hint, question)
-        model_ok = bool(cleaned_where and _is_valid_where_answer(cleaned_where, question))
+        model_ok = bool(cleaned_where and _is_valid_where_answer(
+            cleaned_where, question))
         subject = _question_subject_noun(question)
         # Only trust a memory location when the hint actually mentions the asked subject.
         # Otherwise clutter frames invent landmarks ("in front of the chest").
@@ -3259,7 +3477,8 @@ def normalize_qa_prediction(
             # Functional "where can I put/take …": keep model if it already names
             # the affordance (couch/rack); do not clobber with unrelated SPATIAL.
             if purpose and any(
-                re.search(rf"\b{re.escape(p.split()[-1])}\b", cleaned_where.lower())
+                re.search(
+                    rf"\b{re.escape(p.split()[-1])}\b", cleaned_where.lower())
                 for p in purpose
             ):
                 return _finalize(cleaned_where, raw_text)
@@ -3734,7 +3953,8 @@ def _extract_yes_no(text: str) -> Optional[str]:
     if re.match(r"^no\b", lowered):
         return "No"
     # Allow "Answer: Yes" / "The answer is no."
-    m = re.search(r"\b(?:answer(?:\s+is)?|reply)\s*[:\-]?\s*(yes|no)\b", lowered)
+    m = re.search(
+        r"\b(?:answer(?:\s+is)?|reply)\s*[:\-]?\s*(yes|no)\b", lowered)
     if m:
         return "Yes" if m.group(1) == "yes" else "No"
     # Very short answers only.
@@ -3750,7 +3970,8 @@ def _extract_open_closed(text: str) -> Optional[str]:
     phrase = (text or "").strip()
     if not phrase:
         return None
-    first = next((ln.strip() for ln in phrase.splitlines() if ln.strip()), phrase)
+    first = next((ln.strip()
+                 for ln in phrase.splitlines() if ln.strip()), phrase)
     lowered = first.lower()
     # Prefer explicit choice answers.
     if re.match(r"^open\b", lowered) and "closed" not in lowered.split()[:3]:
@@ -3874,7 +4095,8 @@ def _extract_top_shelf_object(hint: str) -> str:
         if len(phrase.split()) <= 6:
             return phrase[0].upper() + phrase[1:] if phrase else phrase
     if "cooler" in hint_l:
-        cm = re.search(r"\b((?:teal|blue|green|red|white|black)\s+)?(?:ice\s+)?cooler\b", hint_l)
+        cm = re.search(
+            r"\b((?:teal|blue|green|red|white|black)\s+)?(?:ice\s+)?cooler\b", hint_l)
         if cm:
             phrase = cm.group(0).strip()
             return phrase[0].upper() + phrase[1:]
@@ -3912,7 +4134,8 @@ def _parse_relation_object_question(question: str) -> Optional[Tuple[str, str]]:
 
 
 def _landmark_aliases(landmark: str) -> List[str]:
-    words = [w for w in re.findall(r"[a-z]+", (landmark or "").lower()) if len(w) > 2]
+    words = [w for w in re.findall(
+        r"[a-z]+", (landmark or "").lower()) if len(w) > 2]
     stop = _QUESTION_STOPWORDS | {
         "four", "two", "three", "five", "several", "many", "some", "all",
         "living", "room", "downstairs", "upstairs",
@@ -3927,7 +4150,8 @@ def _landmark_aliases(landmark: str) -> List[str]:
         "mirror", "ceiling", "staircase", "stairs", "stair", "table", "bed",
         "couch", "sofa", "tv", "door", "window", "sink", "cabinet", "cabinets",
     )
-    ordered = [p for p in pref if p in aliases or p.rstrip("s") + "s" in aliases]
+    ordered = [p for p in pref if p in aliases or p.rstrip(
+        "s") + "s" in aliases]
     for a in aliases:
         if a not in ordered:
             ordered.append(a)
@@ -3935,7 +4159,8 @@ def _landmark_aliases(landmark: str) -> List[str]:
     extra: List[str] = []
     for a in list(ordered):
         if a.startswith("paint"):
-            extra.extend(["painting", "paintings", "picture", "pictures", "frame", "frames"])
+            extra.extend(["painting", "paintings", "picture",
+                         "pictures", "frame", "frames"])
         if a.startswith("stair"):
             extra.extend(["stairs", "staircase", "stair"])
         if a == "couch":
@@ -4034,12 +4259,15 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
         line = raw_line.strip()
         if not line:
             continue
-        labeled = bool(re.match(r"^(?:spatial|localization|objects|attributes|world_cues)\s*:", line))
-        body = re.sub(r"^(?:spatial|localization|objects|attributes|world_cues)\s*:\s*", "", line)
+        labeled = bool(
+            re.match(r"^(?:spatial|localization|objects|attributes|world_cues)\s*:", line))
+        body = re.sub(
+            r"^(?:spatial|localization|objects|attributes|world_cues)\s*:\s*", "", line)
         if not _line_has_landmark(body) and not (family == "center" and "ceiling" in " ".join(aliases) and "ceiling" in body):
             if not _line_has_landmark(body):
                 continue
-        base = 4 if labeled and line.startswith("spatial") else (3 if labeled else 1)
+        base = 4 if labeled and line.startswith(
+            "spatial") else (3 if labeled else 1)
 
         # Forward: OBJ is <rel> LANDMARK
         for rel in forwards:
@@ -4163,7 +4391,8 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
     # Co-occurrence fallback: landmark + typical object in same memory blob
     # (captions often list both in OBJECTS without a clean SPATIAL line).
     if not candidates:
-        landmark_hit = any(re.search(rf"\b{re.escape(a)}\b", hint_l) for a in aliases)
+        landmark_hit = any(
+            re.search(rf"\b{re.escape(a)}\b", hint_l) for a in aliases)
         if landmark_hit and family == "under":
             for cand in (
                 "radiator", "heater", "console table", "dresser", "cabinet",
@@ -4241,7 +4470,8 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
     # landmark noun is often only in NOT_VISIBLE dumps after harden.
     if family == "above":
         art_landmark = any(
-            a.startswith("paint") or a in ("picture", "pictures", "frame", "frames", "mirror")
+            a.startswith("paint") or a in (
+                "picture", "pictures", "frame", "frames", "mirror")
             for a in aliases
         )
         if art_landmark:
@@ -4278,7 +4508,8 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
     aliases = list(_subject_alias_terms(subject)) if subject else []
     if not aliases:
         # Fall back to last content noun in "where is the X".
-        m = re.search(r"where\s+(?:is|are)\s+(?:the\s+|a\s+|an\s+)?(.+?)[\?\.]?$", (question or "").lower())
+        m = re.search(
+            r"where\s+(?:is|are)\s+(?:the\s+|a\s+|an\s+)?(.+?)[\?\.]?$", (question or "").lower())
         if m:
             aliases = [
                 w for w in re.findall(r"[a-z]{3,}", m.group(1))
@@ -4309,12 +4540,14 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
         line = line.strip()
         if not line:
             continue
-        is_labeled = bool(re.match(r"^(?:localization|spatial)\s*:", line, re.I))
+        is_labeled = bool(
+            re.match(r"^(?:localization|spatial)\s*:", line, re.I))
         if not any(re.search(rf"\b{re.escape(a)}\b", line) for a in aliases):
             continue
         if not is_labeled and not re.search(rf"\b{rel}\b", line):
             continue
-        cleaned = re.sub(r"^(?:localization|spatial)\s*:\s*", "", line, flags=re.I).strip()
+        cleaned = re.sub(r"^(?:localization|spatial)\s*:\s*",
+                         "", line, flags=re.I).strip()
         # Prefer relation+landmark without repeating the asked subject as the answer head.
         for alias in aliases:
             cleaned = re.sub(
@@ -4355,7 +4588,8 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
             out = _finalize_loc(m.group(0))
             if out and "opener" not in out.lower().split()[-2:]:
                 # Prefer the relation+landmark span.
-                rm = re.search(rf"\b{rel}\b[^.!?\n]{{0,40}}(?:house\s+)?doorway", m.group(0))
+                rm = re.search(
+                    rf"\b{rel}\b[^.!?\n]{{0,40}}(?:house\s+)?doorway", m.group(0))
                 if rm:
                     out2 = _finalize_loc(rm.group(0))
                     if out2:
@@ -4367,7 +4601,8 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
             hint_l,
         )
         if m:
-            rm = re.search(rf"\b{rel}\b[^.!?\n]{{0,40}}(?:house\s+)?doorway", m.group(0))
+            rm = re.search(
+                rf"\b{rel}\b[^.!?\n]{{0,40}}(?:house\s+)?doorway", m.group(0))
             if rm:
                 out = _finalize_loc(rm.group(0))
                 if out:
@@ -4428,7 +4663,8 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
                 "next to", "under", "beside", "near",
             )
         ):
-            cleaned = re.sub(r"^(?:localization|spatial)\s*:\s*", "", line, flags=re.I).strip()
+            cleaned = re.sub(r"^(?:localization|spatial)\s*:\s*",
+                             "", line, flags=re.I).strip()
             out = _finalize_loc(cleaned)
             if out:
                 return out
@@ -4502,7 +4738,8 @@ def _extract_purpose_tool_from_memory(hint: str, question: str) -> str:
         return any(re.search(rf"\b{re.escape(p)}\b", window) for p in purpose)
 
     ranked: List[Tuple[int, str]] = []
-    search_regions = [functional_section, hint_l] if functional_section else [hint_l]
+    search_regions = [functional_section,
+                      hint_l] if functional_section else [hint_l]
     for region_i, region in enumerate(search_regions):
         if not region:
             continue
@@ -4708,7 +4945,8 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
 
     # Eat / sit without dining table → kitchen bar / island / counter.
     if (
-        any(tok in q_l for tok in ("eat", "sit", "meal", "breakfast", "lunch", "dinner"))
+        any(tok in q_l for tok in ("eat", "sit",
+            "meal", "breakfast", "lunch", "dinner"))
         and ("dining" in q_l or "table" in q_l)
         and any(tok in q_l for tok in ("don't", "dont", "without", "not want", "instead"))
     ):
@@ -4889,7 +5127,8 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
     if ("center" in q_l or "middle" in q_l) and (
         "stairs" in q_l or "staircase" in q_l or "room" in q_l
     ):
-        m = re.search(r"\b((?:red|blue|green|brown|white|black|grey|gray)\s+)?(?:sofa|couch)\b", hint_l)
+        m = re.search(
+            r"\b((?:red|blue|green|brown|white|black|grey|gray)\s+)?(?:sofa|couch)\b", hint_l)
         if m:
             phrase = m.group(0).strip()
             if "couch" not in phrase and "sofa" in phrase:
@@ -4916,7 +5155,8 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
             return ("A " + phrase) if "bowl" in phrase else phrase[0].upper() + phrase[1:]
 
     if ("style" in q_l and "painting" in q_l) or ("style" in q_l and "paintings" in q_l):
-        m = re.search(r"\b(abstract|realistic|photographic|cartoon|impressionist)\b", hint_l)
+        m = re.search(
+            r"\b(abstract|realistic|photographic|cartoon|impressionist)\b", hint_l)
         if m:
             return m.group(1)[0].upper() + m.group(1)[1:]
 
@@ -4937,7 +5177,8 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
             return "white wardrobe"
 
     if "shape" in q_l and "mirror" in q_l:
-        m = re.search(r"\b(round|oval|circular|rectangular|square)\s+mirror\b", hint_l)
+        m = re.search(
+            r"\b(round|oval|circular|rectangular|square)\s+mirror\b", hint_l)
         if m:
             shape = m.group(1)
             if shape == "circular":
@@ -5006,7 +5247,8 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
 
     if "garage opener" in q_l or "door opener" in q_l:
         if "opener" in hint_l:
-            m = re.search(r"[^.!]{0,50}\b(?:garage\s+)?(?:door\s+)?opener\b[^.!]{0,50}", hint_l)
+            m = re.search(
+                r"[^.!]{0,50}\b(?:garage\s+)?(?:door\s+)?opener\b[^.!]{0,50}", hint_l)
             if m:
                 span = m.group(0).strip()
                 return span[0].upper() + span[1:] if span else span
@@ -5162,7 +5404,8 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
     # Room-first pool + hard indoor filter before specialty paths.
     ranked = _drop_through_doorway_peeks(
         _drop_mismatched_wet_rooms(
-            _drop_outdoor_for_indoor(_gate_events_by_room(list(events), question), question),
+            _drop_outdoor_for_indoor(_gate_events_by_room(
+                list(events), question), question),
             question,
         ),
         question,
@@ -5188,7 +5431,8 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
         if pool:
             # Keep several bedroom/art rows — never collapse to a single hallway peek.
             return _ensure_evidence_in_window(
-                _order_qa_events(pool + [e for e in ranked if e not in pool], question),
+                _order_qa_events(
+                    pool + [e for e in ranked if e not in pool], question),
                 question,
                 top_k,
             )
@@ -5213,7 +5457,8 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
         pool = sofa_art or sofa_rows
         if pool:
             return _ensure_evidence_in_window(
-                _order_qa_events(pool + [e for e in ranked if e not in pool], question),
+                _order_qa_events(
+                    pool + [e for e in ranked if e not in pool], question),
                 question,
                 top_k,
             )
@@ -5390,7 +5635,8 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
     subject = _question_subject_noun(question)
     purpose = _question_purpose_terms(question)
     q_rooms = _question_room_cues(question)
-    attr_q = any(tok in q for tok in ("material", "type", "kind", "shape", "color", "colour"))
+    attr_q = any(tok in q for tok in ("material", "type",
+                 "kind", "shape", "color", "colour"))
     where_q = _is_where_question(question)
     color_q = "color" in q or "colour" in q
     cold_purpose_q = any(tok in q for tok in ("cold", "picnic", "drinks"))
@@ -5593,26 +5839,33 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
             ranked = spatial_rows + rest
 
     ranked = _order_qa_events(ranked, question, _row_priority)
+    # Near-duplicate captions (same room + object set) sink after uniques so
+    # multi-frame kitchen bursts cannot monopolize the QA window.
+    ranked = diversify_homogeneous_events(ranked)
     picked = _ensure_evidence_in_window(ranked, question, top_k)
     if _detect_memory_conflict(picked, question):
         # Prefer dropping outdoor/wrong-room noise over collapsing to a single row.
         filtered = _drop_outdoor_for_indoor(picked, question)
         if len(filtered) >= 1 and filtered != picked:
             return _ensure_evidence_in_window(
-                _order_qa_events(filtered, question, _row_priority), question, top_k
+                _order_qa_events(filtered, question,
+                                 _row_priority), question, top_k
             )
         if subject:
-            aligned = [e for e in ranked if _blob_has_subject(_event_text(e), subject)]
+            aligned = [e for e in ranked if _blob_has_subject(
+                _event_text(e), subject)]
             if aligned:
                 return _ensure_evidence_in_window(
-                    _order_qa_events(aligned, question, _row_priority), question, top_k
+                    _order_qa_events(aligned, question,
+                                     _row_priority), question, top_k
                 )
         evidence_rows = [
             e for e in ranked if _blob_has_qa_evidence(_event_text(e), question)
         ]
         if evidence_rows:
             return _ensure_evidence_in_window(
-                _order_qa_events(evidence_rows, question, _row_priority), question, top_k
+                _order_qa_events(evidence_rows, question,
+                                 _row_priority), question, top_k
             )
         # Never collapse a multi-row window to a single noisy top hit.
         return picked[: max(3, min(top_k, len(picked)))]

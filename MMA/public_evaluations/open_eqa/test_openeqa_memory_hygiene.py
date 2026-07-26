@@ -16,6 +16,7 @@ from openeqa_memory import (  # noqa: E402
     _door_closed,
     _door_open,
     compute_draft_policy,
+    diversify_homogeneous_events,
     episodic_relevance_score,
     filter_episodic_events,
     is_open_closed_question,
@@ -245,6 +246,54 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         self.assertIn("roman numerals", ev)
         self.assertIn("fenced", ev)
         self.assertNotIn("not_visible", ev)
+
+    def test_diversify_homogeneous_kitchen_keeps_distinct_object_sets(self):
+        k1 = _Event(
+            "kitchen: island with stools",
+            "ROOM: kitchen\nOBJECTS: island, stools, refrigerator, cabinets\nSTATES: stools: pulled out",
+        )
+        k2 = _Event(
+            "kitchen: island with bar stools and fridge",
+            "ROOM: kitchen\nOBJECTS: island, bar stools, refrigerator, cabinets\nSTATES: refrigerator: closed",
+        )
+        living = _Event(
+            "living room: piano and couch",
+            "ROOM: living room\nOBJECTS: piano, couch, coffee table\nSPATIAL: piano is behind couch",
+        )
+        ordered = diversify_homogeneous_events([k1, k2, living])
+        # Near-duplicate kitchens: only first stays ahead of living; living not buried under both.
+        self.assertIs(ordered[0], k1)
+        self.assertIn(living, ordered[:2])
+
+    def test_yes_no_select_prefers_states_over_summary_only(self):
+        summary_only = _Event(
+            "kitchen: island with stools and dining table",
+            "ROOM: kitchen\nOBJECTS: island, stools, dining table",
+        )
+        with_states = _Event(
+            "kitchen: island with bar stools",
+            "ROOM: kitchen\nOBJECTS: island, bar stools\nSTATES: bar stools: tucked in",
+        )
+        q = "Are the kitchen bar chairs tucked in?"
+        picked = select_events_for_qa([summary_only, with_states], q)
+        top = ((picked[0].summary or "") + "\n" + (picked[0].details or "")).lower()
+        self.assertIn("tucked", top)
+
+    def test_spatial_detail_boost_prefers_spatial_section(self):
+        weak = _Event(
+            "dining room with table and rug",
+            "ROOM: dining\nOBJECTS: dining table, rug, chairs",
+        )
+        strong = _Event(
+            "dining room: table on rug",
+            "ROOM: dining\nOBJECTS: dining table, rug\n"
+            "SPATIAL: rug is under dining table; dining table is on rug",
+        )
+        q = "Where is the red and white checkered rug?"
+        self.assertGreater(
+            episodic_relevance_score(strong, q),
+            episodic_relevance_score(weak, q),
+        )
 
     def test_pattern_binds_to_pillow_not_sofa_color(self):
         pred, _ = normalize_qa_prediction(
