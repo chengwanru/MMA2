@@ -928,6 +928,7 @@ def _run_qa(
     formatted = _format_eqa_question(question)
     memory_hint = ""
     init_error = ""
+    hybrid_meta: Dict[str, Any] = {}
 
     try:
         agent = _init_agent(config_path, for_qa=True)
@@ -968,13 +969,42 @@ def _run_qa(
                 f"conflict={draft_policy.get('memory_conflict')}",
                 flush=True,
             )
+
+        # Hybrid: weak-text retrieve top frames → question-conditioned VL (not SD+images).
         try:
-            if _qa_uses_direct_sd():
-                raw_prediction = _qa_direct_sd_with_fallback(
-                    _mma_core(agent), formatted, question
-                )
-            else:
-                raw_prediction = _qa_send(agent, formatted)
+            from openeqa_hybrid_vl import hybrid_vl_enabled, run_hybrid_qa
+
+            if hybrid_vl_enabled():
+                hybrid_meta = run_hybrid_qa(sample, selected_events, question) or {}
+                hybrid_pred = (hybrid_meta.get("prediction") or "").strip()
+                if hybrid_pred and not hybrid_pred.upper().startswith("ERROR"):
+                    raw_prediction = hybrid_pred
+                    skip_text = os.environ.get(
+                        "OPENEQA_QA_HYBRID_SKIP_TEXT_SD", "1"
+                    ).strip().lower() not in ("0", "false", "no")
+                    if skip_text:
+                        print(
+                            "  [hybrid_vl] using VL answer; skip text-only SD",
+                            flush=True,
+                        )
+                else:
+                    print(
+                        "  [hybrid_vl] empty/failed; falling back to text SD",
+                        flush=True,
+                    )
+        except Exception as exc:
+            print(f"  [hybrid_vl] exception: {exc}", flush=True)
+            traceback.print_exc()
+            hybrid_meta = {"error": str(exc)}
+
+        try:
+            if not raw_prediction:
+                if _qa_uses_direct_sd():
+                    raw_prediction = _qa_direct_sd_with_fallback(
+                        _mma_core(agent), formatted, question
+                    )
+                else:
+                    raw_prediction = _qa_send(agent, formatted)
             if (
                 not raw_prediction
                 and _is_yes_no_question(question)
@@ -1014,7 +1044,8 @@ def _run_qa(
         f"  [qa] memory_hint_chars={len(memory_hint or '')} "
         f"selected={len(selected_events or [])} "
         f"raw_empty={not bool(raw_prediction)} "
-        f"init_error={init_error or 'none'}",
+        f"init_error={init_error or 'none'} "
+        f"hybrid={bool((hybrid_meta or {}).get('prediction'))}",
         flush=True,
     )
 
@@ -1060,6 +1091,8 @@ def _run_qa(
 
     sd_stats = collect_speculative_sd_stats() if agent is not None else {}
     qa_answer_source = _qa_answer_source(raw_prediction, prediction)
+    if (hybrid_meta or {}).get("prediction") and qa_answer_source == "model":
+        qa_answer_source = "hybrid_vl"
 
     debug_payload: Optional[Dict[str, Any]] = None
     if debug_enabled() and agent is not None:
@@ -1073,6 +1106,8 @@ def _run_qa(
             draft_policy=draft_policy or None,
             qa_answer_source=qa_answer_source,
         )
+        if hybrid_meta:
+            debug_payload["hybrid_vl"] = hybrid_meta
         write_debug_file(home_dir, "qa", debug_payload)
         log_debug_summary(debug_payload, "qa")
     else:
@@ -1082,6 +1117,13 @@ def _run_qa(
             "qa_answer_source": qa_answer_source,
             "speculative_stats": sd_stats or {},
         }
+        if hybrid_meta:
+            debug_payload["hybrid_vl"] = {
+                "frame_basenames": hybrid_meta.get("frame_basenames"),
+                "elapsed_sec": hybrid_meta.get("elapsed_sec"),
+                "error": hybrid_meta.get("error"),
+                "prediction": hybrid_meta.get("prediction"),
+            }
 
     pred_s = (prediction or "").strip()
     if not pred_s or pred_s == "ERROR" or pred_s.startswith("ERROR:"):
