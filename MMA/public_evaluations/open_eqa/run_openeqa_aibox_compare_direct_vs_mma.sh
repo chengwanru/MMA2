@@ -308,6 +308,16 @@ p = Path("${OUT_MMA}")
 data = json.loads(p.read_text())
 rows = data.get("ours") or []
 totals, mems, qas, decodes = [], [], [], []
+drafts, verify_targets, sched_aligns, ropes, verifies, targets = [], [], [], [], [], []
+
+def _nested(d, *keys):
+    cur = d
+    for k in keys:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(k)
+    return cur
+
 for r in rows:
     t = r.get("timing") or {}
     if r.get("elapsed_sec") is not None:
@@ -318,6 +328,33 @@ for r in rows:
         qas.append(float(t["qa_sec"]))
     if t.get("qa_decode_sec") is not None:
         decodes.append(float(t["qa_decode_sec"]))
+    spec = _nested(r, "debug", "qa", "speculative_stats")
+    if not isinstance(spec, dict):
+        spec = _nested(r, "debug", "speculative_stats")
+    ts = spec.get("time_stats") if isinstance(spec, dict) else None
+    if isinstance(ts, dict):
+        draft_t = ts.get("draft_time")
+        rope_t = ts.get("rope_time")
+        target_t = ts.get("target_time")
+        verify_t = ts.get("verify_time")
+        if draft_t is not None:
+            drafts.append(float(draft_t))
+        if rope_t is not None:
+            ropes.append(float(rope_t))
+        if target_t is not None:
+            targets.append(float(target_t))
+        if verify_t is not None:
+            verifies.append(float(verify_t))
+        vt = None
+        if target_t is not None or verify_t is not None:
+            vt = float(target_t or 0.0) + float(verify_t or 0.0)
+            verify_targets.append(vt)
+        decode_t = t.get("qa_decode_sec")
+        if decode_t is not None:
+            sched = float(decode_t) - float(draft_t or 0.0) - float(target_t or 0.0) - float(verify_t or 0.0)
+            if sched < 0 and sched > -1e-3:
+                sched = 0.0
+            sched_aligns.append(sched)
 def _stats(xs):
     if not xs:
         return None
@@ -332,6 +369,12 @@ data["timing"] = {
     "memorize_sec": _stats(mems),
     "qa_wall_sec": _stats(qas),
     "qa_decode_sec": _stats(decodes),
+    "qa_draft_generation_sec": _stats(drafts),
+    "qa_target_forward_sec": _stats(targets),
+    "qa_verification_sec": _stats(verifies),
+    "qa_verify_target_total_sec": _stats(verify_targets),
+    "qa_rope_align_sec": _stats(ropes),
+    "qa_sd_sched_align_overhead_sec": _stats(sched_aligns),
 }
 p.write_text(json.dumps(data, ensure_ascii=False, indent=2))
 print("MMA timing:", json.dumps(data["timing"], indent=2))
