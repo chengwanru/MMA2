@@ -48,7 +48,7 @@ def hybrid_vl_enabled() -> bool:
 
 
 def hybrid_max_frames() -> int:
-    return max(1, int(os.environ.get("OPENEQA_QA_HYBRID_FRAMES", "4")))
+    return max(1, int(os.environ.get("OPENEQA_QA_HYBRID_FRAMES", "2")))
 
 
 def hybrid_candidate_pool() -> int:
