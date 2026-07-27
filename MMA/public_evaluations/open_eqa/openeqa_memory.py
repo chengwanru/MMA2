@@ -3217,11 +3217,14 @@ def normalize_qa_prediction(
     question: str = "",
     *,
     memory_hint: str = "",
+    prediction_source: str = "",
 ) -> Tuple[str, str]:
     """Return (eval_friendly_answer, raw_prediction)."""
 
     def _finalize(answer: str, raw_out: str) -> Tuple[str, str]:
         if answer:
+            if prediction_source == "hybrid_vl":
+                answer = _strip_vl_answer_boilerplate(answer)
             # Truncation repair before yes/no override (rowave → microwave).
             expanded = _expand_truncated_entity(answer, memory_hint)
             if expanded:
@@ -3229,6 +3232,8 @@ def normalize_qa_prediction(
             answer = _canonicalize_color_spelling(answer, memory_hint)
             answer = _yes_no_memory_override(answer, memory_hint, question)
             answer = _compact_object_phrase(answer, question)
+            if prediction_source == "hybrid_vl" and _is_where_question(question):
+                answer = _compact_where_phrase(answer, question)
         return answer, raw_out
 
     raw_text = (raw or "").strip()
@@ -4009,6 +4014,65 @@ def _extract_open_closed(text: str) -> Optional[str]:
     return None
 
 
+_VL_ANSWER_BOILERPLATE_RE = re.compile(
+    r"^(?:the\s+)?(?:answer\s+is|it\s+is|i\s+(?:can\s+)?see|based\s+on\s+the\s+"
+    r"(?:image|frame)s?|looking\s+at\s+the\s+(?:image|frame)s?)\s*[:\-]?\s*",
+    re.I,
+)
+
+
+def _strip_vl_answer_boilerplate(answer: str) -> str:
+    """Remove common VL preamble without changing the factual tail."""
+    phrase = (answer or "").strip()
+    if not phrase:
+        return phrase
+    prev = None
+    while phrase and phrase != prev:
+        prev = phrase
+        phrase = _VL_ANSWER_BOILERPLATE_RE.sub("", phrase, count=1).strip()
+        phrase = re.sub(r"^(?:a|an|the)\s+", "", phrase, count=1, flags=re.I).strip()
+    return phrase
+
+
+def _compact_where_phrase(answer: str, question: str = "") -> str:
+    """Shorten verbose VL location answers using generic room/landmark patterns."""
+    phrase = (answer or "").strip().rstrip(".,;")
+    if not phrase or not _is_where_question(question):
+        return phrase
+    lowered = phrase.lower()
+    if len(lowered.split()) <= 3 and not lowered.startswith(
+        ("in ", "on ", "at ", "near ", "by ", "inside ", "outside ")
+    ):
+        return phrase
+    stripped = re.sub(
+        r"^(?:in|on|at|near|by|inside|outside|toward|towards)\s+(?:the\s+)?",
+        "",
+        lowered,
+        count=1,
+    ).strip()
+    prefix = ""
+    if "downstairs" in stripped:
+        prefix = "downstairs "
+        stripped = stripped.replace("downstairs", "", 1).strip()
+    elif "upstairs" in stripped:
+        prefix = "upstairs "
+        stripped = stripped.replace("upstairs", "", 1).strip()
+    # Match longest room label first (question-neutral room inventory).
+    for _room_label, patterns in sorted(
+        _ROOM_PATTERNS, key=lambda item: -max(len(p) for p in item[1])
+    ):
+        for pat in patterns:
+            if re.search(rf"\b{re.escape(pat)}\b", stripped):
+                return f"{prefix}{pat}".strip()
+    if " in the " in stripped:
+        tail = stripped.rsplit(" in the ", 1)[-1].strip()
+        if 2 <= len(tail.split()) <= 4:
+            return f"{prefix}{tail}".strip()
+    if stripped and stripped != lowered:
+        return f"{prefix}{stripped}".strip()
+    return phrase
+
+
 def _compact_object_phrase(answer: str, question: str = "") -> str:
     """Drop redundant material/type modifiers that break substring scoring.
 
@@ -4027,6 +4091,28 @@ def _compact_object_phrase(answer: str, question: str = "") -> str:
         return phrase
     if not re.search(r"\bwhat\b", q_l):
         return phrase
+    # Only strip trailing landmarks on object-identification questions, not
+    # functional "what should I do" (avoids splitting "Turn on the …").
+    object_what = bool(
+        re.search(
+            r"\bwhat\s+(?:is|are|'s|was|were|color|colour|material|type|kind|shape)\b",
+            q_l,
+        )
+    )
+    if object_what and " where " not in q_l:
+        for sep in (
+            r"\s+in\s+the\s+",
+            r"\s+on\s+the\s+",
+            r"\s+at\s+the\s+",
+            r"\s+near\s+the\s+",
+            r"\s+inside\s+the\s+",
+            r"\s+outside\s+the\s+",
+            r"\s+by\s+the\s+",
+        ):
+            parts = re.split(sep, phrase, maxsplit=1, flags=re.I)
+            if len(parts) > 1 and parts[0].strip():
+                phrase = parts[0].strip().rstrip(".,;")
+                break
     words = phrase.split()
     if len(words) < 2 or len(words) > 6:
         return phrase
@@ -4038,11 +4124,17 @@ def _compact_object_phrase(answer: str, question: str = "") -> str:
         return (m.group(2) or "").strip()
     m = re.match(
         r"(?i)^(an?\s+)?(stone|wooden|wood|metal|glass|ceramic|brick|marble)\s+"
-        r"(fireplace|hearth|door|table|chair|bed|cabinet|sink|stove|oven)\.?$",
+        r"(fireplace|hearth|door|table|chair|bed|cabinet|sink|stove|oven|mantel)\.?$",
         phrase,
     )
     if m:
         return m.group(3)
+    m = re.match(
+        r"(?i)^(an?\s+)?(.+?)\s+(mantel|shelf|counter|island|ledge|windowsill)\.?$",
+        phrase,
+    )
+    if m and not re.search(r"\b(?:above|on|over)\b", q_l):
+        return (m.group(2) or "").strip()
     return phrase
 
 

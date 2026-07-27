@@ -9,12 +9,21 @@ from __future__ import annotations
 import gc
 import os
 import re
-from typing import Any, Dict, List, Optional, Sequence
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from openeqa_direct_episodic import _baseline_vl_context
 from openeqa_memory import (
+    _caption_section,
+    _detail_channel_boost,
     _event_text,
+    _preferred_detail_channels,
+    _question_focus_nouns,
+    _question_retrieval_kind,
+    _question_subject_noun,
+    _section_is_usable,
     episodic_event_frame_batch,
+    episodic_relevance_score,
     normalize_qa_prediction,
 )
 
@@ -39,7 +48,36 @@ def hybrid_vl_enabled() -> bool:
 
 
 def hybrid_max_frames() -> int:
-    return max(1, int(os.environ.get("OPENEQA_QA_HYBRID_FRAMES", "2")))
+    return max(1, int(os.environ.get("OPENEQA_QA_HYBRID_FRAMES", "4")))
+
+
+def hybrid_candidate_pool() -> int:
+    """Max episodic rows to expand into frame candidates before reranking."""
+    return max(4, int(os.environ.get("OPENEQA_QA_HYBRID_CANDIDATE_EVENTS", "24")))
+
+
+_FRAMES_LINE_RE = re.compile(r"(?im)^Frames:\s*(.+)$")
+_FRAME_INDEX_RE = re.compile(r"(\d+)")
+
+
+class _CaptionEvent:
+    """Minimal event stand-in for per-frame relevance scoring."""
+
+    __slots__ = ("summary", "details")
+
+    def __init__(self, summary: str, details: str):
+        self.summary = summary
+        self.details = details
+
+
+@dataclass(frozen=True)
+class _FrameCandidate:
+    path: str
+    basename: str
+    batch_key: frozenset[str]
+    score: float
+    event_rank: int
+    frame_index: int
 
 
 def _basename_to_paths(image_paths: Sequence[str]) -> Dict[str, str]:
@@ -52,6 +90,215 @@ def _basename_to_paths(image_paths: Sequence[str]) -> Dict[str, str]:
     return out
 
 
+def _frame_index_from_basename(basename: str) -> int:
+    m = _FRAME_INDEX_RE.search(basename or "")
+    return int(m.group(1)) if m else 0
+
+
+def _event_caption_body(event: Any) -> str:
+    details = (getattr(event, "details", None) or "").strip()
+    details = re.sub(r"(?im)^Frames:\s*.+\n?", "", details).strip()
+    summary = (getattr(event, "summary", None) or "").strip()
+    if summary and details:
+        return f"{summary}\n{details}"
+    return summary or details
+
+
+def _frame_names_from_event(event: Any) -> List[str]:
+    details = getattr(event, "details", None) or ""
+    match = _FRAMES_LINE_RE.search(details)
+    if match:
+        return [p.strip().lower() for p in match.group(1).split(",") if p.strip()]
+    batch = episodic_event_frame_batch(event)
+    if batch:
+        return sorted(batch)
+    return []
+
+
+def _channel_alignment_boost(caption_body: str, question: str) -> float:
+    """Boost frames whose structured caption channels align with the question type."""
+    if not caption_body.strip() or not (question or "").strip():
+        return 0.0
+    channels = _preferred_detail_channels(question)
+    subject = _question_subject_noun(question)
+    score = 0.0
+    body_l = caption_body.lower()
+    for ch in channels:
+        section = _caption_section(caption_body, ch)
+        if not _section_is_usable(section):
+            continue
+        score += 1.5
+        sec_l = section.lower()
+        if subject and re.search(rf"\b{re.escape(subject)}\b", sec_l):
+            score += 3.0
+        for noun in _question_focus_nouns(question)[:6]:
+            if noun != subject and re.search(rf"\b{re.escape(noun)}\b", sec_l):
+                score += 1.0
+    kind = _question_retrieval_kind(question)
+    if kind == "color" and any(
+        tok in body_l
+        for tok in (
+            "blue",
+            "red",
+            "green",
+            "yellow",
+            "brown",
+            "black",
+            "white",
+            "gray",
+            "grey",
+            "beige",
+            "orange",
+            "purple",
+            "teal",
+            "dark",
+            "light",
+        )
+    ):
+        score += 2.0
+    if kind == "yes_no" and re.search(
+        r"\b(?:open|closed|on|off|tucked|pulled|lit|unlit)\b", body_l
+    ):
+        score += 2.0
+    return score
+
+
+def _score_frame_candidate(
+    event: Any,
+    *,
+    question: str,
+    event_rank: int,
+    total_events: int,
+) -> float:
+    caption_body = _event_caption_body(event)
+    pseudo = _CaptionEvent(
+        summary=getattr(event, "summary", None) or "",
+        details=caption_body,
+    )
+    score = episodic_relevance_score(pseudo, question)
+    score += _detail_channel_boost(event, question)
+    score += _channel_alignment_boost(caption_body, question)
+    # Soft prior: earlier BM25-ranked events stay preferred when scores tie.
+    if total_events > 1:
+        score += 0.15 * (total_events - event_rank)
+    return score
+
+
+def _collect_frame_candidates(
+    selected_events: Sequence[Any],
+    by_bn: Dict[str, str],
+    *,
+    question: str,
+) -> List[_FrameCandidate]:
+    pool = hybrid_candidate_pool()
+    events = list(selected_events or [])[:pool]
+    if not events or not by_bn:
+        return []
+
+    candidates: List[_FrameCandidate] = []
+    total = len(events)
+    for rank, event in enumerate(events):
+        batch = episodic_event_frame_batch(event) or frozenset()
+        frame_score = _score_frame_candidate(
+            event, question=question, event_rank=rank, total_events=total
+        )
+        names = _frame_names_from_event(event)
+        if not names:
+            continue
+        for idx, name in enumerate(names):
+            path = by_bn.get(name.lower())
+            if not path:
+                continue
+            # Within a multi-frame batch, prefer frames spread across the clip.
+            spread_bonus = 0.05 * idx if len(names) > 1 else 0.0
+            candidates.append(
+                _FrameCandidate(
+                    path=path,
+                    basename=name.lower(),
+                    batch_key=batch or frozenset({name.lower()}),
+                    score=frame_score + spread_bonus,
+                    event_rank=rank,
+                    frame_index=_frame_index_from_basename(name),
+                )
+            )
+    return candidates
+
+
+def _diversity_score_margin() -> float:
+    return max(0.0, float(os.environ.get("OPENEQA_QA_HYBRID_DIVERSITY_MARGIN", "4.0")))
+
+
+def _select_diverse_frames(
+    candidates: List[_FrameCandidate],
+    k: int,
+) -> List[str]:
+    """Pick top-k frames; diversify batches only when scores are close."""
+    if not candidates or k <= 0:
+        return []
+    ranked = sorted(
+        candidates,
+        key=lambda c: (-c.score, c.event_rank, c.frame_index, c.basename),
+    )
+    selected: List[_FrameCandidate] = []
+    used_batches: set[frozenset[str]] = set()
+    used_paths: set[str] = set()
+    best_score = ranked[0].score
+    margin = _diversity_score_margin()
+
+    for cand in ranked:
+        if len(selected) >= k:
+            break
+        if cand.path in used_paths:
+            continue
+        if (
+            selected
+            and cand.batch_key in used_batches
+            and cand.score < best_score - margin
+        ):
+            continue
+        selected.append(cand)
+        used_paths.add(cand.path)
+        used_batches.add(cand.batch_key)
+
+    if len(selected) < k:
+        for cand in ranked:
+            if len(selected) >= k:
+                break
+            if cand.path in used_paths:
+                continue
+            selected.append(cand)
+            used_paths.add(cand.path)
+
+    return [c.path for c in selected[:k]]
+
+
+def _fallback_middle_frames(
+    sample_image_paths: Sequence[str],
+    k: int,
+) -> List[str]:
+    paths = [p for p in sample_image_paths if p]
+    if not paths:
+        return []
+    if len(paths) <= k:
+        return paths[:k]
+    # Spread picks across the trajectory (start / middle / late) for coverage.
+    if k == 1:
+        return [paths[len(paths) // 2]]
+    indices: List[int] = []
+    for i in range(k):
+        pos = round(i * (len(paths) - 1) / max(1, k - 1))
+        if pos not in indices:
+            indices.append(pos)
+    while len(indices) < k:
+        for j in range(len(paths)):
+            if j not in indices:
+                indices.append(j)
+                break
+        else:
+            break
+    return [paths[i] for i in sorted(indices)[:k]]
+
+
 def resolve_hybrid_frames(
     selected_events: Sequence[Any],
     sample_image_paths: Sequence[str],
@@ -59,12 +306,21 @@ def resolve_hybrid_frames(
     question: str = "",
     max_frames: Optional[int] = None,
 ) -> List[str]:
-    """Map ranked episodic events → existing frame paths (weak-text retrieval)."""
+    """Map ranked episodic events → question-scored, diverse frame paths."""
     k = hybrid_max_frames() if max_frames is None else max(1, int(max_frames))
     by_bn = _basename_to_paths(sample_image_paths)
     if not by_bn:
         return []
 
+    candidates = _collect_frame_candidates(
+        selected_events, by_bn, question=question or ""
+    )
+    if candidates:
+        picked = _select_diverse_frames(candidates, k)
+        if picked:
+            return picked
+
+    # Legacy path: preserve Frames: line order from top events (no scoring data).
     ordered: List[str] = []
     seen: set[str] = set()
 
@@ -76,74 +332,22 @@ def resolve_hybrid_frames(
         ordered.append(path)
 
     for event in selected_events or []:
-        batch = episodic_event_frame_batch(event)
-        if not batch:
-            continue
-        # Prefer earlier basenames in the Frames: line order when available.
-        details = (getattr(event, "details", None) or "").strip()
-        m = re.search(r"(?im)^Frames:\s*(.+)$", details)
-        names = (
-            [p.strip() for p in m.group(1).split(",") if p.strip()]
-            if m
-            else sorted(batch)
-        )
-        for name in names:
+        for name in _frame_names_from_event(event):
             _add_bn(name)
             if len(ordered) >= k:
-                return ordered
+                return ordered[:k]
 
-    # Fallback: score all sample frames by caption/event text overlap with question.
-    if len(ordered) < k and question:
-        q_toks = {
-            t
-            for t in re.findall(r"[a-z0-9]+", (question or "").lower())
-            if len(t) > 2
-        }
-        scored: List[tuple[int, str]] = []
-        event_blobs = [
-            (_event_text(e).lower(), episodic_event_frame_batch(e))
-            for e in (selected_events or [])
-        ]
-        for bn, path in by_bn.items():
-            if path in seen:
-                continue
-            blob = ""
-            for text, batch in event_blobs:
-                if batch and bn in batch:
-                    blob = text
-                    break
-            if not blob:
-                continue
-            score = sum(1 for t in q_toks if t in blob)
-            if score > 0:
-                scored.append((score, path))
-        scored.sort(key=lambda x: (-x[0], x[1]))
-        for _, path in scored:
-            if path in seen:
-                continue
-            seen.add(path)
-            ordered.append(path)
-            if len(ordered) >= k:
-                break
-
-    # Last resort: middle frames from the episode (better than empty).
-    if not ordered and sample_image_paths:
-        paths = [p for p in sample_image_paths if p]
-        if paths:
-            mid = len(paths) // 2
-            ordered = paths[mid : mid + 1]
-            if k > 1 and mid + 1 < len(paths):
-                ordered.append(paths[mid + 1])
-            elif k > 1 and mid > 0:
-                ordered.insert(0, paths[mid - 1])
-    return ordered[:k]
+    return _fallback_middle_frames(sample_image_paths, k)
 
 
-def _hybrid_prompt(question: str) -> str:
+def _hybrid_prompt(question: str, frame_count: int) -> str:
+    n = max(1, frame_count)
+    frame_word = "frame" if n == 1 else f"{n} frames"
     return (
-        "You are given one or two frames from an indoor scene (selected via memory retrieval).\n"
+        f"You are given {frame_word} from an indoor scene (selected via memory retrieval).\n"
         "Answer the question with ONLY a brief factual phrase (a few words, no full sentence).\n"
-        "Use what is visible in the image(s). Do not ask clarifying questions.\n\n"
+        "Focus on what the question asks about. Use what is visible in the image(s).\n"
+        "Do not ask clarifying questions.\n\n"
         f"Question: {question}"
     )
 
@@ -191,7 +395,7 @@ def answer_with_hybrid_vl(
             context_window=8192,
             max_tokens=tokens,
         )
-        prompt = _hybrid_prompt(question)
+        prompt = _hybrid_prompt(question, len(paths))
         vl_parts = [("text", f"user: {prompt}\n")]
         for path in paths:
             vl_parts.append(("image", path))
@@ -212,7 +416,12 @@ def answer_with_hybrid_vl(
             response = client.request(request_data)
 
         text = (response.get("generated_text") or "").strip()
-        pred, _ = normalize_qa_prediction(text, question=question, memory_hint="")
+        pred, _ = normalize_qa_prediction(
+            text,
+            question=question,
+            memory_hint="",
+            prediction_source="hybrid_vl",
+        )
         out["prediction"] = (pred or text).strip()
         if response.get("elapsed_sec") is not None:
             try:
