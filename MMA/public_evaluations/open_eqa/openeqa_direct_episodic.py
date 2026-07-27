@@ -86,7 +86,7 @@ HARD RULES
 3) Mandatory grammar:
    - ATTRIBUTES: "object: value" (color / material / shape / pattern / size / lid color / content)
    - STATES: "object: open|closed|ajar|on|off|full|empty|clean|cluttered|dirty|made|unmade|set|unset|
-     tucked in|pulled out|fenced|unfenced" (furniture seating + outdoor enclosure when visible)
+     tucked in|pulled out|fenced|unfenced|lit|unlit|burning" (furniture seating + outdoor enclosure + fire/lamps when visible)
    - SPATIAL: name BOTH sides ("X is above Y", "X is between A and B", "X is to the left of Y")
    - FUNCTIONAL_CUES: "action → object @ place" ONLY when the object is visible
 4) Start SUMMARY with a room type when recognizable.
@@ -135,15 +135,17 @@ C) object state recognition — subject-scoped STATES:
    doors/windows/blinds/curtains/drawers/cabinets/bins/lids/fridge/garage: open|closed|ajar;
    lights/lamps: on|off; bed made/unmade; floor/counter clean|cluttered|dirty; mats set|unset;
    bar stools/chairs at island or table: tucked in|pulled out when clear;
-   yard/patio/backyard enclosure: fenced|unfenced ONLY if the fence (or clear absence) is visible.
+   yard/patio/backyard enclosure: fenced|unfenced ONLY if the fence (or clear absence) is visible;
+   fireplace / fire / candles / stove burners: lit|unlit|burning when the flame or cold grate is clear
+     (do not guess; omit if unsure). Room "ready to live in" cues: furnished beds/seating present vs empty shell.
 
 D) attribute recognition — OBJECT:value for color/material/shape/pattern:
    COLORS when true: white, black, brown, blue, red, green, yellow, grey/gray, pink, orange, gold;
    MATERIALS: wood/wooden, tile, concrete, carpet, stone, drywall, metal, glass, brick, leather, plastic, fabric;
    SHAPES: round/oval/square/rectangular/spherical/spiral/cross-hatch (door knob / mirror / panels);
-   PATTERNS when clear: checkered/plaid, striped, solid; multi-color rugs → list ALL colors (e.g. red and white);
+   PATTERNS when clear: checkered/plaid, striped, solid, hexagonal; multi-color rugs → list ALL colors (e.g. red and white);
    readable text on clocks/signs: numbering style (Roman numerals / Arabic digits) in ATTRIBUTES;
-   also railing color, comforter color, lid color.
+   also railing color, comforter color, lid color, bed-frame color, curtain/blinds color (by location, e.g. sink curtain).
 
 E) spatial understanding — pairwise relations + clear counts:
    between / left / right / above / below / behind / in front / on top / under / over / hanging on;
@@ -151,7 +153,9 @@ E) spatial understanding — pairwise relations + clear counts:
 
 F) functional reasoning — ONLY if object visible: wash/brush/dry; store/cool/heat; hang; sit/sleep/nap;
    print/charge; vacuum; recycle; cool down / fan / AC; warm up (fireplace/heater);
-   store produce/items → visible basket|fruit bowl|bowl|bin|tray @ counter|island|table.
+   wash hands → sink @ bathroom|kitchen (name the correct room/story);
+   store produce/items → visible basket|fruit bowl|bowl|bin|tray @ counter|island|table;
+   fix lights / power outage → circuit breaker|breaker box|electrical panel when visible.
 
 G) world knowledge — ≤3 typed labels ONLY if visually supported:
    ceiling type; staircase kind; door design (cross-hatch glass); art style; stories/levels;
@@ -161,11 +165,17 @@ G) world knowledge — ≤3 typed labels ONLY if visually supported:
 ========================
 SCAN PRIORITY (write bindings for what you SEE; skip what you don't)
 ========================
-1) Architecture: ceiling/floor/wall material; ceiling fixtures (vent, lights, ceiling fan); stairs + railing color + staircase kind; upstairs/ground if clear.
-2) Openings & lights: named doors + EXIT; blinds/curtains open|closed; lights on|off by zone; switches; door knob shape if distinctive.
+1) Architecture: ceiling/floor/wall material; ceiling fixtures (vent, lights, ceiling fan); stairs + railing color + staircase kind;
+   upstairs/second story/ground floor when clear; put story in LOCALIZATION (e.g. "second story bathroom").
+2) Openings & lights: named doors + EXIT; blinds/curtains open|closed + curtain color when visible; lights on|off by zone; switches;
+   door knob shape if distinctive; electrical / circuit breaker panel / breaker box when visible
+   (+ SPATIAL to laundry/hallway/garage landmark).
 3) Furniture: bed/couch/sofa/table/desk/shelf + key contents (pillows, fruit bowl/basket, books); shelf level;
-   rugs under tables: color + pattern + SPATIAL ("rug is under dining table"); seating tuck state at island/table.
-4) Wet zones: sink + basin count; toilet; shower/tub + curtain; fridge/refrigerator; mirror shape/neighbors; towels/racks.
+   bed frame / headboard color+material in ATTRIBUTES; pillow patterns (incl. hexagonal) + SPATIAL ("pillow is on the bed");
+   rugs under tables: color + pattern + SPATIAL ("rug is under dining table"); seating tuck state at island/table;
+   armchair + adjacent figurines/statues/animals within reach (OBJECTS + SPATIAL "statue is to the right of armchair").
+4) Wet zones: sink + basin count; toilet; shower/tub + curtain; fridge/refrigerator; mirror shape/neighbors; towels/racks;
+   if a sink is upstairs, say so in ROOM/LOCALIZATION (do not call a kitchen sink a bathroom sink).
 5) Kitchen appliances (when the cooking wall is in view — name each visible unit separately):
    - stove / cooktop / range (burners or glass cooktop under a vent hood)
    - oven / wall oven (door with handle; may be under cooktop OR built into cabinets)
@@ -177,8 +187,15 @@ SCAN PRIORITY (write bindings for what you SEE; skip what you don't)
      handle → put in OBJECTS + SPATIAL ("towel is hanging from the oven handle"), never only in SUMMARY.
 6) Storage & personal: closet/wardrobe; hanger/rack + garment colors; backpack; shoes; doormat/mat color;
    open containers on counters (basket/bowl/bin/tray) → OBJECTS + SPATIAL + store FUNCTIONAL when clear.
-7) Decor & climate: paintings/pictures (+ ART_CONTENT); clocks (face color + numeral style if readable); TV; plants;
-   AC/vent/radiator/fireplace/heater/fan + SPATIAL to landmark; trash vs recycling lid color.
+7) Decor & climate:
+   - Wall clock / analog clock / digital clock: put in OBJECTS as "clock" (not only "wall art"); face color + numeral style in ATTRIBUTES;
+     SPATIAL to wall/TV/sofa when clear. Do not collapse a readable clock into generic "wall art".
+   - Paintings/pictures/posters: OBJECTS + ART_CONTENT. If a cartoon / comic / named character is readable
+     (e.g. duck character, superhero, branded mascot), write the character name or a short identity phrase in ART_CONTENT —
+     not only "abstract shapes". Animals/people/landscapes: name the depicted subject.
+   - Plants: type when clear (orchid, fern, potted plant) + ROOM where the plant sits + SPATIAL.
+   - TV; AC/vent/radiator/fireplace/heater/fan + SPATIAL to landmark (e.g. "fireplace is under the television");
+     fireplace STATES lit|unlit when clear; trash vs recycling lid color.
 8) Garage/outdoor when in view: sedan/car color+type; hose; broom; cooler; vacuum; patio/yard;
    if outdoor is visible, state fence/fenced OR unfenced — ONLY from clear visual evidence.
 
@@ -188,8 +205,9 @@ QUALITY BARS
 SPATIAL: for each salient object, at least one of LOCALIZATION or a pairwise SPATIAL to a stable landmark
   (bed, sofa/couch, table, desk, sink, stairs, TV, door, mirror, cabinet, shelf).
 ART_CONTENT: if any painting/picture/frame/poster is readable, describe the depicted subject in a few words
-  (flowers, animals, landscape, pier, people, abstract shapes). If present but unreadable: "not readable".
-  If no wall art: "none". Never invent art subjects from style guesses.
+  (named cartoon/comic characters when recognizable, flowers, animals, landscape, pier, people, abstract shapes).
+  If present but unreadable: "not readable". If no wall art: "none". Never invent art subjects from style guesses.
+  Prefer identity ("Donald Duck-like duck character", "horses", "orchid") over vague "abstract shapes" when detail is visible.
 FUNCTIONAL_CUES: "action → object @ place" only for visible affordances (dry → hand towel @ rack;
   cool → ceiling fan @ bathroom; hang → clothes hanger @ closet;
   store → fruit bowl @ kitchen counter). Leave empty/"none" if none.
@@ -207,6 +225,8 @@ ANTI-PATTERNS
 - OBJECTS-only captions with empty ATTRIBUTES/STATES/SPATIAL/ART_CONTENT.
 - Naming ceiling material while ignoring a visible vent/fan/light on that ceiling.
 - Collapsing multi-color attributes into one color; inventing tool inventories not in frame.
+- Labeling a visible wall clock as only "wall art" / "painting" without OBJECTS: clock.
+- Calling every poster "abstract shapes" when a character, animal, or scene is readable.
 """
 
 # Sections expected under DETAILS (hardening inserts empty stubs if missing).

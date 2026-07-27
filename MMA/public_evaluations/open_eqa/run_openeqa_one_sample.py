@@ -659,7 +659,9 @@ def _qa_direct_sd_send(
     user_prompt = f"Episodic Memory:\n{block}\n\n{formatted}" if block.strip() else formatted
     system_prompt = (
         "You answer embodied VQA questions using the episodic memory provided by the user. "
-        "Reply in English only with a short factual phrase (2-6 words). "
+        "Reply in English only with a short factual phrase (1-5 words). "
+        "For what-is / what-animal questions, prefer the head noun alone "
+        "(fireplace not stone fireplace; elephant not elephant statue; clock not wall art). "
         "If episodic memory describes a relevant object, name it directly. "
         "Never answer with Chinese. Never say 'not in memory', 'none mentioned', "
         "'no object mentioned', or 'not enough information' when any related object "

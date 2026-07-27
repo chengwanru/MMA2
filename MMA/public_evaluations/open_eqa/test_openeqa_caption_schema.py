@@ -61,6 +61,23 @@ class CaptionSchemaTests(unittest.TestCase):
         ):
             self.assertIn(needle, p, msg=f"missing kitchen cue: {needle}")
 
+    def test_prompt_fine_grained_holdout_families(self):
+        """Fact families that often decide equal-frame Direct vs MMA gaps."""
+        p = EPISODIC_CAPTION_PROMPT.lower()
+        for needle in (
+            "circuit breaker",
+            "breaker box",
+            "lit|unlit",
+            "bed-frame",
+            "hexagonal",
+            "orchid",
+            "second story",
+            "cartoon",
+            "wall clock",
+            "not only \"wall art\"",
+        ):
+            self.assertIn(needle, p, msg=f"missing fine-grained cue: {needle}")
+
     def test_prompt_covers_fullset_fact_families(self):
         """Must mention the major visual fact families demanded by the full 1636-Q set."""
         p = EPISODIC_CAPTION_PROMPT.lower()

@@ -56,6 +56,23 @@ class OpenEQAMemoryHygieneTests(unittest.TestCase):
         )
         self.assertEqual(pred.lower(), "brown")
 
+    def test_compact_stone_fireplace_head_noun(self):
+        pred, _ = normalize_qa_prediction(
+            "stone fireplace",
+            question="What is underneath the television?",
+        )
+        self.assertEqual(pred.lower(), "fireplace")
+
+    def test_compact_elephant_statue_head_noun(self):
+        pred, _ = normalize_qa_prediction(
+            "elephant statue",
+            question=(
+                "If I sit in the armchair in the living room, "
+                "what animal can I touch with my right hand?"
+            ),
+        )
+        self.assertEqual(pred.lower(), "elephant")
+
     def test_table_mats_fallback_from_memory_hint(self):
         pred, _ = normalize_qa_prediction(
             "2026-06-28 14:33:31 - The dining table surface",

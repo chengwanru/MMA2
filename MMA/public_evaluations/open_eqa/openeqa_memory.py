@@ -3228,6 +3228,7 @@ def normalize_qa_prediction(
                 answer = expanded
             answer = _canonicalize_color_spelling(answer, memory_hint)
             answer = _yes_no_memory_override(answer, memory_hint, question)
+            answer = _compact_object_phrase(answer, question)
         return answer, raw_out
 
     raw_text = (raw or "").strip()
@@ -4006,6 +4007,43 @@ def _extract_open_closed(text: str) -> Optional[str]:
     if re.search(r"\bis\s+closed\b|\bdoorway\s+is\s+closed\b|\bdoor\s+is\s+closed\b", lowered):
         return "Closed"
     return None
+
+
+def _compact_object_phrase(answer: str, question: str = "") -> str:
+    """Drop redundant material/type modifiers that break substring scoring.
+
+    OpenEQA good-match is ``gold in pred or pred in gold``. Short Direct answers
+    like ``fireplace`` match gold ``A fireplace``, while ``stone fireplace`` does
+    not. Prefer the head noun for what-is object questions.
+    """
+    phrase = (answer or "").strip().rstrip(".,;")
+    if not phrase:
+        return phrase
+    q_l = (question or "").lower()
+    if any(
+        tok in q_l
+        for tok in ("color", "colour", "where", "how many", "which room", "pattern")
+    ):
+        return phrase
+    if not re.search(r"\bwhat\b", q_l):
+        return phrase
+    words = phrase.split()
+    if len(words) < 2 or len(words) > 6:
+        return phrase
+    m = re.match(
+        r"(?i)^(an?\s+)?(.+?)\s+(statue|figurine|sculpture|figure|ornament)\.?$",
+        phrase,
+    )
+    if m:
+        return (m.group(2) or "").strip()
+    m = re.match(
+        r"(?i)^(an?\s+)?(stone|wooden|wood|metal|glass|ceramic|brick|marble)\s+"
+        r"(fireplace|hearth|door|table|chair|bed|cabinet|sink|stove|oven)\.?$",
+        phrase,
+    )
+    if m:
+        return m.group(3)
+    return phrase
 
 
 def _clean_phrase(text: str, *, yes_no_q: bool = False) -> str:
