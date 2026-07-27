@@ -1144,8 +1144,16 @@ def _run_all(
     pred, err, qa_debug = _run_qa(sample, config_path, home_dir)
     if debug_enabled():
         merged = {"memorize": mem_debug, "qa": qa_debug}
-    elif isinstance(qa_debug, dict) and qa_debug.get("speculative_stats"):
-        merged = {"qa": {"speculative_stats": qa_debug.get("speculative_stats")}}
+    elif isinstance(qa_debug, dict) and (
+        qa_debug.get("speculative_stats") or qa_debug.get("hybrid_vl")
+    ):
+        merged = {
+            "qa": {
+                k: qa_debug[k]
+                for k in ("speculative_stats", "hybrid_vl", "qa_answer_source")
+                if k in qa_debug
+            }
+        }
     else:
         merged = None
     return pred, err, merged
