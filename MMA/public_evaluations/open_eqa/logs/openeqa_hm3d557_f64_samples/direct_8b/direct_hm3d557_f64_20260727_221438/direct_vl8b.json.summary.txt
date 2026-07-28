@@ -1,5 +1,0 @@
-OpenEQA summary — variant=baseline
-total=0  exact=0  hit=0  partial=0  miss=0  error=0  good=0/0  model=0  rescued=0
-
- #  match    source        gold                      prediction                question
-------------------------------------------------------------------------------------------------------------------------

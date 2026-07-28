@@ -1,8 +1,10 @@
-# OpenEQA HM3D≈557 @64 frames — sample run logs (AIBox)
+# OpenEQA sample logs for review
 
-- `direct_8b/` — Direct Qwen3-VL-8B (no MMA, no SD)
-- `mma_sd_nohybrid/` — MMA + SD, no VR, greedy+semantic, no Hybrid VL
-- `mma_hybrid/` — same + OPENEQA_QA_HYBRID_VL=1 (k=2)
+## Prefer these (early 50Q, actually worked)
+- `direct_8b_n50/direct_o150_n50_f64_*` — Direct 8B @64, offset150, 50Q
+- `mma_sd_n50/compare_o150_n50_f64_*` — MMA+SD @64, same slice (good≈26/50)
+- `mma_sd_n50/compare_o100_n50_f16_*` — Direct vs MMA @16, offset100 (direct 23/50, mma 19/50)
 
-Logs are copied as `run.txt` because `*.log` is gitignored.
-Source machine paths under `/workspace/open_eqa_runs/`.
+## Note
+557 Direct under old `direct_8b/` were error runs (empty data / hub version) and should be removed.
+Current 557 MMA±Hybrid runs may still be under `mma_sd_nohybrid/` / `mma_hybrid/` if kept.

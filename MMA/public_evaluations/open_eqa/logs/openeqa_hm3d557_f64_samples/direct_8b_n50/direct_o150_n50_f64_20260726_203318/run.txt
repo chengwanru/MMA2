@@ -1,0 +1,335 @@
+========================================
+ Direct-VL8B vs MMA+SD  (same frames + timing)
+========================================
+GIT_HEAD=2c9a053
+ARMS=direct  OFFSET=150  LIMIT=50  FRAMES=64
+CUDA_VISIBLE_DEVICES=1
+WORK_ROOT=/tmp/openeqa_work
+INPUT=/tmp/openeqa_work/open-eqa-multimodal-compare_o150_n50_f120_20260726_195813.json
+OUT_DIRECT=/tmp/openeqa_work/open_eqa_runs/direct_o150_n50_f64_20260726_203318/direct_vl8b.json
+OUT_MMA=/tmp/openeqa_work/open_eqa_runs/direct_o150_n50_f64_20260726_203318/mma_sd.json
+RUN_DIR=/tmp/openeqa_work/open_eqa_runs/direct_o150_n50_f64_20260726_203318
+OPENEQA_CAPTION_CACHE=/tmp/openeqa_caption_cache_v6
+OPENEQA_HOME_ROOT=/tmp/openeqa_work/openeqa_home
+=== reuse INPUT=/tmp/openeqa_work/open-eqa-multimodal-compare_o150_n50_f120_20260726_195813.json ===
+=== multimodal: 50 samples (ds 150–199) ===
+  [150] frames=120 q='Is there room for more furniture near the kitchen?'
+  [151] frames=120 q='Are the kitchen bar chairs tucked in?'
+  [152] frames=120 q='Is the backyard fenced?'
+=== Arm A: Direct Qwen3-VL-8B (frames in prompt, no MMA/SD) ===
+[direct_sd] baseline samples=50 max_frames=64 max_tokens=128
+[direct_sd] sample 1/50 id=6a6a7283-bccc-4923-a843-e0225ad21e3c frames=120 q='Is there room for more furniture near the kitchen?'
+/tmp/embench_staging/lib/python3.11/site-packages/pydub/utils.py:170: RuntimeWarning: Couldn't find ffmpeg or avconv - defaulting to ffmpeg, but may not work
+  warn("Couldn't find ffmpeg or avconv - defaulting to ffmpeg, but may not work", RuntimeWarning)
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards:  25%|██▌       | 1/4 [00:05<00:15,  5.31s/it]Loading checkpoint shards:  50%|█████     | 2/4 [00:10<00:10,  5.28s/it]Loading checkpoint shards:  75%|███████▌  | 3/4 [00:15<00:05,  5.31s/it]Loading checkpoint shards: 100%|██████████| 4/4 [00:18<00:00,  4.14s/it]Loading checkpoint shards: 100%|██████████| 4/4 [00:18<00:00,  4.57s/it]
+Token indices sequence length is longer than the specified maximum sequence length for this model (130749 > 32768). Running this sequence through the model will result in indexing errors
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p', 'top_k']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=46.240s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=46.240s new_tokens=2 (0.04 tok/s) pred='yes'
+  -> gold='Yes' pred='yes'
+[direct_sd] sample 2/50 id=2449be8f-1320-4061-beb0-2797f5766c73 frames=120 q='Are the kitchen bar chairs tucked in?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.696s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.696s new_tokens=2 (0.04 tok/s) pred='no'
+  -> gold='Yes.' pred='no'
+[direct_sd] sample 3/50 id=b1146a3a-444b-4c57-9975-d4367b7ae0d6 frames=120 q='Is the backyard fenced?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.671s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.671s new_tokens=2 (0.04 tok/s) pred='no'
+  -> gold='Yes' pred='no'
+[direct_sd] sample 4/50 id=2c49d6d3-3b48-4680-a32e-2bb32a5af687 frames=120 q='Where can I put my apples?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=4 elapsed=45.990s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.990s new_tokens=4 (0.09 tok/s) pred='on the counter'
+  -> gold='Use the basket on the kitchen counter' pred='on the counter'
+[direct_sd] sample 5/50 id=8471794d-32cd-4989-8cec-91118eb43b67 frames=120 q='What can I use to check my appearance?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.707s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.707s new_tokens=2 (0.04 tok/s) pred='mirror'
+  -> gold='The mirror above the wooden table near the kitchen.' pred='mirror'
+[direct_sd] sample 6/50 id=3ba5ff66-1622-4f4e-bc76-8371b1e0e17d frames=120 q='What kind of numbering does the blue clock use?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=4 elapsed=45.977s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.977s new_tokens=4 (0.09 tok/s) pred='Roman numerals'
+  -> gold='Roman numerals' pred='Roman numerals'
+[direct_sd] sample 7/50 id=d5b18be3-2d0c-4653-9706-7c33159de7a9 frames=120 q='What is the picture seen from the kitchen depict?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=3 elapsed=45.948s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.948s new_tokens=3 (0.07 tok/s) pred='abstract art'
+  -> gold='A man and a child, looking at something, standing in between trees' pred='abstract art'
+[direct_sd] sample 8/50 id=0f56a54b-eac3-4b98-b118-ddcbac7735e7 frames=120 q='Where is the microwave?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=3 elapsed=45.786s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.786s new_tokens=3 (0.07 tok/s) pred='not visible'
+  -> gold='Above the oven' pred='not visible'
+[direct_sd] sample 9/50 id=bfe3dd93-acd5-42ab-a492-f5914c1a3b26 frames=120 q='Where is the red and white checkered rug?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=4 elapsed=45.920s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.920s new_tokens=4 (0.09 tok/s) pred='under dining table'
+  -> gold='Underneath the wooden dining table' pred='under dining table'
+[direct_sd] sample 10/50 id=987aac58-d2a4-417e-84fc-4b1ede9934a9 frames=120 q='What is the circular object on the wall next to the staircas'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.822s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.822s new_tokens=2 (0.04 tok/s) pred='mirror'
+  -> gold='A smoke detector' pred='mirror'
+[direct_sd] sample 11/50 id=447e4e2d-7010-4672-b8e0-eb5246430499 frames=120 q='What is the yellow object on top of the ouch?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=3 elapsed=45.824s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.825s new_tokens=3 (0.07 tok/s) pred='chandelier'
+  -> gold='A blanket' pred='chandelier'
+[direct_sd] sample 12/50 id=bd0bfb4a-1f48-4227-bd0a-9e20ba4b232a frames=120 q='What color is the trim of the mirror?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.744s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.744s new_tokens=2 (0.04 tok/s) pred='silver'
+  -> gold='Grey' pred='silver'
+[direct_sd] sample 13/50 id=872e8692-1e2a-4f7e-8ceb-7a85378be97d frames=120 q='What color is the staircase railing?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=3 elapsed=45.831s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.831s new_tokens=3 (0.07 tok/s) pred='dark brown'
+  -> gold='Dark brown' pred='dark brown'
+[direct_sd] sample 14/50 id=2105be27-3075-4024-aa9d-bbe2c8d171e5 frames=120 q='What is hung along the walls of the staircase?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.725s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.725s new_tokens=2 (0.04 tok/s) pred='pictures'
+  -> gold='Photos of people' pred='pictures'
+[direct_sd] sample 15/50 id=f9dd1702-e468-47c7-8e39-c562b1515c26 frames=120 q='What is at the center of the dining table?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=5 elapsed=46.065s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=46.065s new_tokens=5 (0.11 tok/s) pred='vase of flowers'
+  -> gold='A vase with flowers' pred='vase of flowers'
+[direct_sd] sample 16/50 id=57281954-fac7-43af-a6e4-cb0be91fdcbb frames=120 q='Is the dining room light turned on?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.848s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.848s new_tokens=2 (0.04 tok/s) pred='yes'
+  -> gold='Yes.' pred='yes'
+[direct_sd] sample 17/50 id=4d127d5e-1a90-468c-93a0-0473c2d1623f frames=120 q='Is the bedroom door open?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.822s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.822s new_tokens=2 (0.04 tok/s) pred='yes'
+  -> gold='Yes' pred='yes'
+[direct_sd] sample 18/50 id=3c5d9367-f664-4635-80a1-a58f915f483d frames=120 q='Where can I dry my shoes when I come into the house?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=3 elapsed=45.851s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.850s new_tokens=3 (0.07 tok/s) pred='stairs landing'
+  -> gold='On the grey rug behind the front door' pred='stairs landing'
+[direct_sd] sample 19/50 id=513d947f-2553-4f19-abdd-a052561b922d frames=120 q='What can be used to provide privacy in the dining room?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=4 elapsed=45.970s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.969s new_tokens=4 (0.09 tok/s) pred='curtains'
+  -> gold='Curtains' pred='curtains'
+[direct_sd] sample 20/50 id=c8597353-0075-4ba7-a1e7-8ab29ea0f8a3 frames=120 q='What type of furniture is used to display items behind glass'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=3 elapsed=46.146s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=46.146s new_tokens=3 (0.07 tok/s) pred='display cabinet'
+  -> gold='The china cabinet' pred='display cabinet'
+[direct_sd] sample 21/50 id=8345f4b2-0850-495b-a957-16cb9cd66f4e frames=120 q='Where is the china cabinet?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=6 elapsed=46.149s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=46.149s new_tokens=6 (0.13 tok/s) pred='left side of dining room'
+  -> gold='To the left of the dining table' pred='left side of dining room'
+[direct_sd] sample 22/50 id=79a66a14-c79c-48fa-b6e6-6c442765ba22 frames=120 q='What is above the coffee table?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=3 elapsed=45.823s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.823s new_tokens=3 (0.07 tok/s) pred='chandelier'
+  -> gold='A chandelier' pred='chandelier'
+[direct_sd] sample 23/50 id=f454e7a5-b49b-43be-83d9-7b204ce6314a frames=120 q='What is at the back of the living room, behind the couches?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=3 elapsed=45.862s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.862s new_tokens=3 (0.07 tok/s) pred='piano'
+  -> gold='A piano' pred='piano'
+[direct_sd] sample 24/50 id=26bd014e-529f-4deb-bcfd-261f35ac7ff2 frames=120 q='What color are the air vents below the window?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.759s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.759s new_tokens=2 (0.04 tok/s) pred='white'
+  -> gold='Gold' pred='white'
+[direct_sd] sample 25/50 id=8bb765de-228d-47c2-89e3-e57dbd07261c frames=120 q='What is in between the two couches?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=5 elapsed=45.999s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.999s new_tokens=5 (0.11 tok/s) pred='wooden console table'
+  -> gold='A coffee table' pred='wooden console table'
+[direct_sd] sample 26/50 id=e2a55cb0-a883-4dd6-9b2f-239d92ebd8bc frames=120 q='What is above the piano?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=3 elapsed=45.859s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.859s new_tokens=3 (0.07 tok/s) pred='chandelier'
+  -> gold='A painting' pred='chandelier'
+[direct_sd] sample 27/50 id=3e900181-4cf3-41f9-bdb8-0e3e6f1b53e3 frames=120 q='Is there natural light in the room?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.754s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.754s new_tokens=2 (0.04 tok/s) pred='no'
+  -> gold='No.' pred='no'
+[direct_sd] sample 28/50 id=fd4dad2f-19fc-4a3f-87ac-d210657d1add frames=120 q='Is the piano keyboard cover open or closed?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.718s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.718s new_tokens=2 (0.04 tok/s) pred='closed'
+  -> gold='Open' pred='closed'
+[direct_sd] sample 29/50 id=566776fa-aab8-4084-b40b-57f69167c97c frames=120 q='What can I use to entertain my guests with music?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=3 elapsed=45.873s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.873s new_tokens=3 (0.07 tok/s) pred='piano'
+  -> gold='The piano' pred='piano'
+[direct_sd] sample 30/50 id=f48a99c3-ec77-450b-97d9-5b48bc662cb6 frames=120 q='Where can I lay down and read a book?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=3 elapsed=45.865s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.865s new_tokens=3 (0.07 tok/s) pred='sofa'
+  -> gold='The couch' pred='sofa'
+[direct_sd] sample 31/50 id=8b7d2afd-2a77-4f2b-afe1-b1751d890db4 frames=120 q='Can this home be used for a large dinner party?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.804s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.804s new_tokens=2 (0.04 tok/s) pred='yes'
+  -> gold='Yes.' pred='yes'
+[direct_sd] sample 32/50 id=2f73aba9-c2c7-4f97-b3e4-2435960763b9 frames=120 q='Is the person who lives here an avid reader?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.728s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.728s new_tokens=2 (0.04 tok/s) pred='yes'
+  -> gold='Yes.' pred='yes'
+[direct_sd] sample 33/50 id=83356063-ea59-4894-a077-5c2a6fb1042e frames=120 q='Where is the pillow with the face on it?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=4 elapsed=45.909s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.909s new_tokens=4 (0.09 tok/s) pred='on the couch'
+  -> gold='On the couch' pred='on the couch'
+[direct_sd] sample 34/50 id=a605c40f-96e7-4bec-a1cb-6d48e88e39cd frames=120 q='What is above the wooden table in the living room?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=4 elapsed=45.952s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.952s new_tokens=4 (0.09 tok/s) pred='ceiling fan'
+  -> gold='A blue, white, and orange painting' pred='ceiling fan'
+[direct_sd] sample 35/50 id=3a5be057-47d2-4f78-98a9-729ef19b3d8b frames=120 q='What color are the pillows in the kitchen?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=6 elapsed=46.031s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=46.031s new_tokens=6 (0.13 tok/s) pred='blue and white patterned'
+  -> gold='Blue' pred='blue and white patterned'
+[direct_sd] sample 36/50 id=30dc765d-80c3-4901-9c69-65e6b48e254a frames=120 q='What color is the front door?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.687s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.687s new_tokens=2 (0.04 tok/s) pred='brown'
+  -> gold='Brown' pred='brown'
+[direct_sd] sample 37/50 id=f5a17a09-ce4b-4123-bf40-d2239cf38cb8 frames=120 q='What is to the left of the frontdoor?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=3 elapsed=45.772s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.772s new_tokens=3 (0.07 tok/s) pred='white door'
+  -> gold='A storage closet' pred='white door'
+[direct_sd] sample 38/50 id=00c2be2a-1377-4fae-a889-30936b7890c3 frames=120 q='What is hanging from the oven handle?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.663s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.663s new_tokens=2 (0.04 tok/s) pred='Nothing'
+  -> gold='A towel' pred='Nothing'
+[direct_sd] sample 39/50 id=4dbd213e-56cd-481a-8ff5-ed9a8d636dbc frames=120 q='Is the light above the sink turned on?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.664s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.664s new_tokens=2 (0.04 tok/s) pred='no'
+  -> gold='Yes' pred='no'
+[direct_sd] sample 40/50 id=6d132959-fd48-4fef-a736-4e5853849547 frames=120 q='Where can I warm up?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=4 elapsed=45.888s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.888s new_tokens=4 (0.09 tok/s) pred='living room couch'
+  -> gold='Next to the fireplace' pred='living room couch'
+[direct_sd] sample 41/50 id=ae19adeb-498a-4814-b955-e0af05623f9b frames=120 q='Where can I get recipes for what to cook?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=5 elapsed=45.993s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.993s new_tokens=5 (0.11 tok/s) pred='online search or cookbook'
+  -> gold='The open cookbook on the kitchen counter top' pred='online search or cookbook'
+[direct_sd] sample 42/50 id=cbffc0cd-04aa-4686-97bf-887c0dc840bd frames=120 q='What is shown on the painting above the couch?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=3 elapsed=45.774s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.774s new_tokens=3 (0.07 tok/s) pred='two horses'
+  -> gold='Horses' pred='two horses'
+[direct_sd] sample 43/50 id=4cc4212e-0db2-421f-8bb5-93817e58f9b4 frames=120 q='Where can I get drinking water in the kitchen?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=4 elapsed=45.888s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.888s new_tokens=4 (0.09 tok/s) pred='refrigerator'
+  -> gold='From water dispenser in the fridge' pred='refrigerator'
+[direct_sd] sample 44/50 id=7ebac357-a338-4ce0-975a-62141e90a3c3 frames=120 q='Where is the microwave?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=3 elapsed=45.750s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.751s new_tokens=3 (0.07 tok/s) pred='above refrigerator'
+  -> gold='Above the stovetop' pred='above refrigerator'
+[direct_sd] sample 45/50 id=3825d20a-c58a-458a-971c-f1714dfccd9d frames=95 q='What objects are in the black cubby shelf?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=5 elapsed=45.948s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.948s new_tokens=5 (0.11 tok/s) pred='books, decorative items'
+  -> gold='Books' pred='books, decorative items'
+[direct_sd] sample 46/50 id=8067bfd8-c034-45a6-8fe1-44a829fec95e frames=95 q='What color is the chair in the bedroom?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.651s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.651s new_tokens=2 (0.04 tok/s) pred='white'
+  -> gold='Black' pred='white'
+[direct_sd] sample 47/50 id=92fc2743-e2d7-4504-bb94-4b95c4f9596d frames=95 q='What is in between the two bedroom doorways?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=3 elapsed=45.796s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.796s new_tokens=3 (0.07 tok/s) pred='radiator'
+  -> gold='A light switch' pred='radiator'
+[direct_sd] sample 48/50 id=7e363878-ad19-4493-8a6f-0350bff27557 frames=95 q='What can be seen outside the bedroom window?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=5 elapsed=45.959s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.959s new_tokens=5 (0.11 tok/s) pred='garden and pool'
+  -> gold='A pond' pred='garden and pool'
+[direct_sd] sample 49/50 id=633ca326-2027-4316-8c20-ef4debde39d2 frames=95 q='Is the sliding door open or closed?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.744s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.743s new_tokens=2 (0.04 tok/s) pred='open'
+  -> gold='Closed' pred='open'
+[direct_sd] sample 50/50 id=a441274f-6be5-4ed0-ab6a-fea064b5c008 frames=95 q='Is the chandelier turned on?'
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=45.749s
+[sd_trace] target_final=None draft_all_rounds=None
+  [baseline] time=45.749s new_tokens=2 (0.04 tok/s) pred='no'
+  -> gold='Yes.' pred='no'
+Wrote 50 rows to /tmp/openeqa_work/open_eqa_runs/direct_o150_n50_f64_20260726_203318/direct_vl8b.json.raw.json
+--- Direct VL8B summary ---
+OpenEQA summary — variant=baseline
+total=50  exact=7  hit=11  partial=7  miss=25  error=0  good=25/50  model=0  rescued=0
+
+ #  match    source        gold                      prediction                question
+------------------------------------------------------------------------------------------------------------------------
+ 1  EXACT    UNKNOWN       Yes                       yes                       Is there room for more furniture ...
+ 2  MISS     UNKNOWN       Yes.                      no                        Are the kitchen bar chairs tucked...
+ 3  MISS     UNKNOWN       Yes                       no                        Is the backyard fenced?
+ 4  PARTIAL  UNKNOWN       Use the basket on the...  on the counter            Where can I put my apples?
+ 5  HIT      UNKNOWN       The mirror above the ...  mirror                    What can I use to check my appear...
+ 6  EXACT    UNKNOWN       Roman numerals            Roman numerals            What kind of numbering does the b...
+ 7  MISS     UNKNOWN       A man and a child, lo...  abstract art              What is the picture seen from the...
+ 8  MISS     UNKNOWN       Above the oven            not visible               Where is the microwave?
+ 9  PARTIAL  UNKNOWN       Underneath the wooden...  under dining table        Where is the red and white checke...
+10  MISS     UNKNOWN       A smoke detector          mirror                    What is the circular object on th...
+11  MISS     UNKNOWN       A blanket                 chandelier                What is the yellow object on top ...
+12  MISS     UNKNOWN       Grey                      silver                    What color is the trim of the mir...
+13  EXACT    UNKNOWN       Dark brown                dark brown                What color is the staircase railing?
+14  MISS     UNKNOWN       Photos of people          pictures                  What is hung along the walls of t...
+15  PARTIAL  UNKNOWN       A vase with flowers       vase of flowers           What is at the center of the dini...
+16  HIT      UNKNOWN       Yes.                      yes                       Is the dining room light turned on?
+17  EXACT    UNKNOWN       Yes                       yes                       Is the bedroom door open?
+18  MISS     UNKNOWN       On the grey rug behin...  stairs landing            Where can I dry my shoes when I c...
+19  EXACT    UNKNOWN       Curtains                  curtains                  What can be used to provide priva...
+20  PARTIAL  UNKNOWN       The china cabinet         display cabinet           What type of furniture is used to...
+21  PARTIAL  UNKNOWN       To the left of the di...  left side of dining room  Where is the china cabinet?
+22  HIT      UNKNOWN       A chandelier              chandelier                What is above the coffee table?
+23  HIT      UNKNOWN       A piano                   piano                     What is at the back of the living...
+24  MISS     UNKNOWN       Gold                      white                     What color are the air vents belo...
+25  PARTIAL  UNKNOWN       A coffee table            wooden console table      What is in between the two couches?
+26  MISS     UNKNOWN       A painting                chandelier                What is above the piano?
+27  HIT      UNKNOWN       No.                       no                        Is there natural light in the room?
+28  MISS     UNKNOWN       Open                      closed                    Is the piano keyboard cover open ...
+29  HIT      UNKNOWN       The piano                 piano                     What can I use to entertain my gu...
+30  MISS     UNKNOWN       The couch                 sofa                      Where can I lay down and read a b...
+31  HIT      UNKNOWN       Yes.                      yes                       Can this home be used for a large...
+32  HIT      UNKNOWN       Yes.                      yes                       Is the person who lives here an a...
+33  EXACT    UNKNOWN       On the couch              on the couch              Where is the pillow with the face...
+34  MISS     UNKNOWN       A blue, white, and or...  ceiling fan               What is above the wooden table in...
+35  HIT      UNKNOWN       Blue                      blue and white patterned  What color are the pillows in the...
+36  EXACT    UNKNOWN       Brown                     brown                     What color is the front door?
+37  MISS     UNKNOWN       A storage closet          white door                What is to the left of the frontd...
+38  MISS     UNKNOWN       A towel                   Nothing                   What is hanging from the oven han...
+39  MISS     UNKNOWN       Yes                       no                        Is the light above the sink turne...
+40  MISS     UNKNOWN       Next to the fireplace     living room couch         Where can I warm up?
+41  MISS     UNKNOWN       The open cookbook on ...  online search or cook...  Where can I get recipes for what ...
+42  HIT      UNKNOWN       Horses                    two horses                What is shown on the painting abo...
+43  MISS     UNKNOWN       From water dispenser ...  refrigerator              Where can I get drinking water in...
+44  PARTIAL  UNKNOWN       Above the stovetop        above refrigerator        Where is the microwave?
+45  HIT      UNKNOWN       Books                     books, decorative items   What objects are in the black cub...
+46  MISS     UNKNOWN       Black                     white                     What color is the chair in the be...
+47  MISS     UNKNOWN       A light switch            radiator                  What is in between the two bedroo...
+48  MISS     UNKNOWN       A pond                    garden and pool           What can be seen outside the bedr...
+49  MISS     UNKNOWN       Closed                    open                      Is the sliding door open or closed?
+50  MISS     UNKNOWN       Yes.                      no                        Is the chandelier turned on?
+DONE RUN_DIR=/tmp/openeqa_work/open_eqa_runs/direct_o150_n50_f64_20260726_203318
+TIMING_JSON=/tmp/openeqa_work/open_eqa_runs/direct_o150_n50_f64_20260726_203318/timing_summary.json
