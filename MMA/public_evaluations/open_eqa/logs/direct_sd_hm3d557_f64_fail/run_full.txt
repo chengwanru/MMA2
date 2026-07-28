@@ -1,0 +1,112 @@
+[direct_sd] speculative samples=557 max_frames=64 max_tokens=128
+[direct_sd] sample 1/557 id=f2e82760-5c3c-41b1-88b6-85921b9e7b32 frames=64 q='What is the white object on the wall above the TV?'
+/tmp/embench_staging/lib/python3.11/site-packages/pydub/utils.py:170: RuntimeWarning: Couldn't find ffmpeg or avconv - defaulting to ffmpeg, but may not work
+  warn("Couldn't find ffmpeg or avconv - defaulting to ffmpeg, but may not work", RuntimeWarning)
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards:  25%|██▌       | 1/4 [00:04<00:13,  4.34s/it]Loading checkpoint shards:  50%|█████     | 2/4 [00:09<00:09,  4.96s/it]Loading checkpoint shards:  75%|███████▌  | 3/4 [00:15<00:05,  5.13s/it]Loading checkpoint shards: 100%|██████████| 4/4 [00:18<00:00,  4.46s/it]Loading checkpoint shards: 100%|██████████| 4/4 [00:18<00:00,  4.62s/it]
+Token indices sequence length is longer than the specified maximum sequence length for this model (130751 > 32768). Running this sequence through the model will result in indexing errors
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p', 'top_k']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 2
+  ├─ Draft Model Generate  : 38.9961s  (Avg: 19.4980s/round)
+  ├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+  ├─ Target Model Forward  : 90.3120s  (Avg: 45.1560s/round)
+  ├─ Verification Strategy : 0.0599s  (Avg: 0.0299s/round)
+====================================================================================================
+
+  [speculative] time=129.374s new_tokens=2 (0.02 tok/s) pred='levision'
+    acceptance_rate=0.0000 (0/3 draft tokens) verify_rounds=2
+  -> gold='Air conditioning unit' pred='levision'
+[direct_sd] sample 2/557 id=7447d782-d1a7-4c87-86dc-b5eafc5a0f76 frames=64 q='What material is the ceiling in the living room?'
+
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 2
+  ├─ Draft Model Generate  : 37.7285s  (Avg: 18.8643s/round)
+  ├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+  ├─ Target Model Forward  : 90.1657s  (Avg: 45.0828s/round)
+  ├─ Verification Strategy : 0.0039s  (Avg: 0.0019s/round)
+====================================================================================================
+
+  [speculative] time=127.901s new_tokens=2 (0.02 tok/s) pred='dry'
+    acceptance_rate=0.0000 (0/2 draft tokens) verify_rounds=2
+  -> gold='Wood panel' pred='dry'
+[direct_sd] sample 3/557 id=e2ccf6f4-22a9-47d1-ab8d-a05a13435b82 frames=64 q='What color is the staircase railing?'
+
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+  ├─ Draft Model Generate  : 19.2791s  (Avg: 19.2791s/round)
+  ├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+  ├─ Target Model Forward  : 45.0265s  (Avg: 45.0265s/round)
+  ├─ Verification Strategy : 0.0019s  (Avg: 0.0019s/round)
+====================================================================================================
+
+  [speculative] time=64.310s new_tokens=1 (0.02 tok/s) pred=''
+    acceptance_rate=0.0000 (0/1 draft tokens) verify_rounds=1
+  -> gold='Brown' pred=''
+[direct_sd] sample 4/557 id=c841bb52-1cec-46d7-bb83-8c99b5c66fa8 frames=64 q='What is in between the two picture frames on the blue wall i'
+
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 3
+  ├─ Draft Model Generate  : 57.1200s  (Avg: 19.0400s/round)
+  ├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+  ├─ Target Model Forward  : 135.3663s  (Avg: 45.1221s/round)
+  ├─ Verification Strategy : 0.0060s  (Avg: 0.0020s/round)
+====================================================================================================
+
+  [speculative] time=192.497s new_tokens=6 (0.03 tok/s) pred='plant in front of window'
+    acceptance_rate=0.5000 (3/6 draft tokens) verify_rounds=3
+  -> gold='The TV' pred='plant in front of window'
+[direct_sd] sample 5/557 id=79344680-6b45-4531-8789-ad0f5ef85b3b frames=64 q='Is there room on the dining table to eat?'
+
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+  ├─ Draft Model Generate  : 18.8688s  (Avg: 18.8688s/round)
+  ├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+  ├─ Target Model Forward  : 45.1061s  (Avg: 45.1061s/round)
+  ├─ Verification Strategy : 0.0016s  (Avg: 0.0016s/round)
+====================================================================================================
+
+  [speculative] time=63.978s new_tokens=1 (0.02 tok/s) pred=''
+    acceptance_rate=0.0000 (0/2 draft tokens) verify_rounds=1
+  -> gold='Yes' pred=''
+[direct_sd] sample 6/557 id=500e6924-0ea3-45c8-89ce-db3d37e142bf frames=64 q='Is the dining table set with table mats?'
+
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+  ├─ Draft Model Generate  : 19.1581s  (Avg: 19.1581s/round)
+  ├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+  ├─ Target Model Forward  : 45.0686s  (Avg: 45.0686s/round)
+  ├─ Verification Strategy : 0.0019s  (Avg: 0.0019s/round)
+====================================================================================================
+
+  [speculative] time=64.231s new_tokens=1 (0.02 tok/s) pred=''
+    acceptance_rate=0.0000 (0/1 draft tokens) verify_rounds=1
+  -> gold='Yes.' pred=''
+[direct_sd] sample 7/557 id=ecad68d2-a16f-4a3e-b8a1-a70ec1c5cf00 frames=64 q='Is the front door open?'
+
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+  ├─ Draft Model Generate  : 19.4840s  (Avg: 19.4840s/round)
+  ├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+  ├─ Target Model Forward  : 45.0648s  (Avg: 45.0648s/round)
+  ├─ Verification Strategy : 0.0017s  (Avg: 0.0017s/round)
+====================================================================================================
+
+  [speculative] time=64.552s new_tokens=1 (0.02 tok/s) pred=''
+    acceptance_rate=0.0000 (0/1 draft tokens) verify_rounds=1
+  -> gold='No' pred=''
+[direct_sd] sample 8/557 id=5c1d30b9-5827-49fc-b74f-5ee9909a75b8 frames=64 q='What should I do to cool down?'
+
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 2
+  ├─ Draft Model Generate  : 38.1560s  (Avg: 19.0780s/round)
+  ├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+  ├─ Target Model Forward  : 90.1611s  (Avg: 45.0805s/round)
+  ├─ Verification Strategy : 0.0033s  (Avg: 0.0017s/round)
+====================================================================================================
+
+  [speculative] time=128.324s new_tokens=5 (0.04 tok/s) pred='Use air conditioning.'
+    acceptance_rate=0.5000 (3/6 draft tokens) verify_rounds=2
+  -> gold='Turn on the AC unit' pred='Use air conditioning.'
+[direct_sd] sample 9/557 id=8d7f1dd7-9764-4603-918b-58eefcb0b10e frames=64 q='What can I do to increase the speed of the ceiling fan?'
