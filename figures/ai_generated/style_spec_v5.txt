@@ -1,0 +1,94 @@
+Here is the **Reviewer-Enhanced Final Figure Specification (Iteration 5 - FINAL)**, rigorously optimized for top-tier CVPR/NeurIPS standards. 
+
+To completely eliminate the risk of text-leakage bugs (where spatial instructions are accidentally written on the canvas by rendering engines), all layout terms (Top, Middle, Bottom, Track) have been systematically stripped from the component headers and replaced with **purely spatial coordinate instructions** `[Y-Axis: X%]`. 
+
+***
+
+# 🏆 ENHANCED FIGURE SPECIFICATION: Multimodal Speculative Visual Routing
+**(CVPR/NeurIPS Final Double-Column Format - Iteration 5)**
+
+### 🚨 ZERO-TOLERANCE DIRECTIVES FOR RENDERER (READ CAREFULLY)
+1. **NO-TEXT-LEAK POLICY:** Headers enclosed in brackets like `[Y-Axis: ...]` or `[Panel X]` are **developer blueprint instructions only**. Under absolutely NO circumstances should these layout words be rendered as visible text on the canvas. Subtle gray background grouping boundaries may be used for organization, but they must remain entirely blank/empty of text.
+2. **LABEL SEPARATION RULE (STRICTLY ENFORCED):** Node labels (the name of a component) and Arrow labels (describing the flow) must ALWAYS be rendered as physically separate text bounding boxes. They must **never** be merged or garbled (e.g., rendering "Heuristic occluded filter Filter" will cause immediate rejection).
+3. **ALLOWED TEXT:** Only exact text strings wrapped in standard English **"quotes"** and exact LaTeX math formulas wrapped in **$...$** may appear in the final image. 
+
+---
+
+### 1. Canvas & Global Structure
+*   **Dimensions:** 16:9 landscape aspect ratio spanning a double-column width. Pure white (`#FFFFFF`) canvas bleed. No outer bounding box.
+*   **Typography & Math:** Standard LaTeX. Variables italicized ($q, B, c_i$), vectors/matrices bolded ($\mathbf{q}^T \mathbf{v}_i$), textual subscripts non-italicized ($K_{\text{mem}}$). Font: Sans-serif (Helvetica/Arial), minimum 14pt.
+*   **Panel Split:** The canvas is divided vertically into two halves with an **8% white gap** at the exact center $X$-axis.
+    *   **[Left Half] Panel (a):** Light, cool background (`#F4F9FF`), 10px rounded corners. Bottom centered label: **"(a) Query-Aware Spatial-Preserving Visual Routing"**.
+    *   **[Right Half] Panel (b):** Light, neutral background (`#F8F9FA`), 10px rounded corners. Bottom centered label: **"(b) Multimodal Speculative Memory Decoding"**.
+
+---
+
+### 2. Panel (a) Components & Routing (LEFT HALF)
+
+**`[Y-Axis: 0% to 35% Zone]` (Input & Budget Estimator)**
+*   **User Query ($\mathbf{q}$):** Orange rounded chip (`#F97316`) at the top-left. Background around it is entirely blank.
+*   **Budget Estimator (EXACT PROPORTIONS):** Placed directly below the Query. Must be rendered as a **clean, miniature horizontal bar chart**. 
+    *   **Visual:** Three left-aligned, horizontal solid-fill bars (Light Orange). **NO** empty background gauges. 
+    *   **Strict Math Geometry:** Physical lengths must strictly follow a $1W$ : $2W$ : $4W$ ratio. 
+    *   **Labels:** Text is placed *outside to the right* of each bar: **"Simple ($B=256$)"**, **"Default ($B=512$)"**, **"Complex ($B=1024$)"**.
+*   **Routing:** 
+    *   Arrow FROM Query INTO Budget Estimator. Label: **"query complexity"**.
+    *   Arrow FROM Budget Estimator INTO Semantic Affinity Scoring. Label: **"budget $B$"**.
+
+**`[Y-Axis: 35% to 65% Zone]` (Visual Processing)**
+*   **Egocentric Frame Grid ($\mathbf{V}$):** 6x6 grid of patches, Teal/Blue (`#3B82F6`), to the left of the Affinity box.
+*   **Semantic Affinity Scoring:** Central node. 6x6 grid overlaid with a colorblind-safe heatmap (Viridis/Magma). Sub-label: **$\mathbf{s}_i = \mathbf{q}^T \mathbf{v}_i$**.
+*   **Routing:** Horizontal arrow FROM Frame Grid INTO Semantic Affinity.
+
+**`[Y-Axis: 65% to 100% Zone]` (Pruning & Output)**
+*   **Top-$B$ Selection (Unsorted):** 6x6 grid with active (colored) and inactive (gray) patches. Inset bubble ($I_{\text{raw}}$) showing patches smashed into a 1D vector with a bold Gray 'X' icon overlaid.
+*   **Sorted Selection ($I_{\text{sorted}}$):** 1D vector of active patches *with blank, faded placeholder squares* between them (showing preserved 2D spatial gaps). Green (`#10B981`) Checkmark overlaid.
+*   **Routing:** Arrow from Top-$B$ $\rightarrow$ Sorted. Labels: **"$\text{sort}(I_{\text{raw}})$"** and **"sort indices"**.
+*   **Pruned Visual KV Cache:** Positioned at the extreme right edge of Panel (a). Purple box (`#8B5CF6`).
+*   **Routing:** Arrow from Sorted $\rightarrow$ KV Cache. Label: **"index-select"**.
+
+---
+
+### 3. INTER-PANEL CONNECTION (The Bridge)
+*   **The Anchor:** A single, dominant, 6px-thick pure dark gray (`#333333`) arrow. 
+*   **Geometry:** Perfectly horizontal. Originates at the exact center-right edge of the **Pruned Visual KV Cache** (Panel a), crosses the middle gap, and terminates *ONLY* at the center-left edge of the **Active Context KV Cache** (Panel b).
+*   **Typography:** Text floating centered directly above the arrow: **"Pruned Visual Tokens (Length $B$)"**.
+
+---
+
+### 4. Panel (b) Layout & Routing (RIGHT HALF)
+*Instruction: Elements must be arranged in three distinct horizontal groupings with minimum 30px vertical white space between them. Equation callouts MUST use the "Subordinate Style".*
+
+**`[Y-Axis: 0% to 33% Zone]` (Draft Processing)**
+*   **Memory Bias ($\mathbf{b}$):** Subordinate callout box. Math: **$\mathbf{b}_j = \sum_i \mathbb{I}[j \in \text{Uniq}(S_i)] \cdot c_i \cdot \alpha$**.
+*   **Draft Model (2B):** Standard Block (`#60A5FA`), placed to the right of Memory Bias.
+*   **Routing:** Arrow from Memory Bias $\rightarrow$ Draft Model. Label: **"additive logit bias: $L_{\text{draft}} + \mathbf{b}$"**.
+
+**`[Y-Axis: 33% to 66% Zone]` (Main Pipeline & Verification)**
+*   **Retrieved Episodic Memories ($\mathbf{M}$):** Stacked green document cards (`#10B981`) at far left. Label: **$c_i \in [0,1]$**.
+*   **Heuristic Filter Node (🚨 CRITICAL ISOLATION RULE):** Funnel icon. The node itself must have exactly one clean label anchored 10px directly below it: **"Heuristic Filter"**.
+*   **Incoming Filter Routing (🚨 CRITICAL ISOLATION RULE):** Arrow FROM Memories INTO the Funnel. This arrow must have its own, separate label anchored 15px directly above the arrow line: **"filter occluded"**. *(The bounding boxes of "filter occluded" and "Heuristic Filter" MUST NOT touch)*.
+*   **The $\mathbf{M}_{\text{filt}}$ Split:** The funnel outputs $\mathbf{M}_{\text{filt}}$.
+    *   Path 1 branches UP into **Memory Bias**.
+    *   Path 2 branches RIGHT into **Precompute & Re-encode**.
+*   **Precompute & Re-encode:** Subordinate callout box. Math: **$\mathbf{K}_{\text{raw}} = \text{strip\_rope}(\mathbf{K}_{\text{mem}})$**. Looping arrow label around this block: **"dynamic re-encode each round"**.
+*   **Active Context KV Cache:** Large Purple block (`#7C3AED`), physically aligned to receive the Inter-Panel Bridge from Panel (a). Receives a downward arrow from Precompute labeled: **"append K/V (no prompt expansion)"**. *(Visually 1.5x longer than the Pruned cache).*
+*   **Accept/Reject Verifier:** Diamond node (`#F59E0B`), far right. Receives arrows from Draft (diagonal down) and Target (diagonal up). Outputs right labeled **"Accepted / Bonus Token"**. Rejection path arcs back over to Draft labeled **"Reject: Resample"**.
+
+**`[Y-Axis: 66% to 100% Zone]` (Target Processing & Footer)**
+*   **Attention Bias ($\mathbf{A}_{\text{bias}}$):** Subordinate callout box. Receives downward arrow from Precompute. Math: **$\mathbf{A}_{\text{bias}}[k] = \log(c_i) \cdot \beta$**.
+*   **Target Model (8B):** Dark Blue block (`#1D4ED8`), visibly 2x larger than the Draft Model. Positioned bottom right. Receives inputs from Active Context KV Cache (above) and Attention Bias (left).
+*   **Emphasis Callout (Footer):** Floating box spanning the bottom of Panel (b) with a dashed border: **"No memory text prepended to prompt — context length unchanged"**. Background: Soft yellow (`#FEF9C3`).
+
+---
+
+### 5. Academic Visual Style Dictionary & Compliance
+*Mandatory rules for CVPR/NeurIPS top-tier vector graphics.*
+
+| Element | Specification Rule (CVPR/NeurIPS Strict) |
+| :--- | :--- |
+| **Subordinate Equation Style** | "Memory Bias", "Precompute & Re-encode", and "Attention Bias" boxes MUST be visually subordinate. Use a **1px light gray border** (`#CBD5E1`), ultra-light pastel background (e.g., `#F8FAFC`), generous internal padding (min 12px), and a font size (10pt equivalent) smaller than the main labels. |
+| **Primary Blocks** | Main models/caches get a **2px solid border**, colored 25% darker than their internal fill. Add a subtle, monochrome top-to-bottom linear gradient (e.g., `#60A5FA` to `#3B82F6`) to give flat shapes a premium feel. |
+| **Drop Shadows** | **PROHIBITED.** Zero drop shadows, outer glows, or 3D extrusions. Rely entirely on contrasting border lines and crisp whitespace. |
+| **Clearance Margins** | Minimum 20px clearance around *all* arrows. Arrows must never run parallel closer than 20px to another element. No overlapping or intersecting lines. |
+| **Radii & Geometry** | Uniform **8px radius** on all model blocks and caches. Main flow arrows use a **5px thick stroke**, pure dark gray (`#333333`), with solid equilateral triangle heads and smooth 5px rounded elbows at 90-degree turns. |

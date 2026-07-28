@@ -1,0 +1,96 @@
+Here is your **Final, Publication-Ready Figure Specification (Iteration 3 - Golden Master)**. 
+
+All routing and layout logic from Iteration 2 has been preserved exactly, with **Fix 1 (Text Leak)** and **Fix 2 (M_filt Routing)** strictly applied. The specification has been explicitly formatted to prevent renderers/designers from hallucinating internal jargon as visible text, and the memory routing paths have been mathematically locked to prevent any bypassing paths.
+
+---
+
+# ENHANCED FIGURE SPECIFICATION: Multimodal Speculative Visual Routing (ITERATION 3)
+
+### 🚨 CRITICAL RENDERER INSTRUCTIONS (FIX 1 ENFORCED)
+**DO NOT RENDER ANY LAYOUT-JARGON OR ALIGNMENT TEXT ON THE CANVAS.** 
+Terms like "Y-Plane", "Invisible Tier", "Upper-Mid Level", grid labels, or alignment directives used below are **internal structural concepts only**. They MUST REMAIN 100% INVISIBLE. The top-left area of Panel (a) must contain *only* the "User Query (q)" chip on a clean background. No placeholder text, debug labels, or literal "Y-Plane" strings are permitted anywhere in the final image.
+
+---
+
+### 1. Canvas & Global Grid Structure (The "Invisible Lock")
+*   **Aspect Ratio & Dimensions:** 16:9 wide landscape, designed to span exactly the full double-column width (approx. 6.5 to 7 inches wide in print). 
+*   **Background & Bleed:** Pure white (`#FFFFFF`) canvas. No outer bounding box.
+*   **Typography Engine:** 
+    *   *Text/Titles:* Arial, Helvetica, or identical sans-serif. Min size: **14pt equivalent** (must be legible at 45% scaling).
+    *   *Math Variables:* Standard LaTeX formatting. Variables italicized ($q, B, c_i$), vectors/matrices bolded ($\mathbf{q}^T \mathbf{v}_i$), subscripts non-italicized for text ($K_{\text{mem}}$).
+*   **Panel Enclosures (The "Twin-Pillars"):** Divide into two equal halves with an 8% gap in the middle for the bridge. 
+    *   **Panel (a) [Left Half]:** Light, cool background (`#F4F9FF`), 10px rounded corners. Label: **"(a) Query-Aware Spatial-Preserving Visual Routing"**.
+    *   **Panel (b) [Right Half]:** Light, neutral background (`#F8F9FA`), 10px rounded corners. Label: **"(b) Multimodal Speculative Memory Decoding"**.
+*   **Invisible Horizontal Alignment Tiers:** To mathematically eliminate crossing arrows, elements align to four *invisible* horizontal lanes (DO NOT print these names):
+    *   *Tier 1 (Top):* User Query, Draft Path, Memory Bias.
+    *   *Tier 2 (Upper-Mid):* Budget Estimator, Egocentric Frames.
+    *   *Tier 3 (Mid-Lower):* The Inter-Panel Bridge, Active Context KV Cache.
+    *   *Tier 4 (Bottom):* Attention Bias, Target Model.
+
+---
+
+### 2. Panel (a) Components & Routing (LEFT HALF)
+**Flow Design:** Top-to-Bottom hierarchy, transitioning into Left-to-Right execution.
+
+*   **Top Sector (Input & Budget):**
+    *   **User Query ($\mathbf{q}$):** Orange chip (`#F97316` to `#EA580C`). Located Top-Left (Tier 1). Background around this must be clean—NO debug text.
+    *   **Budget Estimator:** Box directly below Query (Tier 2). Visual: Three horizontal progress bars (Light Orange fills) labeled `Simple (B=256)`, `Default (B=512)`, `Complex (B=1024)`. 
+    *   **Routing Fail-safes:** 
+        1.  Thick, 5px dark gray arrow **FROM** User Query ($\mathbf{q}$) **INTO** the top of Budget Estimator. Label: **"query complexity"**.
+        2.  Downward arrow **FROM** the bottom of Budget Estimator **INTO** Semantic Affinity Scoring. Label: **"budget $B$"**.
+*   **Middle Sector (Visual Processing):**
+    *   **Egocentric Frame Grid ($\mathbf{V}$):** 6x6 grid of patches, Teal/Blue (`#3B82F6`). 
+    *   **Semantic Affinity Scoring:** Central node. 6x6 grid overlaid with a colorblind-safe heatmap (Viridis/Magma). Math callout: $\mathbf{s}_i = \mathbf{q}^T \mathbf{v}_i$.
+    *   **Routing:** Distinct arrow **FROM** Egocentric Grid directly **INTO** Semantic Affinity Scoring. *(Does not intersect with the query/budget path).*
+*   **Bottom Sector (The Novelty Visual):**
+    *   **Top-$B$ Selection (Unsorted):** 6x6 grid with active patches. Inset bubble ($I_{\text{raw}}$) showing patches mashed into a 1D vector. Overlay a bold, dark Gray 'X' icon.
+    *   **Sorted Selection ($I_{\text{sorted}}$):** Show active patches as a 1D vector *with blank, faded placeholder squares* between them (preserving 2D gaps). Overlay a Green (`#10B981`) Checkmark.
+    *   **Routing:** Arrow from Top-$B$ $\rightarrow$ Sorted. Labels: **"$\text{sort}(I_{\text{raw}})$"** and **"sort indices"**.
+    *   **Pruned Visual KV Cache:** Extreme right edge of Panel (a), aligned perfectly on Tier 3. Purple box (`#8B5CF6`). Length equals budget $B$.
+    *   **Routing:** Arrow from Sorted $\rightarrow$ KV Cache. Label: **"index-select"**.
+
+---
+
+### 3. INTER-PANEL CONNECTION (The Bridge)
+*   **The Anchor:** A dominant, 6px-thick charcoal gray (`#333333`) arrow. Perfectly horizontal along invisible Tier 3.
+*   **Geometric Guarantee:** Originates exact center-right of **Pruned Visual KV Cache** in Panel (a), and terminates *ONLY* at the exact center-left of **Active Context KV Cache** in Panel (b). It is physically impossible for this arrow to touch the Attention Bias box.
+*   **Typography:** Text floating gracefully above the line: **"Pruned Visual Tokens (Length $B$)"**.
+
+---
+
+### 4. Panel (b) Components & Routing (RIGHT HALF)
+**Flow Design:** Rigid, grid-aligned horizontal fan into parallel lanes.
+
+*   **Input Column (Left Edge):**
+    *   **Retrieved Episodic Memories ($\mathbf{M}$):** Top-Left (Tier 1). Stacked green document cards (`#10B981`). Tags: $c_i \in [0,1]$.
+    *   **Heuristic Filter:** Funnel icon. Arrow label: **"filter occluded"**. Outputs $\mathbf{M}_{\text{filt}}$.
+    *   **Active Context KV Cache:** Center-Left, locked exactly on Tier 3 (receiving the Bridge). Large Purple box (`#7C3AED`), 1.5x longer than the Pruned cache.
+*   **🚨 FIX 2 ENFORCED: Strict Routing from $\mathbf{M}_{\text{filt}}$**
+    *   $\mathbf{M}_{\text{filt}}$ has EXACTLY THREE outgoing paths.
+    *   **PROHIBITED:** There must be **NO DIRECT ARROW** from $\mathbf{M}_{\text{filt}}$ (or the Heuristic Filter) straight into the Active Context KV Cache. Raw memories cannot bypass re-encoding.
+    *   *Path 1 (Tier 1 / Draft):* Branches UP $\rightarrow$ **Memory Bias ($\mathbf{b}$)** [Math: $\mathbf{b}_j = \sum_i \mathbb{I}[j \in \text{Uniq}(S_i)] \cdot c_i \cdot \alpha$] $\rightarrow$ **Draft Model (2B)** (`#60A5FA` block with internal loop). Label: **"additive logit bias: $L_{\text{draft}} + \mathbf{b}$"**.
+    *   *Path 2 (Tier 2 / KV):* Branches RIGHT $\rightarrow$ **Precompute & Re-encode** [Math: $\mathbf{K}_{\text{raw}} = \text{strip\_rope}(\mathbf{K}_{\text{mem}})$]. Dynamic loop label: **"dynamic re-encode each round"**. *From Precompute*, an arrow goes DOWN into **Active Context KV Cache**. Label: **"append K/V (no prompt expansion)"**. *(This is the ONLY valid path from memory to the active cache).*
+    *   *Path 3 (Tier 4 / Target):* Branches DOWN $\rightarrow$ **Attention Bias ($\mathbf{A}_{\text{bias}}$)** [Math: $\mathbf{A}_{\text{bias}}[k] = \log(c_i) \cdot \beta$]. This box must sit substantially lower than the Active Context KV Cache, isolated from the Tier 3 bridge.
+*   **Verification & Output Column (Right Edge):**
+    *   **Target Model (8B):** Bottom-Right (spanning Tiers 3 & 4). Dark Blue (`#1D4ED8`), visibly 2x larger than Draft Model. Receives two inputs: Active KV Cache (above) and $\mathbf{A}_{\text{bias}}$ (below).
+    *   **Accept/Reject Verifier:** Diamond node (`#F59E0B`), vertically centered between Draft and Target.
+    *   **Routing:** 
+        *   Draft $\rightarrow$ Verifier (diagonal down).
+        *   Target $\rightarrow$ Verifier (diagonal up, label: **"verify $K$ tokens"**).
+        *   Verifier $\rightarrow$ Exits right (label: **"Accepted / Bonus Token"**).
+        *   Verifier $\rightarrow$ Draft Model (Sweeping Bezier curve *over the top* of Draft model to avoid crossing Bias lane. Label: **"Reject: Resample"**).
+
+---
+
+### 5. Academic Visual Style Dictionary & Compliance
+*Hand this explicit style dictionary to your designer/TikZ compiler.*
+
+| Element | Specification Rule (CVPR/NeurIPS Strict) |
+| :--- | :--- |
+| **Color Gradients** | No complex gradients. Use subtle, monochrome linear gradients (e.g., top-to-bottom, `#3B82F6` to `#2563EB`) to give flat shapes a premium feel without 3D gloss. |
+| **Borders** | **2px solid border** on all functional blocks, colored strictly 20-30% darker than the fill color (e.g., a Light Blue block gets a Medium Blue border). |
+| **Drop Shadows** | **PROHIBITED.** Zero drop shadows. Rely entirely on contrasting border lines and logical grid spacing. |
+| **Clearance Margins** | Minimum 15px clearance around *all* arrows. Arrows must never run parallel closer than 15px to another element. |
+| **Corner Radii** | Uniform **8px radius** on all model blocks and cache arrays. Background panels use 10px radius. |
+| **Arrow Geometry** | **5px thick stroke**, pure dark gray (`#333333`). Solid-filled equilateral triangle heads. Smooth 5px rounded elbows for right angles. No jagged diagonals except final verification stage. |
+| **Special Emphasis** | Near the Draft/Target models, place a callout box with a dashed border: **"No memory text prepended to prompt — context length unchanged"**. Background: `#FEF9C3` (soft yellow). |

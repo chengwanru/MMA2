@@ -1,0 +1,20 @@
+This is ITERATION 6 (user explicitly approved exceeding the normal 5-iteration cap) of an academic architecture figure. Iteration 5 (attached spec below) successfully fixed the "TRACK 1/2/3" text leak and the garbled "Heuristic Filter" label — KEEP BOTH OF THOSE FIXES EXACTLY AS THEY ARE. However, iteration 5 introduced two NEW text-rendering defects that MUST be fixed. Do not introduce any other changes.
+
+## FIX 1 (critical): remove stray "1W" / "2W" / "4W" text and garbled concatenation on Budget Estimator bars
+In iteration 5, the three Budget Estimator bars had extra unwanted text "1W", "2W", and "4W" placed near/before them, and on the third row the text ran together as a garbled concatenated string "4W Complex (B=1024)" with no clean separation.
+REQUIRED FIX: Remove the "1W" / "2W" / "4W" annotations entirely — they were never requested. Each bar should have EXACTLY ONE clean label to its right, reading only: "Simple (B=256)", "Default (B=512)", "Complex (B=1024)" respectively (matching iteration 3/4's clean label style). The bar lengths themselves already communicate the 1:2:4 ratio visually — no extra multiplier text is needed. Do not concatenate any two labels into one string.
+
+## FIX 2 (critical): fix unprofessional/casual phrasing in the Top-B Selection callout
+In iteration 5, the small callout bubble next to "Top-B Selection (Unsorted)" read "(I_raw) smashed into a 1D vector" — the phrase "smashed into" is casual slang and inappropriate for a CVPR/NeurIPS academic figure.
+REQUIRED FIX: Replace that callout text with simply the clean math label "$I_{raw}$" (or "I_raw") next to the X/warning mark, exactly as it appeared in earlier correct iterations (iteration 3/4) — no extra descriptive sentence, no casual phrasing. If any brief caption is desired, use a neutral, precise phrase like "unordered indices" instead of "smashed into a 1D vector" — but shorter/plainer (just "I_raw" with an X mark) is preferred and matches the established style.
+
+## Everything else — KEEP EXACTLY AS BEFORE (iteration 5 was correct here):
+- No "TRACK 1/2/3", "TOP./MIDDLE./BOTTOM.", "Y-Plane", or any other internal layout-jargon text anywhere.
+- "Heuristic Filter" as a clean single box label, with its incoming arrow separately labeled "filter occluded" — not merged.
+- Budget Estimator bars in exact 1:2:4 proportional length ratio (only fix the extra "1W/2W/4W" text, do not change the bar lengths/proportions themselves).
+- Panel (b)'s improved spacing/breathing room and visual hierarchy from iteration 4/5.
+- Two-panel layout, panel titles, color palette, all components and their correct connections (M_filt routing fix, sorted-vs-unsorted spatial preservation inset with red-X/green-check, etc.).
+- Do not introduce any new components or new text labels beyond what is specified above.
+
+## Full iteration-5 specification for reference — reproduce this faithfully with ONLY Fix 1 and Fix 2 applied:
+

@@ -1,0 +1,58 @@
+Here is the optimized layout description for your CVPR/NeurIPS motivation figure. 
+
+To maximize the dramatic visual contrast and ensure zero arrow crossings, this layout uses a **Horizontal Branching flow** (Left-to-Right). The source image acts as the anchor on the left, splitting cleanly into two horizontally aligned, stacked outcomes on the right. This allows reviewers to instantly compare the "Wrong" (top) and "Right" (bottom) results by looking up and down along the same vertical axis.
+
+---
+
+### 1. Optimized Component Positions
+
+**Canvas Structure**: Wide aspect ratio (e.g., 16:7), optimized for a single-column width (approx. 3.3 to 4 inches) or a top-of-page span. Divided into three logical columns: 
+- Column 1 (Left 35%): Source Frame 
+- Column 2 (Middle 15%): Branching Arrows
+- Column 3 (Right 50%): Outcomes (Stacked A top, B bottom)
+
+*   **Left Anchor (Vertical Center): Shared Source**
+    *   **Label (Top)**: "Query-Selected Patches (Top-B, by index)"
+    *   **Visual**: 8x8 stylized flat-icon scene (teal/blue theme: simple counter, mug, window). 16 discrete patches highlighted with a thick Amber/Yellow border and slight pop-out effect. The unselected patches should have a slightly lower opacity (80%).
+*   **Top Right Area: Path A (The Wrong Way)**
+    *   **Label (Above arrow/grid)**: "Unsorted Extraction — $I_{raw}$"
+    *   **Visual**: A 4x4 densely packed grid (or 1x16 strip). The 16 amber-selected patches from the source are placed here in a randomized/scrambled order (e.g., visually jumbled pieces of the mug and window).
+    *   **Status Indicator**: A bold Red X icon (#DC2626) placed immediately to the right of the grid.
+    *   **Conclusion Label (Underneath/Next to X)**: "Spatial structure destroyed" (Red text, bold).
+*   **Bottom Right Area: Path B (The Right Way)**
+    *   **Label (Above arrow/grid)**: "Sorted Extraction — $I_{sorted} = \text{sort}(I_{raw})$"
+    *   **Visual**: A sparse 8x8 grid (same size as source). The 48 unselected patches are completely blank/transparent. The 16 amber-selected patches are placed in their exact original raster-scan grid positions. The recognizable silhouette of the mug/window is clearly visible.
+    *   **Status Indicator**: A bold Green Checkmark icon (#10B981) placed immediately to the right of the grid.
+    *   **Conclusion Label (Underneath/Next to Check)**: "Spatial structure preserved" (Green text, bold).
+
+### 2. Spacing Recommendations
+
+*   **Grid Padding**: Maintain exactly identical sizing for the 16 selected patch assets across all three visual stages so the reader recognizes them as the exact same data blocks.
+*   **Path A vs. Path B Gap**: Leave a generous vertical margin (at least equal to the height of one 8x8 grid) between the Top Right (Path A) and Bottom Right (Path B) blocks. This prevents visual clutter and emphasizes the dichotomy.
+*   **Arrow Margins**: Leave a 15px gap between the edge of the source grid and the start of the fork, and a 15px gap between the arrowheads and the destination grids to maintain clean whitespace.
+
+### 3. Grouping Strategy (For Rendering/Design)
+
+*   **Group 1 (Source)**: Original 8x8 flat vector art + amber selection overlays + "Query-Selected" text.
+*   **Group 2 (Routing)**: The main splitting arrow (one trunk splitting into two branches).
+*   **Group 3 (Path A Outcome)**: $I_{raw}$ text label + 4x4 scrambled puzzle grid + Red X icon + "Spatial structure destroyed" text.
+*   **Group 4 (Path B Outcome)**: $I_{sorted}$ text label + 8x8 sparse coherent grid + Green Checkmark icon + "Spatial structure preserved" text.
+
+### 4. Arrow Routing (Zero Crossings)
+
+*   **The Fork**: Draw a single, thick (5-6px), dark gray (#4B5563) line starting from the horizontal center-right of the Source Grid. 
+*   **The Split**: After a short horizontal distance, the line splits cleanly into two smooth curves or chamfered 90-degree angles (rounded corners).
+    *   **Upper Branch**: Sweeps up and points directly into the vertical center of the Path A scrambled grid. 
+    *   **Lower Branch**: Sweeps down and points directly into the vertical center of the Path B sparse grid. 
+*   **Arrowheads**: Use large, solid, unambiguous triangle arrowheads. No overlapping lines.
+
+### 5. Visual Hierarchy & Style Specifications
+
+*   **Primary Contrast (The Core Message)**: The scrambled, dense, chaotic nature of the Path A 4x4 grid MUST heavily contrast with the sparse, orderly, silhouette-preserving nature of the Path B 8x8 grid. This is the visual proof.
+*   **Color Palette**:
+    *   *Base Modality*: Teal/Blue family (#3B82F6) for the stylized scene and grid lines.
+    *   *Selection Accent*: Amber/Yellow (#F59E0B) for the highlighted patches (ensures high contrast against teal).
+    *   *Negative Outcome*: Bold Red (#DC2626) for the X and "destroyed" text.
+    *   *Positive Outcome*: Bold Emerald Green (#10B981) for the Checkmark and "preserved" text.
+*   **Typography**: Sans-serif (Arial, Helvetica, or LaTeX equivalent like Helvetica clone). Minimum 14pt equivalent to ensure readability at a 1-column print width. Use **bold** for the conclusion labels ("Spatial structure preserved") to draw the eye immediately.
+*   **Academic Polish**: Apply subtle 2px rounded corners to the square patches. Use clean, solid fills for the flat-icon scene rather than gradients to keep the grid cells readable. Ensure absolute white (#FFFFFF) background with no heavy drop shadows—only a very subtle, light-gray drop shadow (e.g., 10% opacity, 4px blur) under the main grids if separation from the background is needed.

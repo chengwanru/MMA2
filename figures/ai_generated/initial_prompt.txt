@@ -1,0 +1,65 @@
+Create a PROFESSIONAL, VISUALLY APPEALING publication-quality academic diagram following CVPR/ICLR/NeurIPS standards.
+
+## Visual Style: Academic Professional Style — balanced, not conservative, not flashy
+DO: subtle same-color-family gradients, rounded rectangle corners (6-10px), clear visual hierarchy via size/shade, internal sub-structure inside big blocks, consistent 4-color coding, professional polish.
+DON'T: rainbow gradients, heavy drop shadows, 3D/perspective effects, glowing effects, cartoon icons, decorative background patterns.
+
+## Figure Type
+Two-panel main method architecture figure (Figure 2, Section 3 "Methodology") for a paper called MMA2, about an egocentric long-horizon multimodal agent. Panels (a) and (b) are connected by one shared top-level pipeline arrow so the reader sees they are two components of ONE system.
+
+## Overall Top-Level Flow (draw this as a thin connecting band above/between the two panels)
+Egocentric video stream + user query --> Panel (b) Query-Aware Spatial-Preserving Visual Routing --> produces a pruned, spatially-ordered Visual KV Cache --> feeds into Panel (a) Multimodal Speculative Memory Decoding --> Output response tokens.
+
+## PANEL (a): "Multimodal Speculative Memory Decoding" (place on the RIGHT or BOTTOM half, label "(a)" top-left of the panel)
+Components:
+1. "Retrieved Episodic Memories M": small stack of document/chip icons, each tagged with confidence score c_i in [0,1]. Color: soft green (#10B981).
+2. "Heuristic Filter": small filter-funnel icon block that removes memories with occluded/corrupted visual markers, M -> M_filt. Arrow labeled "filter occluded/corrupted".
+3. "Draft Model (small, e.g. Qwen3-VL-2B)": blue block (#2563EB). Internally show an autoregressive loop generating K candidate tokens.
+4. "Memory Bias Vector b": small side-box connected to the Draft Model, showing equation callout: b_j = sum_i [j in Unique(S_i)] * c_i * alpha. Arrow from M_filt into this box, then a "+" symbol arrow merging into Draft Model's logits (label the arrow "additive logit bias, L_draft + b").
+5. "Target Model (large, e.g. Qwen3-VL-8B)": larger blue block (#3B82F6, darker/larger to show hierarchy).
+6. "Memory K/V Precompute" sub-box near Target Model: single forward pass on memory text only -> raw K/V -> "strip RoPE" -> K_mem_raw (position-independent). Small equation callout: K_mem_raw = strip_rope(K_mem, R).
+7. "Position-Aware Re-encoding" sub-box: every speculative round r, re-apply RoPE relative to current context length L_context -> K_mem^(r). Equation callout: K_mem^(r) = apply_rope(K_mem_raw, L_context, R). Arrow labeled "dynamic re-encode each round" looping back each round.
+8. "Attention Bias A_bias": small box, equation callout A_bias[k] = log(c_i) * beta, arrow into Target Model's attention module, label "mask low-confidence memories".
+9. "Active Context KV Cache": purple box (#7C3AED) that the position-aware memory KV appends into (label arrow "append, no prompt re-expansion").
+10. "Accept/Reject Verification": small decision-diamond node between Draft and Target, loop arrow back to Draft Model labeled "reject: resample", and forward arrow labeled "accept: emit tokens" toward Output.
+11. Emphasize with a callout label near the Draft/Target boundary: "No memory text prepended to prompt — context length unchanged".
+
+## PANEL (b): "Query-Aware Spatial-Preserving Visual Routing" (place on the LEFT or TOP half, label "(b)" top-left of the panel)
+Components:
+1. "User Query q": small orange chip (#F97316).
+2. "Budget Estimator": small block, shows three tiers as a mini bar/gauge — "simple/binary: B=256", "default: B=512", "complex reasoning/description: B=1024". Arrow from Query into this block labeled "query complexity -> budget B".
+3. "Egocentric Frame Patch Grid": a simple grid of visual patches (e.g. 6x6 grid over a simplified kitchen/room icon) representing visual patch embeddings V = [v_1...v_P], teal/blue color (#3B82F6).
+4. "Semantic Affinity Scoring": show the dot product q^T v_i as a heatmap overlay on the patch grid (some patches brighter/warmer = higher score s_i). Equation callout: s_i = q^T v_i.
+5. "Top-B Selection (unsorted)": show the same grid with only the top-B highest-score patches highlighted, but scattered/non-contiguous, with a small "I_raw" label — draw a small inset icon showing these patches extracted out of order producing a visibly SCRAMBLED mini-layout (broken spatial structure), marked with a red warning/X accent.
+6. "Sort Constraint": arrow labeled "I_sorted = sort(I_raw)" pointing from step 5 to step 7.
+7. "Sorted, Spatially-Ordered Selection": the SAME highlighted patches, now shown re-assembled into a small inset that preserves the correct relative geometry/adjacency of the original frame, marked with a green check accent. This before/after contrast (scrambled vs preserved) between steps 5 and 7 is the single most important visual novelty of this panel — make it unmistakable.
+8. "Pruned Visual KV Cache (length B)": purple output box (#7C3AED), arrow labeled "index-select on original KV cache using I_sorted", flowing rightward/downward to connect into Panel (a)'s Active Context KV Cache.
+
+## Layout
+- Direction: left-to-right within each panel; overall panel arrangement top-to-bottom or side-by-side with one connecting arrow from Panel (b)'s output box to Panel (a)'s KV cache, labeled "pruned visual tokens".
+- Spacing: normal, clearly separated panels with a thin divider or distinct background tint per panel (very light gray for (a), very light blue-tinted for (b)).
+- Grouping: keep Draft-path elements and Target-path elements visually grouped as two sub-lanes inside panel (a).
+
+## Connections (explicit)
+1. Episodic Memories M -> Heuristic Filter -> M_filt: label "filter".
+2. M_filt -> Memory Bias Vector b -> Draft Model logits: label "additive bias".
+3. M_filt -> Memory K/V Precompute -> strip RoPE -> Position-Aware Re-encoding -> Active Context KV Cache: label "append K/V".
+4. M_filt (confidence c_i) -> Attention Bias A_bias -> Target Model attention: label "log-confidence mask".
+5. Draft Model -> Accept/Reject Verification -> Target Model: label "verify K tokens".
+6. Accept/Reject Verification -> Output tokens: label "accepted/bonus token".
+7. Accept/Reject Verification -> Draft Model (loop back): label "reject -> resample".
+8. User Query q -> Budget Estimator -> Semantic Affinity Scoring: label "budget B".
+9. Patch Grid V -> Semantic Affinity Scoring -> Top-B Selection (unsorted): label "top-B scores".
+10. Top-B Selection (unsorted) -> Sort Constraint -> Sorted Selection: label "sort indices".
+11. Sorted Selection -> Pruned Visual KV Cache: label "index-select".
+12. Pruned Visual KV Cache (Panel b output) -> Active Context KV Cache (Panel a): label "pruned visual tokens", this is the single connecting arrow between the two panels.
+VERIFY: every arrow points to the correct target, no crossings, no ambiguous connections.
+
+## Style Requirements (CVPR/ICLR/NeurIPS Standard)
+- Color palette: Memory/text modality = green (#10B981); Visual/patch modality = teal-blue (#3B82F6); Draft model = blue (#2563EB); Target model = darker blue (#1D4ED8); KV cache = purple (#7C3AED); Query/budget = orange (#F97316); arrows = black/dark gray (#333333).
+- Font: sans-serif, bold labels, minimum equivalent of 14pt, readable when printed in grayscale.
+- Background: clean white, blocks are rounded rectangles (8-12px radius) with subtle same-hue gradient fill and 2-3px colored border.
+- Arrows: thick (5-6px), black/dark gray, large filled triangular arrowheads, every arrow labeled with the data it carries, no crossings.
+- Panel labels "(a)" and "(b)" bold, top-left corner of each panel, per CVPR convention.
+- Equation callouts small and minimal — only the ones listed above, do not add extra unlisted equations.
+- Data flow must be understandable in 5 seconds at a glance; maintain consistent left-to-right (or top-to-bottom) flow throughout.

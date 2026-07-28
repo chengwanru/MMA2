@@ -1,0 +1,26 @@
+This is a new design-refinement iteration on an academic architecture figure, building on iteration 4 (attached spec below), which had the correctly-proportional Budget Estimator bars (1:2:4 for B=256/512/1024) and good spacing in panel (b). Two known text bugs from iteration 4 must ALSO be fixed here (see Fix 1). Then apply two NEW user-requested design changes (Fix 2 and Fix 3).
+
+## FIX 1 (carry over from previous review, still required): remove leaked/garbled text
+- Remove the "TRACK 1: TOP.", "TRACK 2: MIDDLE.", "TRACK 3: BOTTOM." text that appeared on panel (b)'s background lane groupings — those gray background groupings may stay as plain unlabeled tinted regions, but must have NO caption text.
+- Fix the garbled "Heuristic occluded filter Filter" text near the funnel icon: it must show exactly ONE clean box label "Heuristic Filter", with the incoming arrow separately labeled "filter occluded" (two distinct, non-concatenated strings).
+
+## FIX 2 (new, important): reduce overall text density — replace wording with icons/symbols where the meaning is already obvious visually
+Go through the figure and, wherever a text label is purely procedural/narrative rather than essential technical content (an equation, a variable name, a component name), shorten it or replace it with a simple, universally-understood icon/symbol instead of a full phrase. Specifically:
+- The loop-back arrow currently labeled "Reject: Resample" -> replace with a small circular "retry/refresh" arrow icon directly on the loop, plus only the single short word "Resample" (drop "Reject:" — the diamond's reject branch already implies it).
+- The yellow sticky-note callout currently reading the full sentence "No memory text prepended to prompt — context length unchanged" -> replace with a compact badge: a small icon of two equal-length horizontal bars (representing "prompt length before/after are equal") plus a short label "Context length unchanged" (drop the first half of the sentence).
+- "append K/V (no prompt expansion)" arrow label -> shorten to just "append K/V" (the "no prompt expansion" idea is now carried by the badge above, no need to repeat).
+- "dynamic re-encode each round" -> shorten to "re-encode / round".
+- Keep ALL equations, variable names ($b_j$, $K_{raw}$, $s_i$, $A_{bias}[k]$, $I_{raw}$, $I_{sorted}$), and component names (Draft Model, Target Model, Active Context KV Cache, Memory Bias, Attention Bias, Precompute & Re-encode, Verifier, Budget Estimator, etc.) exactly as they are — do NOT shorten or iconify those, only the narrative/procedural connector phrases listed above.
+- Do not introduce any new text anywhere else beyond what's specified.
+
+## FIX 3 (new, important): panel (a) "Query-Aware Spatial-Preserving Visual Routing" has too much empty background space — add a small, meaningful visual element to fill it
+There is noticeable empty background area in panel (a), particularly around/above the "Egocentric Frame Grid (V)" box. Add ONE new small illustrative element there: a compact, flat-icon-style thumbnail depicting a first-person egocentric view of an indoor scene (e.g., a simplified kitchen or living room viewed from a first-person perspective, in the same teal/blue color family as the rest of panel (a), NOT photorealistic — simple flat vector icon style consistent with the rest of the figure). Connect it with a short arrow labeled "patchify" into the "Egocentric Frame Grid (V)" box, showing that the grid of patches is extracted from this raw egocentric video frame. This addition should fill the empty space naturally and reinforce that the input is real egocentric video, without adding clutter. Do not make this new thumbnail larger or more visually dominant than the existing pipeline components — it should read as a small supporting input icon, not a new focal point.
+
+## Everything else — KEEP EXACTLY AS BEFORE:
+- Budget Estimator bars in exact 1:2:4 proportional length for B=256/512/1024.
+- Panel (b)'s improved spacing from iteration 4.
+- Two-panel layout, panel titles, color palette, all components and their correct connections (M_filt goes only to Memory Bias and Precompute & Re-encode, never directly to Active Context KV Cache; Pruned Visual Tokens arrow terminates only at Active Context KV Cache, not touching Attention Bias).
+- The sort($I_{raw}$) -> $I_{sorted}$ before/after comparison (scrambled vs preserved spatial layout) — this is the key novelty and must remain fully intact and prominent.
+
+## Full iteration-4 specification for reference — reproduce this faithfully with Fix 1, Fix 2, and Fix 3 applied:
+

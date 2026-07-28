@@ -1,0 +1,93 @@
+Here is the **Reviewer-Enhanced Final Figure Specification (Iteration 5)**, fully updated to apply Fix 1 (removing leaked text and fixing the filter label), Fix 2 (reducing text density with icons), and Fix 3 (adding the egocentric input thumbnail), while preserving all previous spatial and mathematical rules.
+
+***
+
+# 🏆 ENHANCED FIGURE SPECIFICATION: Multimodal Speculative Visual Routing
+**(CVPR/NeurIPS Final Double-Column Format - Iteration 5)**
+
+### 🚨 CRITICAL DIRECTIVES FOR RENDERER (NO-TEXT-LEAK POLICY)
+1. **Render ONLY quoted text and math:** Structural instructions (e.g., "Top-Left", "Upper Region", "Layout Track 1") are internal blueprints for spatial arrangement. **DO NOT** render these organizational words on the canvas. 
+2. **Text Allowed:** Only text wrapped in exact **"quotes"** and LaTeX math formulas may appear in the final image.
+3. **Typography Scaling:** Minimum 14pt equivalent (sans-serif like Arial/Helvetica) to ensure legibility when printed at 45% scale in a double-column layout.
+
+---
+
+### 1. Canvas & Global Structure
+*   **Dimensions:** 16:9 landscape aspect ratio. Designed to span exactly a double-column width (no outer bounding box). Pure white (`#FFFFFF`) canvas bleed.
+*   **Math Rendering:** Standard LaTeX. Variables italicized ($q, B, c_i$), vectors/matrices bolded ($\mathbf{q}^T \mathbf{v}_i$), textual subscripts non-italicized ($K_{\text{mem}}$).
+*   **Panel Enclosures (Two Halves):** Divide the canvas evenly into left and right halves with a generous **8% white gap** in the middle. 
+    *   **Panel (a) [Left Half]:** Light, cool background (`#F4F9FF`), 10px rounded corners. Bottom centered label: **"(a) Query-Aware Spatial-Preserving Visual Routing"**.
+    *   **Panel (b) [Right Half]:** Light, neutral background (`#F8F9FA`), 10px rounded corners. Bottom centered label: **"(b) Multimodal Speculative Memory Decoding"**.
+    *   *(Note: The light backgrounds in panel b may be partitioned into subtle, unlabeled horizontal tinted lanes for visual separation, but MUST contain NO text labels like "Track 1" etc.)*
+
+---
+
+### 2. Panel (a) Components & Routing (LEFT HALF)
+**Flow Logic:** Top-to-Bottom hierarchy, transitioning into Left-to-Right execution.
+
+*   **Upper Region (Input & Budget Estimator):**
+    *   **User Query ($\mathbf{q}$):** Orange rounded chip (`#F97316`) at the top-left.
+    *   **Budget Estimator (CRITICAL GEOMETRY):** Placed directly below the Query. Rendered as a clean, miniature horizontal bar chart. 
+        *   **Visual:** Three left-aligned, horizontal solid-fill bars (Light Orange). 
+        *   **Strict Math Geometry:** The physical lengths must strictly follow a **1W : 2W : 4W** ratio on the canvas. 
+        *   **Labels:** Place text *outside to the right* of each bar: **"Simple ($B=256$)"**, **"Default ($B=512$)"**, **"Complex ($B=1024$)"**.
+    *   **Routing:** Arrow **FROM** User Query **INTO** Budget Estimator. Label: **"query complexity"**. Arrow **FROM** Budget Estimator **INTO** Semantic Affinity Scoring. Label: **"budget $B$"**.
+
+*   **Middle Region (Visual Processing - 🚨 FIX 3: EGOCENTRIC THUMBNAIL):**
+    *   **Raw Input (New):** A compact, flat vector icon thumbnail of a first-person egocentric view (e.g., a simplified line/flat-color rendering of an indoor room/kitchen). Must be the same teal/blue color family as Panel (a), non-photorealistic, acting as a small supporting visual element in the previously empty space above/left of the frame grid.
+    *   **Egocentric Frame Grid ($\mathbf{V}$):** 6x6 grid of patches, Teal/Blue (`#3B82F6`).
+    *   **Routing 1:** Short arrow **FROM** the Raw Input Thumbnail **INTO** Frame Grid ($\mathbf{V}$). Label: **"patchify"**.
+    *   **Semantic Affinity Scoring:** Central node. Contains a 6x6 grid overlaid with a colorblind-safe heatmap (Viridis/Magma). Sub-label: **$\mathbf{s}_i = \mathbf{q}^T \mathbf{v}_i$**.
+    *   **Routing 2:** Horizontal arrow **FROM** Frame Grid **INTO** Semantic Affinity.
+
+*   **Lower Region (Pruning & Output):**
+    *   **Top-$B$ Selection (Unsorted):** 6x6 grid with active (colored) and inactive (gray) patches. Inset bubble ($I_{\text{raw}}$) showing patches smashed into a 1D vector with a bold Gray 'X' icon overlaid.
+    *   **Sorted Selection ($I_{\text{sorted}}$):** 1D vector of active patches *with blank, faded placeholder squares* between them (showing preserved 2D spatial gaps). Green (`#10B981`) Checkmark overlaid.
+    *   **Routing:** Arrow from Top-$B$ $\rightarrow$ Sorted. Labels: **"$\text{sort}(I_{\text{raw}})$"** and **"sort indices"**.
+    *   **Pruned Visual KV Cache:** Positioned at the extreme right edge of Panel (a). Purple box (`#8B5CF6`).
+    *   **Routing:** Arrow from Sorted $\rightarrow$ KV Cache. Label: **"index-select"**.
+
+---
+
+### 3. INTER-PANEL CONNECTION (The Bridge)
+*   **The Anchor:** A single, dominant, 6px-thick pure dark gray (`#333333`) arrow. 
+*   **Geometry:** Perfectly horizontal. Originates at the exact center-right edge of the **Pruned Visual KV Cache** (Panel a), crosses the middle gap, and terminates *ONLY* at the center-left edge of the **Active Context KV Cache** (Panel b).
+*   **Typography:** Text floating centered directly above the arrow: **"Pruned Visual Tokens (Length $B$)"**.
+
+---
+
+### 4. Panel (b) Layout & Routing (RIGHT HALF)
+**Maintain the 3-horizontal-lane spatial arrangement for breathing room, but strictly DO NOT render "Track 1/2/3" text (🚨 FIX 1).**
+
+*   **Top Layout Lane (Draft Logic)**
+    *   **Memory Bias ($\mathbf{b}$):** Subordinate callout box. Math: **$\mathbf{b}_j = \sum_i \mathbb{I}[j \in \text{Uniq}(S_i)] \cdot c_i \cdot \alpha$**.
+    *   **Draft Model (2B):** Standard Block (`#60A5FA`), placed to the right of Memory Bias.
+    *   **Routing:** Arrow from Memory Bias $\rightarrow$ Draft Model. Label: **"additive logit bias: $L_{\text{draft}} + \mathbf{b}$"**.
+
+*   **Middle Layout Lane (Core Pipeline & Verification - 🚨 FIX 1 & 2)**
+    *   **Retrieved Episodic Memories ($\mathbf{M}$):** Stacked green document cards (`#10B981`). Label: **$c_i \in [0,1]$**.
+    *   **Heuristic Filter (Fixed Text):** Funnel icon node. Must contain only ONE label: **"Heuristic Filter"**. Incoming arrow from Memories into Funnel labeled: **"filter occluded"**. Outputs $\mathbf{M}_{\text{filt}}$.
+    *   **The $\mathbf{M}_{\text{filt}}$ Split:** 
+        *   Path 1 branches UP into **Memory Bias** (Top Lane).
+        *   Path 2 branches RIGHT into **Precompute & Re-encode**. *(Strict: Does NOT directly touch Active Context KV).*
+    *   **Precompute & Re-encode:** Subordinate box. Math: **$\mathbf{K}_{\text{raw}} = \text{strip\_rope}(\mathbf{K}_{\text{mem}})$**. Looping arrow around this block labeled: **"re-encode / round"**. *(Shortened from previous text)*.
+    *   **Active Context KV Cache:** Large Purple block (`#7C3AED`), physically aligned to receive the Inter-Panel Bridge from Panel (a). Receives a downward arrow from Precompute labeled: **"append K/V"**. *(Shortened from previous text)*.
+    *   **Accept/Reject Verifier:** Diamond node (`#F59E0B`), far right. Receives arrows from Draft (diagonal down) and Target (diagonal up). Outputs right labeled **"Accepted / Bonus Token"**. 
+    *   **Reject Loop (Iconified):** Rejection path arcs back over Top Lane to Draft. Contains a small circular retry/refresh arrow icon and the single short text label: **"Resample"**.
+
+*   **Bottom Layout Lane (Target Logic)**
+    *   **Attention Bias ($\mathbf{A}_{\text{bias}}$):** Subordinate callout box. Receives downward arrow from Precompute. Math: **$\mathbf{A}_{\text{bias}}[k] = \log(c_i) \cdot \beta$**.
+    *   **Target Model (8B):** Dark Blue block (`#1D4ED8`), visibly 2x larger than Draft Model. Positioned bottom right. Receives inputs from Active Context KV Cache (above) and Attention Bias (left). 
+
+---
+
+### 5. Academic Visual Style Dictionary & Compliance
+*Mandatory rules for CVPR/NeurIPS top-tier vector graphics.*
+
+| Element | Specification Rule (CVPR/NeurIPS Strict) |
+| :--- | :--- |
+| **🚨 Subordinate Equation Style** | "Memory Bias", "Precompute & Re-encode", and "Attention Bias" boxes MUST be visually subordinate. Use a **1px light gray border** (`#CBD5E1`), ultra-light pastel background (e.g., `#F8FAFC`), generous internal padding (min 12px), and a font size (10pt equivalent) smaller than the main labels. |
+| **Primary Blocks** | Main models/caches get a **2px solid border**, colored 25% darker than their internal fill. Add a subtle, monochrome top-to-bottom linear gradient (e.g., `#60A5FA` to `#3B82F6`). |
+| **Drop Shadows** | **PROHIBITED.** Zero drop shadows, outer glows, or 3D extrusions. Rely entirely on crisp whitespace and contrasting borders. |
+| **Clearance Margins** | Minimum 20px clearance around *all* arrows. Arrows must never run parallel closer than 20px to another element. No intersecting lines. |
+| **Iconified Emphasis Badge (🚨 FIX 2)** | Placed below the Bottom Lane, a compact floating badge with a solid yellow background (`#FEF9C3`), a 1px solid border (`#EAB308`). Features an **icon of two parallel, equal-length horizontal bars** (denoting equality) alongside the short label: **"Context length unchanged"**. |

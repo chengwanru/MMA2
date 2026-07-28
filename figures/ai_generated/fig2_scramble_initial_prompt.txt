@@ -1,0 +1,27 @@
+Create a PROFESSIONAL, VISUALLY APPEALING publication-quality academic MOTIVATION figure following CVPR/ICLR/NeurIPS standards. This figure goes in Section 3.2 to visually PROVE why the sort(I_raw) step is necessary. It should be a strong, dramatic, immediately-convincing before/after visual argument — this is more visual/illustrative and less abstract/schematic than a pipeline diagram.
+
+## Visual Style
+Same balanced academic style as before: subtle gradients, rounded corners, clean white background, NOT flashy, NOT plain.
+
+## Figure Concept: single source frame -> two divergent extraction paths -> two very different visual outcomes
+
+### Step 0 (shared, top or left): Source frame and selection
+Show one simplified flat-icon egocentric indoor scene (e.g., a stylized kitchen counter with a few recognizable objects — a mug, a stove, a window — simple flat vector style, teal/blue color family, NOT photorealistic) divided into a visible patch grid (e.g. 8x8). Highlight a SPARSE SUBSET of patches (say ~12-16 out of 64) in a distinct accent color (e.g. teal/yellow) as the "top-B selected patches" — chosen so that, when kept in their original grid positions, they still clearly outline a recognizable partial silhouette of the scene (e.g. you can still tell where the mug and window roughly are), but when reordered arbitrarily they become meaningless. Label this shared source "Query-Selected Patches (Top-B, by index)".
+
+### Path A (top branch, labeled "Unsorted Extraction — I_raw"): the WRONG way
+Show the same selected patches being extracted in an ARBITRARY/UNSORTED order (e.g. by descending semantic score rather than position) and packed sequentially into a new small grid/strip. Because the order is scrambled, when these patches are laid out again (even in a compact grid), they NO LONGER correspond to their true relative spatial positions. Render the resulting reassembled image as visibly INCOHERENT/SCRAMBLED — patches that were adjacent in the real scene are now far apart and vice versa, so the reconstructed thumbnail looks like a jumbled, spatially meaningless patchwork (like a shuffled puzzle). Mark this outcome with a bold red X and a short label like "Spatial structure destroyed" or "Relative positions scrambled".
+
+### Path B (bottom branch, labeled "Sorted Extraction — I_sorted = sort(I_raw)"): the RIGHT way
+Show the exact same set of selected patches, but this time extracted after applying sort(I_raw) so they are re-ordered back into their original monotonic sequence order before being packed. Render the resulting reassembled image as a SPARSE BUT SPATIALLY COHERENT version of the original scene — even though most patches are masked/blank (only the selected ones are filled in), the ones that remain are in their correct relative positions, so the partial silhouette of the mug/window/counter is still recognizable and geometrically consistent with the original. Mark this outcome with a bold green checkmark and a short label like "Spatial structure preserved".
+
+## Layout
+- Vertical flow: shared source scene + grid at the top, branching into two paths below it (Path A above Path B, or side-by-side left/right) — whichever avoids arrow crossings.
+- Use a large, clear fork/branch arrow from the source down into the two paths, each clearly labeled.
+- The dramatic visual contrast between the "jumbled/incoherent" Path A result and the "coherent/recognizable" Path B result is THE core message of this figure — make that contrast unmistakable, even at a glance, at small size.
+
+## Style Requirements (CVPR/ICLR/NeurIPS Standard)
+- Color palette: visual/patch modality = teal-blue (#3B82F6 family), selected patches = warm accent (e.g. amber/yellow #F59E0B) for visibility against the teal grid, wrong-outcome accent = red (#DC2626), correct-outcome accent = green (#10B981).
+- Font: sans-serif, bold labels, minimum 14pt equivalent, readable in grayscale.
+- Thick (5-6px) black/dark-gray arrows, clear arrowheads, short 1-4 word labels only where essential (plus the two equation labels "I_raw" and "I_sorted = sort(I_raw)").
+- Rounded corners, subtle gradients, no heavy shadows/glow/rainbow, no stray/debug/placeholder text anywhere, no duplicated labels.
+- Minimal total text — let the visual contrast between scrambled vs coherent carry the argument.

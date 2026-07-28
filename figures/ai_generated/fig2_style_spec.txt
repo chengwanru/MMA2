@@ -1,0 +1,66 @@
+Here is your peer-review feedback and the **ENHANCED, publication-ready specification**. 
+
+### Reviewer Comments (CVPR/NeurIPS Visual Standards)
+> *The core concept is strong, but the original specification contained casual phrasing ("The Wrong Way") and risked visual ambiguity if the transparent space in the bottom branch wasn't anchored. I have upgraded the academic tone, refined the opacity settings for maximum contrast (80% transparent, not 80% opaque), and added structural bounding boxes to Path B so the "spatial preservation" is visually undeniable. The layout has been optimized for a double-column top-of-page span to ensure the 14pt typography breathes properly without clutter.*
+
+---
+
+# ENHANCED FIGURE SPECIFICATION
+
+**Target:** CVPR / NeurIPS / ICCV 
+**Format:** Top-of-page double-column span (approx. 6.875" width, 16:7 aspect ratio).
+**Design Core:** Horizontal Branching flow (Left-to-Right). Zero arrow crossings. Maximum contrast between scrambled chaos (top) and spatial coherence (bottom).
+
+## 1. Optimized Component Positions & Visuals
+
+**Canvas Structure**: Divided into three logical zones: Source Frame (Left 35%), Routing Arrows (Middle 15%), and Stacked Outcomes (Right 50%).
+
+*   **Left Anchor (Vertical Center): Shared Source**
+    *   **Label (Top, Centered)**: `Query-Selected Patches (Top-k)`
+    *   **Visual**: 8x8 stylized flat-vector scene (teal/blue theme: simple counter, mug, window). 16 discrete patches are highlighted with a thick Amber/Yellow (#F59E0B) border and a subtle 2px pop-out offset. 
+    *   **Contrast Crucial**: Unselected patches must drop to **20% opacity** (washed out), immediately drawing the reader's eye exclusively to the 16 Amber structural patches.
+
+*   **Top Right Area: Path A (Baseline/Negative Outcome)**
+    *   **Label (Top, Centered)**: `Unsorted Extraction` $\rightarrow I_{\text{raw}}$
+    *   **Visual**: A densely packed 4x4 grid. The 16 amber-selected patches are completely randomized/scrambled here (e.g., a piece of the window next to the bottom of the mug). The recognizable silhouette is utterly destroyed, looking like noise/texture.
+    *   **Status Indicator**: A bold Red cross icon (`\ding{55}`, #DC2626) placed cleanly to the right of the grid.
+    *   **Conclusion Label (Right of Icon, Middle-aligned)**: **Spatial structure destroyed** (Red text, bold, single clean string).
+
+*   **Bottom Right Area: Path B (Proposed/Positive Outcome)**
+    *   **Label (Top, Centered)**: `Sorted Extraction` $\rightarrow I_{\text{sorted}} = \text{sort}(I_{\text{raw}})$
+    *   **Visual**: A sparse 8x8 grid. **Crucial detail:** Draw a faint, 10% opacity teal structural grid. The 48 unselected cells are completely transparent/empty. The 16 amber-selected patches are rendered in their *exact original raster-scan coordinates*. The spatial silhouette of the mug/window is instantly recognizable despite missing context.
+    *   **Status Indicator**: A bold Green checkmark icon (`\ding{51}`, #10B981) placed cleanly to the right of the grid.
+    *   **Conclusion Label (Right of Icon, Middle-aligned)**: **Spatial structure preserved** (Green text, bold, single clean string).
+
+## 2. Spacing & Alignment Engineering
+
+*   **Asset Consistency**: The 16 selected patches MUST be mathematically identical in size and crop across the Source, Path A, and Path B. This ensures the reader instantly trusts it is the exact same data.
+*   **Vertical Alignment**: The horizontal axis of the Left Source Grid must align perfectly with the exact vertical center between Path A and Path B.
+*   **Whitespace Padding**: 
+    *   Leave exactly one 8x8 grid's worth of vertical whitespace between the Path A and Path B bounding boxes.
+    *   Leave a 15px (relative) margin between the edge of the source grid and the arrow fork.
+    *   Leave a 15px margin between the arrowheads and the destination grids.
+
+## 3. Arrow Routing (Zero-Crossing Integrity)
+
+*   **Geometry**: A single, thick (2pt print equivalent / 5-6px digital) dark gray (#4B5563) line starting from the horizontal center-right of the Source Grid.
+*   **The Fork**: After extending horizontally for 10% of the spacing, it splits using smooth Bezier curves (no sharp 90-degree flowchart corners—keep it fluid).
+    *   *Upper Branch*: Sweeps up and points directly at the vertical center of the Path A 4x4 grid.
+    *   *Lower Branch*: Sweeps down and points directly at the vertical center of the Path B 8x8 grid.
+*   **Arrowheads**: Use solid, filled, isosceles triangle arrowheads. No overlapping lines. No text on the arrows to maintain pristine whitespace.
+
+## 4. Strict Conference Compliance Standards
+
+*   **Color Palette (Accessibility Checked)**:
+    *   *Grid lines & Modality Base*: Teal-Blue (#3B82F6).
+    *   *Selection Accent*: Amber/Yellow (#F59E0B) — naturally colorblind-safe contrast against blue.
+    *   *Negative Outcome*: Bold Red (#DC2626) — paired with "X" icon for redundant signaling.
+    *   *Positive Outcome*: Bold Emerald Green (#10B981) — paired with "Check" icon for redundant signaling.
+*   **Typography**: Clean Sans-Serif (e.g., Helvetica, Arial, or LaTeX `\textsf{}`). 
+    *   Minimum size equivalent: **14pt** at rendered scale (ensures legibility when printed on A4).
+    *   Math symbols must use standard LaTeX math font formatting (e.g., $I_{\text{raw}}$).
+*   **Visual Polish (Academic Style)**:
+    *   **DO NOT** use drop shadows, glows, or rainbow heatmaps. (If separation is strictly required, limit to a 0-offset, 4px blur, 10% opacity neutral gray shadow).
+    *   Apply a uniform, subtle 2px rounding to the corners of the individual patches.
+    *   Ensure pure white (#FFFFFF) background to blend seamlessly into the paper pdf.
+*   **Text Integrity**: No casual descriptors ("The Wrong Way"). All labels are academic, strictly formatted as single strings, and completely free of debug/placeholder text.

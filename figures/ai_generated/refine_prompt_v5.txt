@@ -1,0 +1,18 @@
+This is ITERATION 5 (final allowed iteration) of an academic architecture figure. Iteration 4 (attached spec below) successfully fixed the Budget Estimator bars (now correctly proportional 1:2:4 for B=256/512/1024) and improved panel (b) spacing — KEEP BOTH OF THOSE EXACTLY AS THEY ARE. However, iteration 4 introduced two NEW text-rendering defects that MUST be fixed:
+
+## FIX 1 (critical, must remove): leaked internal layout-scaffolding text
+The rendered image from iteration 4 had the literal text strings "TRACK 1: TOP.", "TRACK 2: MIDDLE.", and "TRACK 3: BOTTOM." visibly printed as labels on the three gray background lanes/sub-groupings inside panel (b). These are internal layout-organization jargon (describing which horizontal band each row of content sits in) and must NEVER appear as visible text in the final figure — this is the same class of bug as the previously-fixed "Y-Plane 1/2" leak.
+REQUIRED FIX: Do not render the text "TRACK 1", "TRACK 2", "TRACK 3", "TOP.", "MIDDLE.", "BOTTOM.", or any similar internal lane/track/grid labels anywhere in the image. The three subtle gray background groupings inside panel (b) may remain as plain, unlabeled background tint/grouping boxes (that's a fine, purely visual way to organize the draft-path / memory-path / attention-bias-path rows) — but they must have NO text caption of their own. Only the actual diagram component labels (Memory Bias, Draft Model, Precompute & Re-encode, Attention Bias, etc.) should have visible text.
+
+## FIX 2 (critical, must fix): garbled/duplicated text on the Heuristic Filter icon
+The rendered image from iteration 4 had garbled, duplicated text near the funnel/filter icon reading "Heuristic occluded filter Filter" — this is a text-rendering error where the box's own label ("Heuristic Filter") got merged/concatenated with the arrow's label ("filter occluded").
+REQUIRED FIX: The funnel icon box should have exactly ONE clean label: "Heuristic Filter" (as its own component name, placed directly on or below the funnel icon). The incoming arrow from "Retrieved Episodic Memories (M)" into this funnel should have its own separate, distinct arrow label: "filter occluded" (or similar, describing what the filter removes). These two text labels must be visually distinct and NOT merged/concatenated into one garbled string.
+
+## Everything else — KEEP EXACTLY AS BEFORE (iteration 4 was correct here):
+- Budget Estimator bars in exact 1:2:4 proportional length ratio for B=256/512/1024, left-aligned bar-chart style.
+- Panel (b)'s improved spacing/breathing room and visual hierarchy (equation callouts subordinate to the main pipeline spine) from iteration 4.
+- Two-panel layout, panel titles, color palette, all components and their correct connections (including the M_filt routing fix — M_filt goes to Memory Bias and to Precompute & Re-encode only, never directly to Active Context KV Cache).
+- Do not introduce any new components. Do not change any other text labels.
+
+## Full iteration-4 specification for reference — reproduce this faithfully with ONLY Fix 1 and Fix 2 applied:
+

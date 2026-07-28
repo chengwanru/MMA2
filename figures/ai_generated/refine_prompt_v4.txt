@@ -1,0 +1,20 @@
+This is ITERATION 4 of an academic architecture figure. Iteration 3 (attached spec below) was accepted as very close to final, but the user has requested two specific visual refinements. Preserve everything else exactly as-is.
+
+## FIX 1: "Budget Estimator" bars must be proportional to their actual values (256 / 512 / 1024 = a 1:2:4 ratio)
+In iteration 3, the three horizontal bars/gauges next to "Simple (B=256)", "Default (B=512)", "Complex (B=1024)" all looked like similarly-sized progress-bar tracks with only a slightly different fill amount — they did NOT visually communicate that 512 is exactly double 256, and 1024 is exactly double 512 (i.e., a clean 1:2:4 ratio).
+REQUIRED FIX: Redraw the three bars so their VISUAL LENGTH is directly proportional to their value: the "Simple (B=256)" bar should be the shortest (1 unit of length), the "Default (B=512)" bar exactly twice as long (2 units), and the "Complex (B=1024)" bar exactly four times as long as the first (4 units). Keep them left-aligned so the doubling relationship is immediately visible at a glance (like a simple horizontal bar chart, not a "gauge with a fixed-length empty track and partial fill"). Keep the same orange color family and rounded-corner style. Keep the numeric labels (B=256 / B=512 / B=1024) attached to each bar.
+
+## FIX 2: Panel (b) "Multimodal Speculative Memory Decoding" feels visually cluttered — simplify and add breathing room
+The right panel currently packs many boxes, equation callouts, and arrows close together, making it feel dense compared to panel (a). Without removing any required content (all components, equations, and arrows from the previous iteration must still be present and correct), REQUIRED FIX:
+- Increase whitespace/margins between components — give the layout more breathing room, especially around the "Memory Bias (b)" / "Precompute & Re-encode" / "Attention Bias (A_bias)" equation-callout boxes, which currently sit very close to their neighbors.
+- Slightly reduce the visual weight of the small equation-callout boxes (lighter border, slightly smaller font for the equation subtext, more padding inside each box) so they read as secondary detail rather than competing with the main pipeline boxes (Draft Model, Target Model, Active Context KV Cache, Verifier).
+- Make sure the main "spine" of the pipeline (Memories -> Filter -> KV/Bias processing -> Active Context KV Cache -> Target Model -> Verifier -> Draft Model loop) is the most visually prominent path, with the equation details clearly subordinate to it.
+- Do not change panel (a) at all except for the Budget Estimator bar fix in FIX 1.
+- Do not remove any component, equation, or arrow — only improve spacing, visual hierarchy, and reduce crowding.
+
+## Everything else — KEEP EXACTLY AS BEFORE:
+- Two-panel layout, panel titles, color palette, all components and their correct connections from iteration 3 (including the Y-Plane-text-leak fix and the M_filt routing fix, both of which must remain fixed).
+- Do not introduce any new components.
+
+## Full iteration-3 specification for reference — reproduce this faithfully with ONLY Fix 1 and Fix 2 applied:
+

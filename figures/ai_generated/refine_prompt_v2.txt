@@ -1,0 +1,17 @@
+This is ITERATION 2 of an academic architecture figure. The previous version (attached description below) was mostly excellent and should be preserved almost exactly as-is, EXCEPT for two specific connectivity issues that MUST be fixed:
+
+## FIX 1 (critical): "Budget Estimator" box is disconnected from its input
+In the previous render, the arrow labeled "complexity -> budget B" went directly from the "User Query (q)" box down to the "Egocentric Frame Grid (V)" box, completely bypassing the "Budget Estimator" box (which lists Simple B=256 / Default B=512 / Complex B=1024). This makes the Budget Estimator box look like a disconnected floating element with no input.
+REQUIRED FIX: Draw a clear, explicitly labeled arrow FROM "User Query (q)" directly INTO "Budget Estimator", labeled "query complexity". The existing downward arrow FROM "Budget Estimator" INTO "Semantic Affinity Scoring" (or onward in the pipeline) should remain, labeled "budget B". The "Egocentric Frame Grid (V)" box should instead receive its own separate unlabeled/lightly-labeled arrow feeding into "Semantic Affinity Scoring" representing the visual patch embeddings V, NOT the query-complexity arrow. Do not let Budget Estimator have zero incoming arrows.
+
+## FIX 2 (important): ambiguous arrow routing near "Attention Bias" box
+In the previous render, the large horizontal arrow labeled "Pruned Visual Tokens (Length B)" — which crosses from the left panel's "Pruned Visual KV Cache" into the right panel — visually passed too close to / appeared to connect into the "Attention Bias (A_bias)" box. This is WRONG: pruned visual tokens must ONLY flow into "Active Context KV Cache" (the purple box). The "Attention Bias (A_bias)" box must ONLY receive its input from the memory confidence values c_i (via M_filt / the Heuristic Filter output on the memory side), never from the visual token pipeline.
+REQUIRED FIX: Reroute so the "Pruned Visual Tokens (Length B)" arrow has a clean, unambiguous, non-crossing path that terminates ONLY at "Active Context KV Cache". Add enough vertical/horizontal spacing so it visually does not pass near or overlap the "Attention Bias (A_bias)" box. Keep "Attention Bias (A_bias)" fed only by its existing arrow from the memory/confidence side (equation A_bias[k] = log(c_i) * beta).
+
+## Everything else — KEEP EXACTLY AS BEFORE:
+- Two-panel layout: panel (a) "Query-Aware Spatial-Preserving Visual Routing" on the LEFT, panel (b) "Multimodal Speculative Memory Decoding" on the RIGHT (this left-to-right order reflects the actual runtime data flow and should be preserved).
+- All other components, equations, colors, the unsorted-vs-sorted (scrambled red-X vs preserved green-check) inset comparison, gradients, rounded corners, thick dark arrows, panel background tints — keep identical in style and content to the previous version.
+- Do not introduce any new components not already present. Do not change the color palette. Do not change panel titles.
+
+## Full previous specification (style-verified) for reference — reproduce this faithfully with ONLY Fix 1 and Fix 2 applied:
+

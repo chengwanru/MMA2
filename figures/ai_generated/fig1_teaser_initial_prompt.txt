@@ -1,0 +1,32 @@
+Create a PROFESSIONAL, VISUALLY APPEALING publication-quality academic TEASER figure following CVPR/ICLR/NeurIPS standards. This is Figure 1 for the Introduction section — it must be simple, punchy, and understandable in under 5 seconds, NOT as detailed/dense as a full method figure. Minimal equations (at most one short one), large clear icons, strong visual contrast between the two halves.
+
+## Visual Style
+Same balanced academic style as before: subtle same-color-family gradients, rounded rectangle corners, clear hierarchy, NOT flashy (no heavy shadows/glow/rainbow), NOT plain/boring either. Clean white background.
+
+## Figure Concept: Two stacked horizontal rows, top vs bottom, contrasting two approaches to injecting retrieved memory into speculative decoding
+
+### TOP ROW: "Standard RAG-Speculative Decoding" (label this row clearly, muted/gray-red color accents to signal "the problem")
+Left to right:
+1. "Retrieved Memories" (small green document-stack icon, same as before).
+2. A large arrow/funnel labeled "prepend to prompt" showing the memory text being concatenated directly into the input prompt.
+3. A "Prompt / Context" bar that is visibly LONG (elongated horizontal bar, with a small red/orange warning icon or a "+N tokens" annotation showing it growing), feeding into a "Draft Model" box and a "Target Model" box.
+4. A small clock/slow icon near the Draft/Target models labeled "slower prefill" or "extra compute", with a muted red/orange accent color to signal this is the drawback.
+Keep this row visually "heavier" and more crowded/elongated to visually communicate the cost of a growing context.
+
+### BOTTOM ROW: "MMA2 (Ours)" (label this row clearly, in the paper's established positive color palette — blue/purple/green — signaling "the solution")
+Left to right:
+1. "Retrieved Memories" (same green document-stack icon as top row, for direct visual comparison).
+2. Instead of one arrow into the prompt, TWO thin arrows branch out: (a) one small arrow labeled "draft logit bias" curving into a small "Draft Model" box (blue), (b) one small arrow labeled "target KV cache" curving into a small "Target Model" box (dark blue), bypassing the prompt entirely.
+3. A "Prompt / Context" bar that is visibly SHORT and stays the same short length as an unlabeled baseline reference bar (to visually contrast with the long bar above) — annotate with a small green checkmark icon and short label "context length unchanged".
+4. Keep this row visually "lighter", cleaner, more compact than the top row — this contrast in visual weight IS the point of the figure.
+
+### Center/side annotation
+A large, bold visual divider between the two rows (e.g. "VS" or a horizontal separator line) to make the contrast unmistakable at a glance. Optionally a one-line takeaway caption area at the bottom like "MMA2 injects memory without growing the context" (small, optional, do not overdo text).
+
+## Style Requirements (CVPR/ICLR/NeurIPS Standard)
+- Color palette: memory = green (#10B981), draft model = blue (#2563EB), target model = darker blue (#1D4ED8), problem/cost accents = muted red-orange (#DC2626/#F97316), solution/positive accents = green checkmark (#10B981).
+- Font: sans-serif, bold row titles, minimum 14pt equivalent, readable in grayscale.
+- Thick (5-6px) black/dark-gray arrows with clear arrowheads, every arrow labeled with 1-3 words max.
+- Rounded rectangles (8-12px radius), subtle gradients, no heavy shadows/glow/rainbow.
+- This is a TEASER — prioritize instant visual comprehension over completeness. Do not include the detailed equations, RoPE steps, or verifier loop from the main method figure — those belong in Figure 2, not here.
+- Minimal total text; let the visual contrast (long/crowded top row vs short/clean bottom row) carry most of the meaning.

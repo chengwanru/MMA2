@@ -1,0 +1,20 @@
+This is ITERATION 3 of an academic architecture figure. Iteration 2 (attached spec below) fixed the previous connectivity issues and is very close to final. Preserve it almost exactly as-is, EXCEPT for two specific problems that MUST be fixed:
+
+## FIX 1 (critical, must remove): leaked internal layout-jargon text
+The rendered image from iteration 2 had the literal text strings "Y-Plane 1" and "Y-Plane 2" visibly printed in the top-left area of panel (a), as if they were real labels. These are internal layout-alignment jargon that must NEVER appear as visible text in the final figure — they are not part of the figure's content at all.
+REQUIRED FIX: Do not render the text "Y-Plane 1", "Y-Plane 2", or any similar internal alignment/grid/guide labels anywhere in the image. The top-left area of panel (a) should contain ONLY the actual diagram content (the "User Query (q)" chip and its downstream flow) with clean white/light-tinted background — no debug text, no grid labels, no placeholder text of any kind.
+
+## FIX 2 (important): remove redundant/incorrect direct arrow from M_filt to Active Context KV Cache
+In iteration 2, "M_filt" (the filtered memories output from the Heuristic Filter) had a direct arrow going straight down into "Active Context KV Cache", in addition to its correct path through "Precompute & Re-encode" (strip_rope -> dynamic re-encode -> "append K/V" arrow -> Active Context KV Cache). This direct/bypassing arrow is technically WRONG: raw memory key-value states must always go through the RoPE strip/re-encode processing before being appended to the active context cache — there is no valid direct path from M_filt straight into Active Context KV Cache.
+REQUIRED FIX: M_filt should have exactly TWO outgoing arrows: (1) up to "Memory Bias (b)" box feeding the Draft Model, and (2) right/down into "Precompute & Re-encode", which is the ONLY path that eventually reaches "Active Context KV Cache" via the "append K/V (no prompt expansion)" arrow. Also keep the separate, correctly-drawn arrow from M_filt down into "Attention Bias (A_bias)" (this one is fine, since attention bias legitimately reads memory confidence directly from M_filt). Remove any arrow that goes directly from M_filt (or from the Heuristic Filter) straight into "Active Context KV Cache" without passing through "Precompute & Re-encode" first.
+
+## Everything else — KEEP EXACTLY AS BEFORE (this was already correct in iteration 2):
+- Two-panel layout: panel (a) "Query-Aware Spatial-Preserving Visual Routing" on the LEFT, panel (b) "Multimodal Speculative Memory Decoding" on the RIGHT.
+- "User Query (q)" -> labeled "query complexity" -> "Budget Estimator" (Simple B=256 / Default B=512 / Complex B=1024) -> labeled "budget B" -> "Semantic Affinity Scoring".
+- "Egocentric Frame Grid (V)" -> "Semantic Affinity Scoring" (equation s_i = q^T v_i).
+- "Top-B Selection (Unsorted)" with the scrambled/red-X inset -> "sort(I_raw)" arrow -> "Sorted Selection (I_sorted)" with green check -> "index-select" arrow -> "Pruned Visual KV Cache" -> labeled "Pruned Visual Tokens (Length B)" arrow crossing into panel (b), terminating cleanly ONLY at "Active Context KV Cache" (not touching Attention Bias).
+- All of panel (b)'s memory/draft/target/verifier structure, equations, colors, gradients, rounded corners, thick dark labeled arrows — identical to iteration 2.
+- Do not introduce any new components. Do not change color palette or panel titles.
+
+## Full iteration-2 specification for reference — reproduce this faithfully with ONLY Fix 1 and Fix 2 applied:
+

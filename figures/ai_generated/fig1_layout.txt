@@ -1,0 +1,69 @@
+Here is the OPTIMIZED LAYOUT DESCRIPTION for your CVPR/NeurIPS/ICLR academic teaser figure. 
+
+To achieve the "under 5 seconds" comprehension goal, this layout leverages a **strict 2x3 grid mapping** (Rows: Standard vs. Ours | Columns: Memories, Context, Models). The core visual trick is keeping the start and end points (Memories and Models) vertically aligned in both rows, forcing the viewer's eye to immediately notice the massive difference in the center column (the Prompt/Context length).
+
+---
+
+### 1. Optimized Component Positions
+*(Assuming a standard 16:8 wide aspect ratio canvas, perfectly sized to span a two-column paper text-width)*
+
+**Overall Canvas Elements:**
+*   **Central Divider:** A thick, subtle dashed line (#E5E7EB) spanning horizontally across the exact vertical center. Place a bold, circular "VS" badge (Dark gray background, white text) in the direct center.
+*   **Bottom Caption Area:** A small, centered text box at the very bottom: *"MMA2 injects memory directly into the decoding process, preserving context length."* (Italicized, 12pt).
+
+**TOP ROW: Standard RAG-Speculative Decoding (Y-axis: Top 45%)**
+*   **Row Title (Top Left):** Bold, 16pt, dark gray (#4B5563) with a muted red accent bar. Text: "Standard RAG-Speculative Decoding".
+*   **Retrieved Memories (Left, X=15%):** Green document-stack icon (#10B981).
+*   **Injection Funnel (Mid-Left, X=25%):** A wide funnel/bracket shape converging the memories into the prompt. Label: "prepend to prompt".
+*   **Prompt/Context Bar (Center, X=35% to 75%):** A visually **LONG**, elongated horizontal rectangle. Base color is light gray, but the extended portion is shaded muted red/orange (#FEE2E2).
+    *   *Annotation:* A red warning icon (! or clock) and bold text "+N tokens" inside the red extended area.
+*   **Models Box (Right, X=85%):** A vertical bounding box containing a small "Draft Model" (Blue, #2563EB) and "Target Model" (Dark Blue, #1D4ED8) stacked.
+*   **Cost Indicator (Far Right, X=95%):** A red clock icon labeled "slower prefill / extra compute" (#DC2626).
+
+**BOTTOM ROW: MMA2 (Ours) (Y-axis: Bottom 45%)**
+*   **Row Title (Top Left):** Bold, 16pt, dark blue (#1D4ED8) with a bright green/blue accent. Text: "MMA2 (Ours)".
+*   **Retrieved Memories (Left, X=15%):** Exact same green document-stack icon as the top row (perfectly aligned vertically).
+*   **Prompt/Context Bar (Center, X=35% to 45%):** A visually **SHORT** rectangle. Start coordinate exactly matches the top row, but it ends much earlier. 
+    *   *Annotation:* A green checkmark icon (#10B981) and text "unchanged". The space from X=45% to X=75% is left intentionally *empty* to create extreme visual contrast.
+*   **Models Box (Right, X=85%):** Exact same Draft/Target models box as the top row (perfectly aligned vertically).
+
+---
+
+### 2. Spacing Recommendations
+*   **Vertical Padding:** Leave 12-15% of vertical whitespace between the top row components and the bottom row components. The "VS" divider lives here. This isolation ensures the rows are processed as two distinct, comparable concepts.
+*   **Horizontal Alignment (Crucial):** Ensure the `Retrieved Memories` blocks have the exact same X-coordinates. Ensure the `Draft/Target Models` have the exact same X-coordinates. By locking the anchors, the stretching of the top `Prompt/Context Bar` vs the shortness of the bottom one becomes the undisputed focal point of the figure.
+*   **Negative Space:** In the bottom row, the space between the short Prompt Bar and the Models MUST be left open. This white space visually communicates "saved compute/time."
+
+---
+
+### 3. Grouping Strategy
+*   **Top Row "Bloat" Grouping:** Group the Memory funnel directly into the Prompt bar, fusing them visually. This shows that the memory *becomes* part of the prompt, creating a single, massive, heavy UI element.
+*   **Bottom Row "Bypass" Grouping:** Keep the Memories, Prompt, and Models as three distinct, separated visual islands. This communicates that MMA2 treats them modularly. 
+
+---
+
+### 4. Arrow Routing to Avoid Crossings
+To maintain a clean 5-second teaser, arrow routing must be mathematically simple:
+
+**Top Row:**
+*   Strictly linear: Horizontal arrow from Memories $\rightarrow$ Funnel $\rightarrow$ Prompt Bar $\rightarrow$ Models. 
+
+**Bottom Row:**
+*   Standard Flow: A faint, standard gray arrow goes straight from the Short Prompt Bar $\rightarrow$ Draft/Target Models.
+*   **Bypass Routing (The Core Method):** 
+    *   **Arrow A (Top Branch):** Originates from Retrieved Memories, arcs elegantly *up and over* the Short Prompt Bar, landing directly on the top of the "Draft Model". Label it (centered on the arc): "draft logit bias" (Blue text).
+    *   **Arrow B (Bottom Branch):** Originates from Retrieved Memories, arcs elegantly *down and under* the Short Prompt Bar, landing directly on the bottom of the "Target Model". Label it (centered on the arc): "target KV cache" (Dark Blue text).
+*   *Result:* Zero intersecting lines. The arcing arrows visually "hug" the short prompt bar, reinforcing that they are bypassing the standard context window.
+
+---
+
+### 5. Visual Hierarchy & Styling Rules
+1.  **Size & Scale (The Main Read):** The `Prompt/Context` bar in the top row must be at least 2.5x to 3x longer than the bar in the bottom row. 
+2.  **Color Psychology:** 
+    *   *Top Row Problem:* Use subtle grayscale for base elements, but aggressively highlight the "extra length" and the "slow clock" with muted red/orange (#DC2626 or #F97316). 
+    *   *Bottom Row Solution:* Use the paper's positive palette (Memories = #10B981, Draft = #2563EB, Target = #1D4ED8). No red should exist in the bottom row.
+3.  **Typography:** Use a clean Sans-Serif (e.g., Arial, Helvetica, or Inter). Keep font sizes highly readable (minimum 14pt equivalent). Arrow labels should be bold but smaller (12pt), restricted to 3 words max.
+4.  **Lines & Shapes:** 
+    *   Use 5-6px thickness for the bypass arrows in the bottom row to make the "new technique" feel robust and intentional. 
+    *   All boxes should have 8-12px rounded corners.
+    *   Use highly subtle, single-color gradients (e.g., #3B82F6 to #2563EB for the Draft model) to give it a polished, published feel without resorting to unacademic drop-shadows or 3D effects.

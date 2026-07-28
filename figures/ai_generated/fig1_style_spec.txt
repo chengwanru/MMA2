@@ -1,0 +1,81 @@
+As a CVPR/NeurIPS figure reviewer, I have evaluated your teaser specification. The core concept—using anchored horizontal layout to force visual attention on the shrinking context bar—is structurally brilliant. 
+
+However, to meet top-tier standards, we must strip away "slide-deck" aesthetics (like the central "VS" badge), reduce word counts to absolute minimums, and strictly enforce academic visual hierarchy.
+
+Here is your **ENHANCED, Conference-Compliant Teaser Specification**, optimized for a 16:8 two-column span, maximizing the "5-second read."
+
+---
+
+### 1. The "5-Second" Visual Strategy (Core Mechanics)
+*   **The Grid:** 2 Rows (Top: Standard, Bottom: Ours) x 3 Columns (Memories, Context, Models).
+*   **The Anchor:** Column 1 (Memories) and Column 3 (Models) share the **exact same X and Y dimensions/alignments** across both rows. 
+*   **The Punchline:** Column 2 (Context). In Row 1, a massive red-tinted rectangle pushes into the Models. In Row 2, a tiny rectangle leaves a huge swath of **stark white negative space**, visually instantly communicating "saved compute."
+*   **Removal of Clutter:** *Delete the "VS" badge and internal text captions.* Rely on the stark visual contrast and standard (a)/(b) subfigure labeling.
+
+---
+
+### 2. Strict Color & Typography Protocol
+*   **Font:** Helvetica, Arial, or Inter. Minimum size: **14pt** (Labels), **16pt Bold** (Titles).
+*   **Memory / Positive:** Emerald Green (#10B981).
+*   **Draft Model:** Bright Blue (#2563EB).
+*   **Target Model:** Dark Blue (#1D4ED8).
+*   **Problem / Bloat:** Muted Red/Orange (#EF4444 or #FEE2E2 for fills).
+*   **Base Elements:** Neutral Grays (#F3F4F6 for fills, #9CA3AF for borders).
+*   **Styling:** 8px rounded corners on all boxes. Extremely subtle linear gradients (e.g., #2563EB to #1D4ED8 for models) to add volume without unacademic drop-shadows. **Zero glow or 3D effects.**
+
+---
+
+### 3. Layout Details: TOP ROW (Standard Approach)
+**Label:** **(a) Standard RAG-Speculative Decoding** *(Top Left, 16pt, Dark Gray, Bold)*
+
+*   **1. Retrieved Memories (X=10-20%):** 
+    *   Green (#10B981) stacked document icon/box.
+*   **2. Injection Node (X=25%):**
+    *   A simple gray `[+]` circle bridging memories into the prompt.
+*   **3. Prompt/Context Bar (X=30% to 75%):** 
+    *   A massive, elongated rectangle. 
+    *   *Left 20%:* Light gray (Base Prompt).
+    *   *Right 80%:* Muted Red fill (#FEE2E2) with a dashed red border (#EF4444). 
+    *   *Internal Text:* Bold Red: **"+N Tokens (Bloat)"**.
+*   **4. Models Pipeline (X=85-95%):** 
+    *   A vertical bounding box. Top half: Draft Model (Blue). Bottom half: Target Model (Dark Blue). 
+    *   *Floating Red Tag above box:* **"High Latency & Cost"** + Clock Icon.
+*   **Routing:** Straight, thick (5px) dark gray arrow piercing through the center of all elements.
+
+---
+
+### 4. Layout Details: BOTTOM ROW (MMA2 - Ours)
+**Label:** **(b) MMA2 (Ours)** *(Top Left, 16pt, Dark Blue, Bold)*
+
+*   **1. Retrieved Memories (X=10-20%):** 
+    *   Perfectly identical to Top Row.
+*   **2. Prompt/Context Bar (X=30% to 40%):** 
+    *   A visually **SHORT** light gray rectangle. 
+    *   *Internal Text:* Green Checkmark + **"Unchanged Length"**.
+    *   **CRITICAL IMPERATIVE:** Leave X=40% to X=75% completely empty. Do not fill this negative space.
+*   **3. Models Pipeline (X=85-95%):** 
+    *   Perfectly identical position to Top Row.
+
+---
+
+### 5. Arrow Routing (The Novel Contribution)
+To avoid messy intersections, use the "Bypass Hug" routing in the bottom row. Lines must be **Thick (5-6px)**, Solid, with crisp, sharp arrowheads.
+
+*   **Base Flow (Gray):** A faint, standard gray arrow from the Short Prompt Bar straight across the empty space into the Models box. 
+*   **Bypass Arrow 1 (Draft Injection):** 
+    *   Starts at Retrieved Memories. 
+    *   Arcs smoothly UP and OVER the Short Prompt Bar.
+    *   Lands directly on the top edge of the "Draft Model".
+    *   *Label centered on arc:* Bright Blue, Bold 14pt: **"draft logit bias"**.
+*   **Bypass Arrow 2 (Target Injection):** 
+    *   Starts at Retrieved Memories. 
+    *   Arcs smoothly DOWN and UNDER the Short Prompt Bar.
+    *   Lands directly on the bottom edge of the "Target Model".
+    *   *Label centered on arc:* Dark Blue, Bold 14pt: **"target KV cache"**.
+
+---
+
+### Reviewer’s Final Checklist for the Designer:
+1. [ ] **Squint Test:** Squint your eyes. Do you immediately see a long red bar on top and a massive gap of white space on the bottom? If yes, it succeeds.
+2. [ ] **Text Restraint:** Ensure NO orphaned text exists. Every word is inside a box or hugging an arrow. 
+3. [ ] **Mathematical Alignment:** Draw vertical guides in your design software. The left edges of the memory blocks and right edges of the model blocks MUST lock perfectly.

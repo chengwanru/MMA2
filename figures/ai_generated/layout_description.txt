@@ -1,0 +1,88 @@
+Here is the optimized layout specification for your CVPR/NeurIPS architecture figure. This layout is designed for a **16:9 wide landscape canvas** (standard top/bottom full-width double-column figure), flowing cleanly from left to right with zero arrow crossings.
+
+---
+
+### 1. Canvas & Top-Level Global Structure
+*   **Background:** Clean white (#FFFFFF).
+*   **Typography:** Sans-serif (e.g., Arial or Helvetica), minimum 14pt equivalent, bold for component titles, regular italics for math equations.
+*   **Global Top Header:** Draw a thin, elegant horizontal band across the top of the entire figure.
+    *   *Left side:* "Egocentric Video Stream + User Query"
+    *   *Middle/Right side:* Flows into "Output Response Tokens".
+*   **Panel Enclosures:** Divide the canvas into two distinct halves with soft, rounded rectangle backgrounds (8-10px radius).
+    *   **Panel (b) [Left Half]:** Very soft, subtle blue-tinted background (e.g., #F0F8FF). Label bold **"(b) Query-Aware Spatial-Preserving Visual Routing"** in the top-left corner.
+    *   **Panel (a) [Right Half]:** Very soft, subtle gray-tinted background (e.g., #F8F9FA). Label bold **"(a) Multimodal Speculative Memory Decoding"** in the top-left corner.
+
+---
+
+### 2. Panel (b) Component Positions & Routing (LEFT HALF)
+**Flow Direction:** Top-to-Bottom, then Left-to-Right.
+
+*   **Top Row:**
+    *   **User Query q:** Small Orange chip (#F97316). Placed Top-Left.
+    *   **Budget Estimator:** Small block below the Query. Display three horizontal mini-bars/gauges: `simple/binary: B=256`, `default: B=512`, `complex: B=1024`.
+    *   *Arrow:* Query -> Budget Estimator, labeled **"query complexity -> budget B"**.
+*   **Middle Row:**
+    *   **Egocentric Frame Patch Grid (V):** Teal/Blue 6x6 grid icon (#3B82F6), placed below the Video Stream header.
+    *   **Semantic Affinity Scoring:** Placed in the center. Show the patch grid overlaid with a warm-color heatmap. Equation callout below it: *s_i = q^T v_i*.
+    *   *Arrows:* Query & Grid V -> Affinity Scoring.
+*   **Bottom Row (The Novelty Visual):**
+    *   **Top-B Selection (unsorted):** Left side. Show the 6x6 grid with only top patches highlighted. **Crucial visual:** Point to a small inset labeled *I_raw* showing patches smashed together out-of-order (SCRAMBLED). Overlay a Red warning 'X' accent.
+    *   *Arrow:* Affinity -> Top-B, labeled **"top-B scores"**.
+    *   **Sorted, Spatially-Ordered Selection:** Center-Right side. Show the same highlighted patches, but re-assembled with gaps to preserve original relative geometry. Overlay a Green Checkmark accent.
+    *   *Arrow:* Top-B -> Sorted Selection, labeled **"I_sorted = sort(I_raw)"** and **"sort indices"**.
+    *   **Pruned Visual KV Cache (length B):** Purple box (#7C3AED) on the extreme Right edge of Panel (b), acting as the exit node.
+    *   *Arrow:* Sorted Selection -> Pruned KV Cache, labeled **"index-select"**.
+
+---
+
+### 3. INTER-PANEL CONNECTION (The Bridge)
+*   **The Single Connecting Arrow:** A thick (6px) dark gray arrow flows exactly from the right edge of Panel (b)'s **"Pruned Visual KV Cache"** across the gap into the left edge of Panel (a)'s **"Active Context KV Cache"**.
+*   **Label:** Float the text **"pruned visual tokens"** above this arrow.
+
+---
+
+### 4. Panel (a) Component Positions & Routing (RIGHT HALF)
+**Flow Direction:** Fanning Left-to-Right into three non-crossing parallel lanes.
+
+*   **Input Column (Left edge of Panel a):**
+    *   **Retrieved Episodic Memories M:** Placed at Top-Left. Soft Green (#10B981) stack of document chips with *c_i \in [0,1]* tags.
+    *   **Heuristic Filter:** Funnel icon directly right of M.
+    *   *Arrow:* M -> Filter -> outputs **M_filt**. Label inside/above arrow: **"filter occluded/corrupted"**.
+    *   **Active Context KV Cache:** Placed at Middle-Left (receiving the bridge arrow from Panel b). Purple box (#7C3AED).
+
+*   **The Three Parallel Routing Lanes (From M_filt flowing Right):**
+    *   **Top Lane (Draft Path):**
+        *   **Memory Bias Vector b:** Small box. Callout: *b_j = \sum_i [j \in Unique(S_i)] \cdot c_i \cdot \alpha*.
+        *   *Arrow:* M_filt branches UP to Bias b.
+        *   **Draft Model (e.g., Qwen3-VL-2B):** Small Blue block (#2563EB). Internally show a circular arrow for autoregressive generation.
+        *   *Arrow:* Bias b -> Draft Model, labeled **"additive logit bias, L_draft + b"**.
+    *   **Middle Lane (KV Memory Path):**
+        *   **Memory K/V Precompute:** Small sub-box. Callout: *K_mem_raw = strip_rope(K_mem, R)*.
+        *   **Position-Aware Re-encoding:** Adjacent sub-box. Callout: *K_mem^{(r)} = apply_rope(K_mem_raw, L_context, R)*. Show a looped arrow: **"dynamic re-encode each round"**.
+        *   *Arrow:* M_filt branches RIGHT to Precompute -> Re-encoding -> points DOWN into **Active Context KV Cache**. Label: **"append K/V"** and **"append, no prompt re-expansion"**.
+    *   **Bottom Lane (Target Path):**
+        *   **Attention Bias A_bias:** Small box. Callout: *A_bias[k] = \log(c_i) \cdot \beta*.
+        *   *Arrow:* M_filt branches DOWN to A_bias.
+
+*   **Models & Verification Column (Right edge of Panel a):**
+    *   **Target Model (e.g., Qwen3-VL-8B):** Large, Dark Blue block (#1D4ED8). Placed Bottom-Right. Receives inputs from *Active Context KV Cache* and *Attention Bias A_bias* (label: **"mask low-confidence memories"**).
+    *   **Accept/Reject Verification:** Diamond node placed to the Right of (and vertically between) Draft and Target models.
+    *   *Arrows:*
+        *   Draft -> Verification (Top-down diagonal).
+        *   Target -> Verification, labeled **"verify K tokens"** (Bottom-up diagonal).
+        *   Verification -> Output tokens (Exits right), labeled **"accepted/bonus token"**.
+        *   Verification -> Draft Model (Loops smoothly over the top), labeled **"reject: resample"**.
+
+*   **Special Callout Label:** Place centrally near the Draft/Target models in bold standout text: **"No memory text prepended to prompt — context length unchanged"**.
+
+---
+
+### 5. Visual Style & Hierarchy Checklist (CVPR/NeurIPS standards)
+1.  **Color Palette Strictness:** Do not deviate from the semantic colors. Modality=Green, Visual=Teal/Blue, Models=Blues, KV/Cache=Purple, Query/Budget=Orange. Apply subtle, same-hue gradients (e.g., dark blue to slightly lighter blue top-to-bottom) within these blocks.
+2.  **Corner Radii:** Set all bounding boxes to 8px border-radius.
+3.  **Shadows/Outlines:** NO heavy drop shadows. Use a 2px solid border slightly darker than the fill color for definition (e.g., dark purple border around a light purple KV box).
+4.  **Hierarchical Sizing:**
+    *   *Target Model* block must be visually 2x larger than the *Draft Model* block to instantly communicate capacity differences.
+    *   *Active Context KV Cache* should be physically larger/longer than the *Pruned Visual KV Cache*.
+5.  **Arrow Formatting:** 5px thick, dark charcoal gray (#333333). Heads must be solid filled triangles. Ensure text labels run horizontally along or slightly offset above the lines.
+6.  **Avoid Crossings:** By positioning M_filt on the left and fanning it vertically *before* pushing right, and keeping Verification on the extreme right, **zero arrow lines will cross** in this layout.
