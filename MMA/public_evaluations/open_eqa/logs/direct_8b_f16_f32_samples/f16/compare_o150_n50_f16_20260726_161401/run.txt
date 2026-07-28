@@ -1,0 +1,1190 @@
+========================================
+ Direct-VL8B vs MMA+SD  (same frames + timing)
+========================================
+GIT_HEAD=e0165b4
+ARMS=mma  OFFSET=150  LIMIT=50  FRAMES=16
+CUDA_VISIBLE_DEVICES=0
+WORK_ROOT=/tmp/openeqa_work
+INPUT=/tmp/openeqa_work/open-eqa-multimodal-compare_o150_n50_f16_20260726_113705.json
+OUT_DIRECT=/tmp/openeqa_work/open_eqa_runs/compare_o150_n50_f16_20260726_161401/direct_vl8b.json
+OUT_MMA=/tmp/openeqa_work/open_eqa_runs/compare_o150_n50_f16_20260726_161401/mma_sd.json
+RUN_DIR=/tmp/openeqa_work/open_eqa_runs/compare_o150_n50_f16_20260726_161401
+OPENEQA_CAPTION_CACHE=/tmp/openeqa_caption_cache_v6
+OPENEQA_HOME_ROOT=/tmp/openeqa_work/openeqa_home
+=== reuse INPUT=/tmp/openeqa_work/open-eqa-multimodal-compare_o150_n50_f16_20260726_113705.json ===
+=== multimodal: 50 samples (ds 150–199) ===
+  [150] frames=16 q='Is there room for more furniture near the kitchen?'
+  [151] frames=16 q='Are the kitchen bar chairs tucked in?'
+  [152] frames=16 q='Is the backyard fenced?'
+=== Arm B: MMA + speculative QA ===
+=== skip caption precompute (PRECOMPUTE_CAPTIONS=0) ===
+episode-memory reuse: ON — 5 memorize(s) for 50 question(s) (skip VL on repeat episode+frames)
+[ours] sample 1/50: Is there room for more furniture near the kitchen?...
+[memorize] fresh HOME (no prior sqlite.db)
+[memorize] direct episodic only (skip memory-agent absorb)
+[Direct Episodic Cache Hit] Reusing offline caption: 6cb452aad972f908c82bb415092e6a15e903979b0f393a02c2448a84199173c3.txt
+[direct_episodic] inserted batch 1: 'living room: grey couch with patterned pillows, wall art above'
+[Direct Episodic Cache Hit] Reusing offline caption: 6bfceacecac789ae4a7ccc757b93bfaedd29811a3d4103e7379488b96da38e89.txt
+[direct_episodic] inserted batch 2: 'living room: red ottoman, striped pillow, grey couch, red door, wall art'
+[Direct Episodic Cache Hit] Reusing offline caption: b7010bda544442c368e43cf019911184186650df34e91f552542ac0fa186d609.txt
+[direct_episodic] inserted batch 3: 'kitchen-dining hybrid: island with stools, dining table, large plant, pendant li'
+[Direct Episodic Cache Hit] Reusing offline caption: 87d16e6021e427f9b0bd24f18017f47dc275db23a02ce6d04b5a745c6b4834e6.txt
+[direct_episodic] inserted batch 4: 'kitchen-dining hybrid: island with stools, dining table on rug, white cabinets, '
+[Direct Episodic Cache Hit] Reusing offline caption: db7a93515dd69fcb4df5cbcd85d98bbb27e48109ee238a603edc3eefd25b5215.txt
+[direct_episodic] inserted batch 5: 'kitchen: island with bar stools, refrigerator, cabinets, pendant light, French d'
+[Direct Episodic Cache Hit] Reusing offline caption: df341c253f9b9f2a60b071315c21d939880006170a5770d68582e1bc1f292e6c.txt
+[direct_episodic] inserted batch 6: 'kitchen-living room open plan: island with stools, fridge, cabinets, ceiling fan'
+[Direct Episodic Cache Hit] Reusing offline caption: 2092cd047e18ad0424e63a2a82965e51499741206601e86392400fe7518af640.txt
+[direct_episodic] inserted batch 7: 'kitchen: island with bar stools, refrigerator, cabinets, double doors to patio'
+[Direct Episodic Cache Hit] Reusing offline caption: a6cb29221143c0810ec5158f4994f35d8a51a28259da8cee96a38fe38e2025f8.txt
+[direct_episodic] inserted batch 8: 'living room: refrigerator, double doors, double doors, clock, rug, chair leg'
+[Direct Episodic Cache Hit] Reusing offline caption: ee501571ddeefc634c42d7cab239f2aa7798996e450d68eed178ec146f2b7ccc.txt
+[direct_episodic] inserted batch 9: 'kitchen: island, refrigerator, cabinets, door to patio'
+[Direct Episodic Cache Hit] Reusing offline caption: 91b2478becf1997ee4d7dea7fe28320dd4163b27ccf8b085b7b111b1bf732ac5.txt
+[direct_episodic] inserted batch 10: 'kitchen: marble countertop island, stainless steel refrigerator, light gray cabi'
+[Direct Episodic Cache Hit] Reusing offline caption: 67b50e810b1fb4e0cc85d5690da4457685b50edbbadae1eb8a3acc66abf4ce23.txt
+[direct_episodic] inserted batch 11: 'kitchen: refrigerator, cabinets, countertop, door with glass panel'
+[Direct Episodic Cache Hit] Reusing offline caption: 7b2e21432cfed208108dfe5e42fc3a1fc9314739833380f54f7680e9df752e7c.txt
+[direct_episodic] inserted batch 12: 'kitchen: marble countertops, island sink, white cabinets, wooden floor, framed w'
+[Direct Episodic Cache Hit] Reusing offline caption: c0438272c1548d51d11f99193f9dbeab0219fe947ae8fcd1f0c58a7a1a422a1c.txt
+[direct_episodic] inserted batch 13: 'kitchen: large island with sink, stainless steel oven, white cabinets, wooden fl'
+[Direct Episodic Cache Hit] Reusing offline caption: aaf332aae55806c722b63b5de81d287007982f20fe6e497dcb67cf92224c310b.txt
+[direct_episodic] inserted batch 14: 'kitchen: marble countertops, white cabinets, double oven, wooden island, framed '
+[Direct Episodic Cache Hit] Reusing offline caption: c3c7340bc254abeb17202940cdcd55c5b58e3ed512c338929c1b2e48ea15f949.txt
+[direct_episodic] inserted batch 15: 'kitchen: countertop with fruit bowl, wall art, doorway to adjacent room'
+[Direct Episodic Cache Hit] Reusing offline caption: 08269997bea8d0e875145d8194981e7bbedede0d9a0c4f9cba139110ee1344e7.txt
+[direct_episodic] inserted batch 16: 'kitchen: countertop with fruit bowl, wall art above doorway, grey cabinets'
+[memorize] direct episodic inserts: 16
+  memorize phase: OK (8.1s)
+[qa] draft_policy: steps=1 bias=0.0 margin=3.099 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=4
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 4.5054s  (Avg: 4.5054s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2573s  (Avg: 0.2573s/round)
+├─ Verification Strategy : 0.0206s  (Avg: 0.0206s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=2 elapsed=4.796s
+[sd_trace] target_final='Yes' draft_all_rounds='Yes'
+[sd_trace] round=1 draft='Yes' accepted='Yes' rejected='' target_corr=''
+[qa] direct_sd raw='Yes'
+[qa] memory_hint_chars=3989 selected=10 raw_empty=False init_error=none
+[ours] sample 1 done: Yes | total=43.578s mem=8.084s qa=35.494s decode=4.7965s reuse=False
+[ours] sample 2/50: Are the kitchen bar chairs tucked in?...
+  memorize phase: SKIP (reuse episode memory in ep_1a8049b85113db8dbfc6_hm3d-v0_014-hm3d-rsggHU7g7dh)
+[qa] draft_policy: steps=1 bias=0.15 margin=3.598 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=4
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 4.5893s  (Avg: 4.5893s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2558s  (Avg: 0.2558s/round)
+├─ Verification Strategy : 0.0159s  (Avg: 0.0159s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=2 elapsed=4.873s
+[sd_trace] target_final='No' draft_all_rounds='No'
+[sd_trace] round=1 draft='No' accepted='No' rejected='' target_corr=''
+[qa] direct_sd raw='No'
+[qa] memory_hint_chars=3991 selected=10 raw_empty=False init_error=none
+[ours] sample 2 done: No | total=33.17s mem=0.0s qa=33.17s decode=4.8728s reuse=True
+[ours] sample 3/50: Is the backyard fenced?...
+  memorize phase: SKIP (reuse episode memory in ep_1a8049b85113db8dbfc6_hm3d-v0_014-hm3d-rsggHU7g7dh)
+[qa] draft_policy: steps=1 bias=0.0 margin=4.395 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=4
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 4.5008s  (Avg: 4.5008s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2309s  (Avg: 0.2309s/round)
+├─ Verification Strategy : 0.0779s  (Avg: 0.0779s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=2 elapsed=4.820s
+[sd_trace] target_final='No' draft_all_rounds='No'
+[sd_trace] round=1 draft='No' accepted='No' rejected='' target_corr=''
+[qa] direct_sd raw='No'
+[qa] memory_hint_chars=3999 selected=10 raw_empty=False init_error=none
+[ours] sample 3 done: Yes | total=33.516s mem=0.0s qa=33.516s decode=4.8196s reuse=True
+[ours] sample 4/50: Where can I put my apples?...
+  memorize phase: SKIP (reuse episode memory in ep_1a8049b85113db8dbfc6_hm3d-v0_014-hm3d-rsggHU7g7dh)
+[qa] draft_policy: steps=3 bias=0.4 margin=7.499 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 0.6804s  (Avg: 0.6804s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2413s  (Avg: 0.2413s/round)
+├─ Verification Strategy : 0.0168s  (Avg: 0.0168s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=4 elapsed=0.949s
+[sd_trace] target_final='on countertop' draft_all_rounds='on countertop'
+[sd_trace] round=1 draft='on countertop' accepted='on countertop' rejected='' target_corr=''
+[qa] direct_sd raw='on countertop'
+[qa] memory_hint_chars=3989 selected=10 raw_empty=False init_error=none
+[ours] sample 4 done: on countertop | total=29.808s mem=0.0s qa=29.808s decode=0.9494s reuse=True
+[ours] sample 5/50: What can I use to check my appearance?...
+  memorize phase: SKIP (reuse episode memory in ep_1a8049b85113db8dbfc6_hm3d-v0_014-hm3d-rsggHU7g7dh)
+[qa] draft_policy: steps=0 bias=0.0 margin=3.998 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 2
+├─ Draft Model Generate  : 0.0001s  (Avg: 0.0000s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 1.0322s  (Avg: 0.5161s/round)
+├─ Verification Strategy : 0.0000s  (Avg: 0.0000s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.0 memory_items=10 new_tokens=2 elapsed=1.047s
+[sd_trace] target_final='mirror' draft_all_rounds=''
+[sd_trace] round=1 draft='' accepted='' rejected='' target_corr='mirror'
+[sd_trace] round=2 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='mirror'
+[qa] memory_hint_chars=3999 selected=10 raw_empty=False init_error=none
+[ours] sample 5 done: In the mirror which is plant: near console table | total=29.585s mem=0.0s qa=29.585s decode=1.0466s reuse=True
+[ours] sample 6/50: What kind of numbering does the blue clock use?...
+  memorize phase: SKIP (reuse episode memory in ep_1a8049b85113db8dbfc6_hm3d-v0_014-hm3d-rsggHU7g7dh)
+[qa] draft_policy: steps=0 bias=0.0 margin=0.001 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 4
+├─ Draft Model Generate  : 0.0001s  (Avg: 0.0000s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 1.4061s  (Avg: 0.3515s/round)
+├─ Verification Strategy : 0.0000s  (Avg: 0.0000s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.0 memory_items=10 new_tokens=4 elapsed=1.421s
+[sd_trace] target_final='Roman numerals' draft_all_rounds=''
+[sd_trace] round=1 draft='' accepted='' rejected='' target_corr='Roman'
+[sd_trace] round=2 draft='' accepted='' rejected='' target_corr=' numer'
+[sd_trace] round=3 draft='' accepted='' rejected='' target_corr='als'
+[sd_trace] round=4 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='Roman numerals'
+[qa] memory_hint_chars=3996 selected=10 raw_empty=False init_error=none
+[ours] sample 6 done: Roman numerals | total=28.759s mem=0.0s qa=28.759s decode=1.4213s reuse=True
+[ours] sample 7/50: What is the picture seen from the kitchen depict?...
+  memorize phase: SKIP (reuse episode memory in ep_1a8049b85113db8dbfc6_hm3d-v0_014-hm3d-rsggHU7g7dh)
+[qa] draft_policy: steps=1 bias=0.25 margin=-4.201 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 3
+├─ Draft Model Generate  : 0.8913s  (Avg: 0.2971s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.6951s  (Avg: 0.2317s/round)
+├─ Verification Strategy : 0.0170s  (Avg: 0.0057s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=6 elapsed=1.615s
+[sd_trace] target_final='person walking in snowy landscape' draft_all_rounds='person |  in |  landscape'
+[sd_trace] round=1 draft='person' accepted='person' rejected='' target_corr=' walking'
+[sd_trace] round=2 draft=' in' accepted=' in' rejected='' target_corr=' snowy'
+[sd_trace] round=3 draft=' landscape' accepted=' landscape' rejected='' target_corr=''
+[qa] direct_sd raw='person walking in snowy landscape'
+[qa] memory_hint_chars=4000 selected=10 raw_empty=False init_error=none
+[ours] sample 7 done: person walking in snowy landscape | total=28.393s mem=0.0s qa=28.393s decode=1.615s reuse=True
+[ours] sample 8/50: Where is the microwave?...
+  memorize phase: SKIP (reuse episode memory in ep_1a8049b85113db8dbfc6_hm3d-v0_014-hm3d-rsggHU7g7dh)
+[qa] draft_policy: steps=3 bias=0.4 margin=7.499 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 0.6475s  (Avg: 0.6475s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2392s  (Avg: 0.2392s/round)
+├─ Verification Strategy : 0.0161s  (Avg: 0.0161s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=4 elapsed=0.913s
+[sd_trace] target_final='not in memory' draft_all_rounds='not in memory'
+[sd_trace] round=1 draft='not in memory' accepted='not in memory' rejected='' target_corr=''
+[qa] direct_sd refusal='not in memory'; treating as empty
+[qa] direct_sd empty; retrying target-only baseline
+[qa] direct_sd: baseline_only=True memory_items=10 max_tokens=64
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=4 elapsed=0.359s
+[sd_trace] target_final=None draft_all_rounds=None
+[qa] direct_sd refusal='not in memory'; treating as empty
+[qa] memory_hint_chars=3988 selected=10 raw_empty=True init_error=none
+[ours] sample 8 done: ERROR:qa:agent returned ERROR (see stderr_tail) | stderr=ading checkpoint shards:  75%|███████▌  | 3/4 [00:11<00:03,  3. | total=43.472s mem=0.0s qa=43.472s decode=Nones reuse=True
+[ours] sample 9/50: Where is the red and white checkered rug?...
+  memorize phase: SKIP (reuse episode memory in ep_1a8049b85113db8dbfc6_hm3d-v0_014-hm3d-rsggHU7g7dh)
+[qa] draft_policy: steps=3 bias=0.4 margin=27.799 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 0.7540s  (Avg: 0.7540s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2403s  (Avg: 0.2403s/round)
+├─ Verification Strategy : 0.0187s  (Avg: 0.0187s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=4 elapsed=1.023s
+[sd_trace] target_final='near dining table' draft_all_rounds='near dining table'
+[sd_trace] round=1 draft='near dining table' accepted='near dining table' rejected='' target_corr=''
+[qa] direct_sd raw='near dining table'
+[qa] memory_hint_chars=3992 selected=10 raw_empty=False init_error=none
+[ours] sample 9 done: near dining table | total=30.638s mem=0.0s qa=30.638s decode=1.0231s reuse=True
+[ours] sample 10/50: What is the circular object on the wall next to the staircase?...
+[memorize] fresh HOME (no prior sqlite.db)
+[memorize] direct episodic only (skip memory-agent absorb)
+[Direct Episodic Cache Hit] Reusing offline caption: b6811b5d22eb17b1cd0c21ca450c0deaa21aef4e486c7183a084f36b2d0d0b75.txt
+[direct_episodic] inserted batch 1: 'hallway: arched ceiling, wooden floor, two wall paintings, console table, door t'
+[Direct Episodic Cache Hit] Reusing offline caption: 1b283bdbddfaeedf5b5a0ac42d99272b41e30d8a995e64f58ca7bc7421e8d295.txt
+[direct_episodic] inserted batch 2: 'dining room: ornate wooden dining table, matching chairs, large window with patt'
+[Direct Episodic Cache Hit] Reusing offline caption: 951c2ec3c3c7f6ef4d5744866d7721e305927e356f1015871a7c352c4635bac5.txt
+[direct_episodic] inserted batch 3: 'hallway/entryway: white door, framed mirror, dark console'
+[Direct Episodic Cache Hit] Reusing offline caption: 4cf37838f89b783da31f5cc841d40978d0247febeee18b1998d58db49f215870.txt
+[direct_episodic] inserted batch 4: 'hallway/entryway: carpeted staircase with wooden railing, beige walls, doorway t'
+[Direct Episodic Cache Hit] Reusing offline caption: 425424e08b8930497084d8d2de39713281d18a9a4986852f06b2f0c0bb129b19.txt
+[direct_episodic] inserted batch 5: 'hallway: wooden staircase railing, open doorway to living room, beige walls, har'
+[Direct Episodic Cache Hit] Reusing offline caption: 43ef6164b49b689ff46b3f4d1122be7ed33a691f8c55887503f18d19e1f3bb68.txt
+[direct_episodic] inserted batch 6: 'staircase: carpeted steps with wooden risers, striped wallpaper, metal railing'
+[Direct Episodic Cache Hit] Reusing offline caption: 1802e4664a121e871a65da58a76b94a773be8e48809a4b78cea3d1b376f6ea4e.txt
+[direct_episodic] inserted batch 7: 'hallway/entryway: carpeted stairs with wooden railing, striped wallpaper, framed'
+[Direct Episodic Cache Hit] Reusing offline caption: 4d8a51742d4cbef7c65c9596d8b9a39207bce217f70aee1ce7e602f00fbf34d3.txt
+[direct_episodic] inserted batch 8: 'hallway: carpeted stairs with wooden railing, striped wallpaper, white baseboard'
+[Direct Episodic Cache Hit] Reusing offline caption: 572d2833059c773475241d7b60922832695d8d003d3c2f7b49ce76e82544f855.txt
+[direct_episodic] inserted batch 9: 'hallway: staircase with wooden railing, patterned carpet, striped wallpaper, fra'
+[Direct Episodic Cache Hit] Reusing offline caption: beeb01b7d6ffcb4d6152a213efa5e73e2c3720b999dcb52f0c8a57fa81c93d74.txt
+[direct_episodic] inserted batch 10: 'staircase: carpeted steps with wooden railing, chest at top landing'
+[Direct Episodic Cache Hit] Reusing offline caption: dc32e70eebbeeaaa7f96a49f2a8bc13d29e1b524dced7f4e2d9e37d790c698ce.txt
+[direct_episodic] inserted batch 11: 'staircase: carpeted steps with wooden railing, wooden chest at top landing'
+[Direct Episodic Cache Hit] Reusing offline caption: 5b8e218c7fdf87f765798ba9a85378c4538ee4a96cc84bc954076c7f4df9d49f.txt
+[direct_episodic] inserted batch 12: 'hallway/entryway: ornate wooden dresser with vase, staircase with wooden railing'
+[Direct Episodic Cache Hit] Reusing offline caption: 503f69b6432ca73e2da0176b584a769e08813bf0ab3206555c52663a8cb39ef6.txt
+[direct_episodic] inserted batch 13: 'hallway/entryway: wall with two framed photos and light switch'
+[Direct Episodic Cache Hit] Reusing offline caption: ff572501f0ead336bd15ff85f426b40cd66bae6d2e458890a6d390fba133144a.txt
+[direct_episodic] inserted batch 14: 'bedroom: dresser with vase, black crate, open doorway'
+[Direct Episodic Cache Hit] Reusing offline caption: 329b56e79022719dae42d749d491170da6e522fe4bd39ab4cf989ca1313b61ef.txt
+[direct_episodic] inserted batch 15: 'hallway: carpeted floor, dark bookshelf, white doors, ornate wooden railing'
+[Direct Episodic Cache Hit] Reusing offline caption: 2b8b38e2968a4dbf7b77f285f5844f4625f64f9dca6947f19ed4bc09752dbe58.txt
+[direct_episodic] inserted batch 16: 'hallway: carpeted floor, dark bookshelf, white doors, ornate wooden railing'
+[memorize] direct episodic inserts: 16
+  memorize phase: OK (8.3s)
+[qa] draft_policy: steps=0 bias=0.0 margin=0.599 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 4
+├─ Draft Model Generate  : 0.0001s  (Avg: 0.0000s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 1.4471s  (Avg: 0.3618s/round)
+├─ Verification Strategy : 0.0000s  (Avg: 0.0000s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.0 memory_items=10 new_tokens=4 elapsed=1.460s
+[sd_trace] target_final='framed mirror' draft_all_rounds=''
+[sd_trace] round=1 draft='' accepted='' rejected='' target_corr='fr'
+[sd_trace] round=2 draft='' accepted='' rejected='' target_corr='amed'
+[sd_trace] round=3 draft='' accepted='' rejected='' target_corr=' mirror'
+[sd_trace] round=4 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='framed mirror'
+[qa] memory_hint_chars=3990 selected=10 raw_empty=False init_error=none
+[ours] sample 10 done: framed mirror | total=39.297s mem=8.329s qa=30.968s decode=1.4601s reuse=False
+[ours] sample 11/50: What is the yellow object on top of the ouch?...
+  memorize phase: SKIP (reuse episode memory in ep_fb4933a484da3d557574_hm3d-v0_015-hm3d-5jp3fCRSRjc)
+[qa] draft_policy: steps=1 bias=0.25 margin=1.999 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 3
+├─ Draft Model Generate  : 0.8387s  (Avg: 0.2796s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.6288s  (Avg: 0.2096s/round)
+├─ Verification Strategy : 0.0841s  (Avg: 0.0280s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.6666666666666666 memory_items=10 new_tokens=4 elapsed=1.562s
+[sd_trace] target_final='wooden chest' draft_all_rounds='none | en'
+[sd_trace] round=1 draft='none' accepted='' rejected='none' target_corr='wood'
+[sd_trace] round=2 draft='en' accepted='en' rejected='' target_corr=' chest'
+[sd_trace] round=3 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='wooden chest'
+[qa] memory_hint_chars=3997 selected=10 raw_empty=False init_error=none
+[ours] sample 11 done: wooden chest | total=30.135s mem=0.0s qa=30.135s decode=1.5618s reuse=True
+[ours] sample 12/50: What color is the trim of the mirror?...
+  memorize phase: SKIP (reuse episode memory in ep_fb4933a484da3d557574_hm3d-v0_015-hm3d-5jp3fCRSRjc)
+[qa] draft_policy: steps=0 bias=0.0 margin=0.004 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=8
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 2
+├─ Draft Model Generate  : 0.0001s  (Avg: 0.0000s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.8878s  (Avg: 0.4439s/round)
+├─ Verification Strategy : 0.0000s  (Avg: 0.0000s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.0 memory_items=10 new_tokens=2 elapsed=0.899s
+[sd_trace] target_final='Silver' draft_all_rounds=''
+[sd_trace] round=1 draft='' accepted='' rejected='' target_corr='Silver'
+[sd_trace] round=2 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='Silver'
+[qa] memory_hint_chars=3999 selected=10 raw_empty=False init_error=none
+[ours] sample 12 done: Brown | total=28.814s mem=0.0s qa=28.814s decode=0.8993s reuse=True
+[ours] sample 13/50: What color is the staircase railing?...
+  memorize phase: SKIP (reuse episode memory in ep_fb4933a484da3d557574_hm3d-v0_015-hm3d-5jp3fCRSRjc)
+[qa] draft_policy: steps=1 bias=0.25 margin=0.999 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=9 max_tokens=8
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 2
+├─ Draft Model Generate  : 0.6893s  (Avg: 0.3446s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.4248s  (Avg: 0.2124s/round)
+├─ Verification Strategy : 0.0832s  (Avg: 0.0416s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=9 new_tokens=3 elapsed=1.207s
+[sd_trace] target_final='dark brown' draft_all_rounds='dark'
+[sd_trace] round=1 draft='dark' accepted='dark' rejected='' target_corr=' brown'
+[sd_trace] round=2 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='dark brown'
+[qa] memory_hint_chars=3997 selected=9 raw_empty=False init_error=none
+[ours] sample 13 done: Brown | total=29.192s mem=0.0s qa=29.192s decode=1.2071s reuse=True
+[ours] sample 14/50: What is hung along the walls of the staircase?...
+  memorize phase: SKIP (reuse episode memory in ep_fb4933a484da3d557574_hm3d-v0_015-hm3d-5jp3fCRSRjc)
+[qa] draft_policy: steps=2 bias=0.3 margin=2.002 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 3
+├─ Draft Model Generate  : 0.9645s  (Avg: 0.3215s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.6267s  (Avg: 0.2089s/round)
+├─ Verification Strategy : 0.0853s  (Avg: 0.0284s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.8333333333333334 memory_items=10 new_tokens=8 elapsed=1.687s
+[sd_trace] target_final='wallpaper is hung along the walls' draft_all_rounds='wall art |  is hung |  the walls'
+[sd_trace] round=1 draft='wall art' accepted='wall' rejected=' art' target_corr='paper'
+[sd_trace] round=2 draft=' is hung' accepted=' is hung' rejected='' target_corr=' along'
+[sd_trace] round=3 draft=' the walls' accepted=' the walls' rejected='' target_corr=''
+[qa] direct_sd raw='wallpaper is hung along the walls'
+[qa] memory_hint_chars=3998 selected=10 raw_empty=False init_error=none
+[ours] sample 14 done: wallpaper is hung along the walls | total=32.017s mem=0.0s qa=32.017s decode=1.6867s reuse=True
+[ours] sample 15/50: What is at the center of the dining table?...
+  memorize phase: SKIP (reuse episode memory in ep_fb4933a484da3d557574_hm3d-v0_015-hm3d-5jp3fCRSRjc)
+[qa] draft_policy: steps=3 bias=0.4 margin=12.35 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 0.6942s  (Avg: 0.6942s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2098s  (Avg: 0.2098s/round)
+├─ Verification Strategy : 0.0646s  (Avg: 0.0646s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=4 elapsed=0.977s
+[sd_trace] target_final='dining table' draft_all_rounds='dining table'
+[sd_trace] round=1 draft='dining table' accepted='dining table' rejected='' target_corr=''
+[qa] direct_sd raw='dining table'
+[qa] memory_hint_chars=3998 selected=10 raw_empty=False init_error=none
+[ours] sample 15 done: dining table | total=31.03s mem=0.0s qa=31.03s decode=0.9775s reuse=True
+[ours] sample 16/50: Is the dining room light turned on?...
+  memorize phase: SKIP (reuse episode memory in ep_fb4933a484da3d557574_hm3d-v0_015-hm3d-5jp3fCRSRjc)
+[qa] draft_policy: steps=1 bias=0.15 margin=8.092 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=4
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 4.7329s  (Avg: 4.7329s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2250s  (Avg: 0.2250s/round)
+├─ Verification Strategy : 0.0143s  (Avg: 0.0143s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=2 elapsed=4.981s
+[sd_trace] target_final='No' draft_all_rounds='No'
+[sd_trace] round=1 draft='No' accepted='No' rejected='' target_corr=''
+[qa] direct_sd raw='No'
+[qa] memory_hint_chars=3996 selected=10 raw_empty=False init_error=none
+[ours] sample 16 done: No | total=33.105s mem=0.0s qa=33.105s decode=4.9814s reuse=True
+[ours] sample 17/50: Is the bedroom door open?...
+  memorize phase: SKIP (reuse episode memory in ep_fb4933a484da3d557574_hm3d-v0_015-hm3d-5jp3fCRSRjc)
+[qa] draft_policy: steps=1 bias=0.15 margin=28.5 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=4
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 4.6945s  (Avg: 4.6945s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2096s  (Avg: 0.2096s/round)
+├─ Verification Strategy : 0.0153s  (Avg: 0.0153s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=2 elapsed=4.930s
+[sd_trace] target_final='Yes' draft_all_rounds='Yes'
+[sd_trace] round=1 draft='Yes' accepted='Yes' rejected='' target_corr=''
+[qa] direct_sd raw='Yes'
+[qa] memory_hint_chars=3998 selected=10 raw_empty=False init_error=none
+[ours] sample 17 done: Yes | total=31.747s mem=0.0s qa=31.747s decode=4.9298s reuse=True
+[ours] sample 18/50: Where can I dry my shoes when I come into the house?...
+  memorize phase: SKIP (reuse episode memory in ep_fb4933a484da3d557574_hm3d-v0_015-hm3d-5jp3fCRSRjc)
+[qa] draft_policy: steps=0 bias=0.0 margin=0.801 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 5
+├─ Draft Model Generate  : 0.0002s  (Avg: 0.0000s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 1.6524s  (Avg: 0.3305s/round)
+├─ Verification Strategy : 0.0000s  (Avg: 0.0000s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.0 memory_items=10 new_tokens=5 elapsed=1.668s
+[sd_trace] target_final='by the white door' draft_all_rounds=''
+[sd_trace] round=1 draft='' accepted='' rejected='' target_corr='by'
+[sd_trace] round=2 draft='' accepted='' rejected='' target_corr=' the'
+[sd_trace] round=3 draft='' accepted='' rejected='' target_corr=' white'
+[sd_trace] round=4 draft='' accepted='' rejected='' target_corr=' door'
+[sd_trace] round=5 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='by the white door'
+[qa] memory_hint_chars=3990 selected=10 raw_empty=False init_error=none
+[ours] sample 18 done: by the white door | total=32.861s mem=0.0s qa=32.861s decode=1.6678s reuse=True
+[ours] sample 19/50: What can be used to provide privacy in the dining room?...
+  memorize phase: SKIP (reuse episode memory in ep_fb4933a484da3d557574_hm3d-v0_015-hm3d-5jp3fCRSRjc)
+[qa] draft_policy: steps=3 bias=0.4 margin=11.093 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 2
+├─ Draft Model Generate  : 0.7670s  (Avg: 0.3835s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.4138s  (Avg: 0.2069s/round)
+├─ Verification Strategy : 0.0753s  (Avg: 0.0377s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.0 memory_items=10 new_tokens=2 elapsed=1.265s
+[sd_trace] target_final='t' draft_all_rounds='curtain | owel'
+[sd_trace] round=1 draft='curtain' accepted='' rejected='curtain' target_corr='t'
+[sd_trace] round=2 draft='owel' accepted='' rejected='owel' target_corr=''
+[qa] direct_sd raw='t'
+[qa] memory_hint_chars=4000 selected=10 raw_empty=False init_error=none
+[ours] sample 19 done: t | total=35.926s mem=0.0s qa=35.926s decode=1.2654s reuse=True
+[ours] sample 20/50: What type of furniture is used to display items behind glass doors?...
+  memorize phase: SKIP (reuse episode memory in ep_fb4933a484da3d557574_hm3d-v0_015-hm3d-5jp3fCRSRjc)
+[qa] draft_policy: steps=3 bias=0.4 margin=7.858 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 2
+├─ Draft Model Generate  : 0.7862s  (Avg: 0.3931s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.4248s  (Avg: 0.2124s/round)
+├─ Verification Strategy : 0.0750s  (Avg: 0.0375s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.6 memory_items=10 new_tokens=5 elapsed=1.296s
+[sd_trace] target_final=' table, console table' draft_all_rounds='console table | , console table'
+[sd_trace] round=1 draft='console table' accepted='' rejected='console table' target_corr=' table'
+[sd_trace] round=2 draft=', console table' accepted=', console table' rejected='' target_corr=''
+[qa] direct_sd raw='table, console table'
+[qa] memory_hint_chars=3994 selected=10 raw_empty=False init_error=none
+[ours] sample 20 done: Console table | total=29.524s mem=0.0s qa=29.524s decode=1.2958s reuse=True
+[ours] sample 21/50: Where is the china cabinet?...
+  memorize phase: SKIP (reuse episode memory in ep_fb4933a484da3d557574_hm3d-v0_015-hm3d-5jp3fCRSRjc)
+[qa] draft_policy: steps=3 bias=0.4 margin=23.893 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 5
+├─ Draft Model Generate  : 1.1742s  (Avg: 0.2348s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 1.0436s  (Avg: 0.2087s/round)
+├─ Verification Strategy : 0.0831s  (Avg: 0.0166s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.5833333333333334 memory_items=10 new_tokens=12 elapsed=2.313s
+[sd_trace] target_final='to the right of doorway, in dining room, under' draft_all_rounds='to the right |  the doorway | , in dining | , on wall |  table'
+[sd_trace] round=1 draft='to the right' accepted='to the right' rejected='' target_corr=' of'
+[sd_trace] round=2 draft=' the doorway' accepted='' rejected=' the doorway' target_corr=' doorway'
+[sd_trace] round=3 draft=', in dining' accepted=', in dining' rejected='' target_corr=' room'
+[sd_trace] round=4 draft=', on wall' accepted=',' rejected=' on wall' target_corr=' under'
+[sd_trace] round=5 draft=' table' accepted='' rejected=' table' target_corr=''
+[qa] direct_sd raw='to the right of doorway, in dining room, under'
+[qa] memory_hint_chars=4000 selected=10 raw_empty=False init_error=none
+[ours] sample 21 done: to the right of doorway, in dining room, under | total=30.908s mem=0.0s qa=30.908s decode=2.3128s reuse=True
+[ours] sample 22/50: What is above the coffee table?...
+[memorize] fresh HOME (no prior sqlite.db)
+[memorize] direct episodic only (skip memory-agent absorb)
+[Direct Episodic Cache Hit] Reusing offline caption: 64deb652515d4bc919c3b774d893c9fb415258f9b730af800c2dc2359869f077.txt
+[direct_episodic] inserted batch 1: 'hallway/entryway: white paneled door ajar, glimpse of adjacent room with dresser'
+[Direct Episodic Cache Hit] Reusing offline caption: 34fb458cb30b7347d0e524026c91d163321f86306423c8a293f3da7a570df792.txt
+[direct_episodic] inserted batch 2: 'hallway/entryway: two white paneled doors with brass hardware, narrow floral-pat'
+[Direct Episodic Cache Hit] Reusing offline caption: da01c736380a4bb47a2869e7e9c205d3d911095e0d37773cc8954475dcb70aef.txt
+[direct_episodic] inserted batch 3: 'dining room: wooden dining table, rustic chairs, dark blue walls, white doorfram'
+[Direct Episodic Cache Hit] Reusing offline caption: b1f99ee80bdf18b8a07fec98d15c90c9087e8b28bd32801dd2eadbad2cfeb9a6.txt
+[direct_episodic] inserted batch 4: 'dining room: long wooden table, rustic chairs, wooden cabinet, windows, wall art'
+[Direct Episodic Cache Hit] Reusing offline caption: 434cef45236aa23c13661ec4df064b60ead6926dc06b14be8319bc81b054ad5b.txt
+[direct_episodic] inserted batch 5: 'dining room: large wooden table with chairs, staircase to left, wall art, ceilin'
+[Direct Episodic Cache Hit] Reusing offline caption: 3a630b10ae0aef2f3ad7a11e65aadc35b736dc3a215aa68efb92e236fb91b2f0.txt
+[direct_episodic] inserted batch 6: 'living room: sofa, coffee table, rug, chandelier, bookshelf, large vase, potted '
+[Direct Episodic Cache Hit] Reusing offline caption: d81b741ad18d7d799a384252f97abf817096df5dae542df688470223c1416dbc.txt
+[direct_episodic] inserted batch 7: 'living room: tufted sofa, two armchairs, wooden coffee table, red patterned rug,'
+[Direct Episodic Cache Hit] Reusing offline caption: 22b58df01e02f4db435bf6fb28878908468a53067d3f7ef2d4ca4e2ec4ed23e9.txt
+[direct_episodic] inserted batch 8: 'living room: sofa with patterned cushions, two armchairs, large vase, wooden cof'
+[Direct Episodic Cache Hit] Reusing offline caption: ce3e3ed944e03a1208f054ca61f5573349d9bd530ab68fb310d4fc4c98ec3355.txt
+[direct_episodic] inserted batch 9: 'living room: tufted sofa, wooden coffee table, red patterned rug, bookshelf, lar'
+[Direct Episodic Cache Hit] Reusing offline caption: bf1b4d40def8e60c17c7c32e943688c965aa83745ed8629f1c1083af22ed9acb.txt
+[direct_episodic] inserted batch 10: 'living room: sofa, bookshelf, large plant, arched doorway, wooden cabinet'
+[Direct Episodic Cache Hit] Reusing offline caption: e8a974cf5ea653a985c3854ba34477a8c49dde25750ce5c9f6a9257c926eed8f.txt
+[direct_episodic] inserted batch 11: 'living room: sofa with patterned pillows, two armchairs, coffee table, chandelie'
+[Direct Episodic Cache Hit] Reusing offline caption: a04fe0883cd73859f96eab0e62e650192973bbad5b4e7f64418671cb271c7986.txt
+[direct_episodic] inserted batch 12: 'living room: white tufted sofa, bookshelf, large potted plant, arched doorway, w'
+[Direct Episodic Cache Hit] Reusing offline caption: 00dfd05066d7beb1996be0851636e4704e35940f9c874d4794fd5fb5652ca382.txt
+[direct_episodic] inserted batch 13: 'living room: piano, ornate cabinet, portrait painting, lamp, framed landscape'
+[Direct Episodic Cache Hit] Reusing offline caption: fbea389542442d0cf452163bc0471401972eb8f83498f5fc30e9150429192d52.txt
+[direct_episodic] inserted batch 14: 'living room: wicker basket, glass bottle, wall painting'
+[Direct Episodic Cache Hit] Reusing offline caption: 3a9a9ce53beb48feec6fbe9d0c74d276b5dc636d385220d2ac82ac12ac6ec839.txt
+[direct_episodic] inserted batch 15: 'hallway/entryway: ornate wooden cabinet, portrait painting, tiled floor corner, '
+[Direct Episodic Cache Hit] Reusing offline caption: c9d67302a6b396611191c90660974a559c180f4b3265bb532d7f123cd075876f.txt
+[direct_episodic] inserted batch 16: 'hallway/entryway: wooden cabinet, portrait painting, cushioned bench'
+[memorize] direct episodic inserts: 16
+  memorize phase: OK (8.6s)
+[qa] draft_policy: steps=1 bias=0.25 margin=0.0 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 3
+├─ Draft Model Generate  : 0.8223s  (Avg: 0.2741s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.7881s  (Avg: 0.2627s/round)
+├─ Verification Strategy : 0.0647s  (Avg: 0.0216s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.6666666666666666 memory_items=10 new_tokens=5 elapsed=1.689s
+[sd_trace] target_final='ornate chandelier' draft_all_rounds='rug | ate | andelier'
+[sd_trace] round=1 draft='rug' accepted='' rejected='rug' target_corr='orn'
+[sd_trace] round=2 draft='ate' accepted='ate' rejected='' target_corr=' ch'
+[sd_trace] round=3 draft='andelier' accepted='andelier' rejected='' target_corr=''
+[qa] direct_sd raw='ornate chandelier'
+[qa] memory_hint_chars=3997 selected=10 raw_empty=False init_error=none
+[ours] sample 22 done: ornate chandelier | total=43.504s mem=8.572s qa=34.932s decode=1.6885s reuse=False
+[ours] sample 23/50: What is at the back of the living room, behind the couches?...
+  memorize phase: SKIP (reuse episode memory in ep_724c99edb7892c0f138c_hm3d-v0_016-hm3d-nrA1tAA17Yp)
+[qa] draft_policy: steps=2 bias=0.3 margin=2.5 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 0.6513s  (Avg: 0.6513s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2638s  (Avg: 0.2638s/round)
+├─ Verification Strategy : 0.0777s  (Avg: 0.0777s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=3 elapsed=1.005s
+[sd_trace] target_final='bookshelf' draft_all_rounds='bookshelf'
+[sd_trace] round=1 draft='bookshelf' accepted='bookshelf' rejected='' target_corr=''
+[qa] direct_sd raw='bookshelf'
+[qa] memory_hint_chars=3994 selected=10 raw_empty=False init_error=none
+[ours] sample 23 done: bookshelf | total=32.257s mem=0.0s qa=32.257s decode=1.0051s reuse=True
+[ours] sample 24/50: What color are the air vents below the window?...
+  memorize phase: SKIP (reuse episode memory in ep_724c99edb7892c0f138c_hm3d-v0_016-hm3d-nrA1tAA17Yp)
+[qa] draft_policy: steps=3 bias=0.4 margin=15.503 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=8
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 0.6126s  (Avg: 0.6126s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2403s  (Avg: 0.2403s/round)
+├─ Verification Strategy : 0.0705s  (Avg: 0.0705s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.0 memory_items=10 new_tokens=1 elapsed=0.933s
+[sd_trace] target_final='' draft_all_rounds='white'
+[sd_trace] round=1 draft='white' accepted='' rejected='white' target_corr=''
+[qa] direct_sd empty; retrying target-only baseline
+[qa] direct_sd: baseline_only=True memory_items=10 max_tokens=8
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=2 elapsed=0.315s
+[sd_trace] target_final=None draft_all_rounds=None
+[qa] direct_sd raw='Silver'
+[qa] memory_hint_chars=3997 selected=10 raw_empty=False init_error=none
+[ours] sample 24 done: Silver | total=47.323s mem=0.0s qa=47.323s decode=Nones reuse=True
+[ours] sample 25/50: What is in between the two couches?...
+  memorize phase: SKIP (reuse episode memory in ep_724c99edb7892c0f138c_hm3d-v0_016-hm3d-nrA1tAA17Yp)
+[qa] draft_policy: steps=1 bias=0.25 margin=1.399 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 2
+├─ Draft Model Generate  : 0.7850s  (Avg: 0.3925s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.5297s  (Avg: 0.2649s/round)
+├─ Verification Strategy : 0.0159s  (Avg: 0.0079s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=3 elapsed=1.344s
+[sd_trace] target_final='coffee table' draft_all_rounds='coffee'
+[sd_trace] round=1 draft='coffee' accepted='coffee' rejected='' target_corr=' table'
+[sd_trace] round=2 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='coffee table'
+[qa] memory_hint_chars=3997 selected=10 raw_empty=False init_error=none
+[ours] sample 25 done: coffee table | total=28.297s mem=0.0s qa=28.297s decode=1.3436s reuse=True
+[ours] sample 26/50: What is above the piano?...
+  memorize phase: SKIP (reuse episode memory in ep_724c99edb7892c0f138c_hm3d-v0_016-hm3d-nrA1tAA17Yp)
+[qa] draft_policy: steps=1 bias=0.25 margin=0.0 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 3
+├─ Draft Model Generate  : 0.8633s  (Avg: 0.2878s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.8147s  (Avg: 0.2716s/round)
+├─ Verification Strategy : 0.0861s  (Avg: 0.0287s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.6666666666666666 memory_items=10 new_tokens=4 elapsed=1.780s
+[sd_trace] target_final='framed picture' draft_all_rounds='p | amed'
+[sd_trace] round=1 draft='p' accepted='' rejected='p' target_corr='fr'
+[sd_trace] round=2 draft='amed' accepted='amed' rejected='' target_corr=' picture'
+[sd_trace] round=3 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='framed picture'
+[qa] memory_hint_chars=3988 selected=10 raw_empty=False init_error=none
+[ours] sample 26 done: framed picture | total=31.647s mem=0.0s qa=31.647s decode=1.7797s reuse=True
+[ours] sample 27/50: Is there natural light in the room?...
+  memorize phase: SKIP (reuse episode memory in ep_724c99edb7892c0f138c_hm3d-v0_016-hm3d-nrA1tAA17Yp)
+[qa] draft_policy: steps=0 bias=0.0 margin=0.5 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=4
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 2
+├─ Draft Model Generate  : 0.0001s  (Avg: 0.0000s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 1.0666s  (Avg: 0.5333s/round)
+├─ Verification Strategy : 0.0000s  (Avg: 0.0000s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.0 memory_items=10 new_tokens=2 elapsed=1.082s
+[sd_trace] target_final='Yes' draft_all_rounds=''
+[sd_trace] round=1 draft='' accepted='' rejected='' target_corr='Yes'
+[sd_trace] round=2 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='Yes'
+[qa] memory_hint_chars=3990 selected=10 raw_empty=False init_error=none
+[ours] sample 27 done: Yes | total=32.545s mem=0.0s qa=32.545s decode=1.0817s reuse=True
+[ours] sample 28/50: Is the piano keyboard cover open or closed?...
+  memorize phase: SKIP (reuse episode memory in ep_724c99edb7892c0f138c_hm3d-v0_016-hm3d-nrA1tAA17Yp)
+[qa] draft_policy: steps=1 bias=0.25 margin=0.0 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 0.5785s  (Avg: 0.5785s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2601s  (Avg: 0.2601s/round)
+├─ Verification Strategy : 0.0829s  (Avg: 0.0829s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=2 elapsed=0.934s
+[sd_trace] target_final='closed' draft_all_rounds='closed'
+[sd_trace] round=1 draft='closed' accepted='closed' rejected='' target_corr=''
+[qa] direct_sd raw='closed'
+[qa] memory_hint_chars=3986 selected=10 raw_empty=False init_error=none
+[ours] sample 28 done: Closed | total=35.618s mem=0.0s qa=35.618s decode=0.9344s reuse=True
+[ours] sample 29/50: What can I use to entertain my guests with music?...
+  memorize phase: SKIP (reuse episode memory in ep_724c99edb7892c0f138c_hm3d-v0_016-hm3d-nrA1tAA17Yp)
+[qa] draft_policy: steps=0 bias=0.0 margin=1.5 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 3
+├─ Draft Model Generate  : 0.0001s  (Avg: 0.0000s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 1.3334s  (Avg: 0.4445s/round)
+├─ Verification Strategy : 0.0000s  (Avg: 0.0000s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.0 memory_items=10 new_tokens=3 elapsed=1.348s
+[sd_trace] target_final='piano' draft_all_rounds=''
+[sd_trace] round=1 draft='' accepted='' rejected='' target_corr='p'
+[sd_trace] round=2 draft='' accepted='' rejected='' target_corr='iano'
+[sd_trace] round=3 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='piano'
+[qa] memory_hint_chars=3999 selected=10 raw_empty=False init_error=none
+[ours] sample 29 done: piano | total=28.041s mem=0.0s qa=28.041s decode=1.3483s reuse=True
+[ours] sample 30/50: Where can I lay down and read a book?...
+  memorize phase: SKIP (reuse episode memory in ep_724c99edb7892c0f138c_hm3d-v0_016-hm3d-nrA1tAA17Yp)
+[qa] draft_policy: steps=0 bias=0.0 margin=0.001 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 7
+├─ Draft Model Generate  : 0.0002s  (Avg: 0.0000s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 2.3881s  (Avg: 0.3412s/round)
+├─ Verification Strategy : 0.0000s  (Avg: 0.0000s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.0 memory_items=10 new_tokens=7 elapsed=2.415s
+[sd_trace] target_final='on the tufted sofa' draft_all_rounds=''
+[sd_trace] round=1 draft='' accepted='' rejected='' target_corr='on'
+[sd_trace] round=2 draft='' accepted='' rejected='' target_corr=' the'
+[sd_trace] round=3 draft='' accepted='' rejected='' target_corr=' tu'
+[sd_trace] round=4 draft='' accepted='' rejected='' target_corr='ft'
+[sd_trace] round=5 draft='' accepted='' rejected='' target_corr='ed'
+[sd_trace] round=6 draft='' accepted='' rejected='' target_corr=' sofa'
+[sd_trace] round=7 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='on the tufted sofa'
+[qa] memory_hint_chars=3998 selected=10 raw_empty=False init_error=none
+[ours] sample 30 done: on the tufted sofa | total=33.048s mem=0.0s qa=33.048s decode=2.4154s reuse=True
+[ours] sample 31/50: Can this home be used for a large dinner party?...
+  memorize phase: SKIP (reuse episode memory in ep_724c99edb7892c0f138c_hm3d-v0_016-hm3d-nrA1tAA17Yp)
+[qa] draft_policy: steps=0 bias=0.0 margin=0.001 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=4
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 2
+├─ Draft Model Generate  : 0.0001s  (Avg: 0.0000s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 1.1329s  (Avg: 0.5664s/round)
+├─ Verification Strategy : 0.0000s  (Avg: 0.0000s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.0 memory_items=10 new_tokens=2 elapsed=1.148s
+[sd_trace] target_final='Yes' draft_all_rounds=''
+[sd_trace] round=1 draft='' accepted='' rejected='' target_corr='Yes'
+[sd_trace] round=2 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='Yes'
+[qa] memory_hint_chars=3990 selected=10 raw_empty=False init_error=none
+[ours] sample 31 done: Yes | total=30.335s mem=0.0s qa=30.335s decode=1.1481s reuse=True
+[ours] sample 32/50: Is the person who lives here an avid reader?...
+  memorize phase: SKIP (reuse episode memory in ep_724c99edb7892c0f138c_hm3d-v0_016-hm3d-nrA1tAA17Yp)
+[qa] draft_policy: steps=1 bias=0.15 margin=11.3 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=4
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 4.7649s  (Avg: 4.7649s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2626s  (Avg: 0.2626s/round)
+├─ Verification Strategy : 0.0833s  (Avg: 0.0833s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=2 elapsed=5.125s
+[sd_trace] target_final='No' draft_all_rounds='No'
+[sd_trace] round=1 draft='No' accepted='No' rejected='' target_corr=''
+[qa] direct_sd raw='No'
+[qa] memory_hint_chars=3997 selected=10 raw_empty=False init_error=none
+[ours] sample 32 done: No | total=35.998s mem=0.0s qa=35.998s decode=5.1254s reuse=True
+[ours] sample 33/50: Where is the pillow with the face on it?...
+  memorize phase: SKIP (reuse episode memory in ep_724c99edb7892c0f138c_hm3d-v0_016-hm3d-nrA1tAA17Yp)
+[qa] draft_policy: steps=0 bias=0.0 margin=0.999 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 4
+├─ Draft Model Generate  : 0.0001s  (Avg: 0.0000s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 1.4865s  (Avg: 0.3716s/round)
+├─ Verification Strategy : 0.0000s  (Avg: 0.0000s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.0 memory_items=10 new_tokens=4 elapsed=1.504s
+[sd_trace] target_final='on the sofa' draft_all_rounds=''
+[sd_trace] round=1 draft='' accepted='' rejected='' target_corr='on'
+[sd_trace] round=2 draft='' accepted='' rejected='' target_corr=' the'
+[sd_trace] round=3 draft='' accepted='' rejected='' target_corr=' sofa'
+[sd_trace] round=4 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='on the sofa'
+[qa] memory_hint_chars=3993 selected=10 raw_empty=False init_error=none
+[ours] sample 33 done: on the sofa | total=30.947s mem=0.0s qa=30.947s decode=1.5035s reuse=True
+[ours] sample 34/50: What is above the wooden table in the living room?...
+[memorize] fresh HOME (no prior sqlite.db)
+[memorize] direct episodic only (skip memory-agent absorb)
+[Direct Episodic Cache Hit] Reusing offline caption: e39e10c768e0d253070141c9ff1ae7dfce73044900a7ebb0950f788fd9f92f1c.txt
+[direct_episodic] inserted batch 1: 'living room: dark sofa with pillows, patterned rug, coffee table, wall art, door'
+[Direct Episodic Cache Hit] Reusing offline caption: 478a83336f0f407ce5353f043bd8774334084087b1e8c96ec47e65b78e4af1a6.txt
+[direct_episodic] inserted batch 2: 'living room: dark sofa, chevron rug, coffee table, wall art, ceiling fan, dining'
+[Direct Episodic Cache Hit] Reusing offline caption: 8ea3fe987969edf5d6ae0c43b674bf59635848d6a9759baf51b54e7da13e40b8.txt
+[direct_episodic] inserted batch 3: 'living room: dark couch, patterned rug, coffee table, wall art, ceiling fan, din'
+[Direct Episodic Cache Hit] Reusing offline caption: 4664353e4ce23542a3d52e92e8d8b52d1a16649ee10e55b27306cd3e3b92862f.txt
+[direct_episodic] inserted batch 4: 'living room: dark sofa with pillows, chevron rug, coffee table, wall art, ceilin'
+[Direct Episodic Cache Hit] Reusing offline caption: 26efdfcb62695971aa44c1a6706c75522308ab35dd27f90532caed30e9196d42.txt
+[direct_episodic] inserted batch 5: 'living room: couch, coffee table, rug, console table, ceiling fan, dining bar wi'
+[Direct Episodic Cache Hit] Reusing offline caption: 68f5a99ef775898a732bbfc60af1b83002b7314d67ccc51db5fab8cad59af9bd.txt
+[direct_episodic] inserted batch 6: 'dining room: table with chairs, console table, wall art, wooden door'
+[Direct Episodic Cache Hit] Reusing offline caption: b8720ded2c00fb28addfc6d32c0d0e9e8a63ee572e30e0d8bed920464a58b4c6.txt
+[direct_episodic] inserted batch 7: 'living room: dark brown sofa with patterned and teal pillows, wall art of horses'
+[Direct Episodic Cache Hit] Reusing offline caption: 600ab251afc8d2b7fc4590342317d20fa4551f0ab9e2af387aa712a1cd46f509.txt
+[direct_episodic] inserted batch 8: 'living room: console table, abstract painting, wooden door, white cabinets, beig'
+[Direct Episodic Cache Hit] Reusing offline caption: 4ed4bec0a093c7a2dd2b281b6716bab415b7daa9c3aaacd41af906f65ceaf42b.txt
+[direct_episodic] inserted batch 9: 'hallway/entryway: wooden floor, front door, console table with art, partial kitc'
+[Direct Episodic Cache Hit] Reusing offline caption: e6a5836f896af1c037a6209c4621bd64b87734fd759b059f7170af1cff52e1e8.txt
+[direct_episodic] inserted batch 10: 'hallway/entryway: console table with art, doorway to bedroom, glass sculpture'
+[Direct Episodic Cache Hit] Reusing offline caption: f6a499d66883ca61ab383d8189c7379f655429cf294297bdc83868e1572fd785.txt
+[direct_episodic] inserted batch 11: 'kitchen: white cabinets, refrigerator, wooden door, hardwood floor, bay window n'
+[Direct Episodic Cache Hit] Reusing offline caption: 33807e0ed928787df3a8288ee10c1b1fc650189160eaf5d6042797fe68ff3ba6.txt
+[direct_episodic] inserted batch 12: 'hallway/entryway: wooden door, white cabinets, bay window seating, glass-top tab'
+[Direct Episodic Cache Hit] Reusing offline caption: 789ab71e6a346982cf327c589ae3099dc7ef00e85b209c17720ec113235739c4.txt
+[direct_episodic] inserted batch 13: 'hallway/entryway: wooden floor, white doors, stained-glass front door, window wi'
+[Direct Episodic Cache Hit] Reusing offline caption: 8805b01c202e56d77e0756bd18aa1c839109f42aca9757e9689a6ca0d018d47c.txt
+[direct_episodic] inserted batch 14: 'kitchen: white refrigerator, white cabinets, wooden floor, door, countertop item'
+[Direct Episodic Cache Hit] Reusing offline caption: 7c66f4373b50652b2c41014d08136ab098bc70bf7aff8891b7d9ce29476148a8.txt
+[direct_episodic] inserted batch 15: 'kitchen: white cabinets, granite countertop, wooden floor, doorway to living roo'
+[Direct Episodic Cache Hit] Reusing offline caption: 36084bc3d0cb1daa7b266d065601e584aa590b5447ee3d28336e7466be8a3a2e.txt
+[direct_episodic] inserted batch 16: 'kitchen: white cabinets, granite countertop, refrigerator, door, decorative pill'
+[memorize] direct episodic inserts: 16
+  memorize phase: OK (9.1s)
+[qa] draft_policy: steps=1 bias=0.25 margin=0.943 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 2
+├─ Draft Model Generate  : 0.7343s  (Avg: 0.3672s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.5229s  (Avg: 0.2615s/round)
+├─ Verification Strategy : 0.0861s  (Avg: 0.0430s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=3 elapsed=1.357s
+[sd_trace] target_final='wall art' draft_all_rounds='wall'
+[sd_trace] round=1 draft='wall' accepted='wall' rejected='' target_corr=' art'
+[sd_trace] round=2 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='wall art'
+[qa] memory_hint_chars=3988 selected=10 raw_empty=False init_error=none
+[ours] sample 34 done: wall art | total=41.785s mem=9.141s qa=32.644s decode=1.3574s reuse=False
+[ours] sample 35/50: What color are the pillows in the kitchen?...
+  memorize phase: SKIP (reuse episode memory in ep_648fa0e0e065190b4dfd_hm3d-v0_017-hm3d-Dd4bFSTQ8gi)
+[qa] draft_policy: steps=1 bias=0.25 margin=1.943 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=8
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 0.6547s  (Avg: 0.6547s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2682s  (Avg: 0.2682s/round)
+├─ Verification Strategy : 0.0209s  (Avg: 0.0209s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=2 elapsed=0.956s
+[sd_trace] target_final='White' draft_all_rounds='White'
+[sd_trace] round=1 draft='White' accepted='White' rejected='' target_corr=''
+[qa] direct_sd raw='White'
+[qa] memory_hint_chars=4000 selected=10 raw_empty=False init_error=none
+[ours] sample 35 done: White | total=38.5s mem=0.0s qa=38.5s decode=0.9561s reuse=True
+[ours] sample 36/50: What color is the front door?...
+  memorize phase: SKIP (reuse episode memory in ep_648fa0e0e065190b4dfd_hm3d-v0_017-hm3d-Dd4bFSTQ8gi)
+[qa] draft_policy: steps=1 bias=0.25 margin=0.0 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=8
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 0.6451s  (Avg: 0.6451s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2567s  (Avg: 0.2567s/round)
+├─ Verification Strategy : 0.0810s  (Avg: 0.0810s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=2 elapsed=0.993s
+[sd_trace] target_final='brown' draft_all_rounds='brown'
+[sd_trace] round=1 draft='brown' accepted='brown' rejected='' target_corr=''
+[qa] direct_sd raw='brown'
+[qa] memory_hint_chars=3995 selected=10 raw_empty=False init_error=none
+[ours] sample 36 done: Brown | total=35.973s mem=0.0s qa=35.973s decode=0.9934s reuse=True
+[ours] sample 37/50: What is to the left of the frontdoor?...
+  memorize phase: SKIP (reuse episode memory in ep_648fa0e0e065190b4dfd_hm3d-v0_017-hm3d-Dd4bFSTQ8gi)
+[qa] draft_policy: steps=0 bias=0.0 margin=0.056 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 3
+├─ Draft Model Generate  : 0.0001s  (Avg: 0.0000s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 1.4600s  (Avg: 0.4867s/round)
+├─ Verification Strategy : 0.0000s  (Avg: 0.0000s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.0 memory_items=10 new_tokens=3 elapsed=1.475s
+[sd_trace] target_final='console table' draft_all_rounds=''
+[sd_trace] round=1 draft='' accepted='' rejected='' target_corr='console'
+[sd_trace] round=2 draft='' accepted='' rejected='' target_corr=' table'
+[sd_trace] round=3 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='console table'
+[qa] memory_hint_chars=4000 selected=10 raw_empty=False init_error=none
+[ours] sample 37 done: console table | total=36.396s mem=0.0s qa=36.396s decode=1.4747s reuse=True
+[ours] sample 38/50: What is hanging from the oven handle?...
+  memorize phase: SKIP (reuse episode memory in ep_648fa0e0e065190b4dfd_hm3d-v0_017-hm3d-Dd4bFSTQ8gi)
+[qa] draft_policy: steps=1 bias=0.25 margin=0.007 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 5
+├─ Draft Model Generate  : 1.0862s  (Avg: 0.2172s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 1.2830s  (Avg: 0.2566s/round)
+├─ Verification Strategy : 0.0929s  (Avg: 0.0186s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.8 memory_items=10 new_tokens=9 elapsed=2.476s
+[sd_trace] target_final='Nothing is hanging from the oven handle.' draft_all_rounds='none |  is |  from |  oven | .'
+[sd_trace] round=1 draft='none' accepted='' rejected='none' target_corr='Nothing'
+[sd_trace] round=2 draft=' is' accepted=' is' rejected='' target_corr=' hanging'
+[sd_trace] round=3 draft=' from' accepted=' from' rejected='' target_corr=' the'
+[sd_trace] round=4 draft=' oven' accepted=' oven' rejected='' target_corr=' handle'
+[sd_trace] round=5 draft='.' accepted='.' rejected='' target_corr=''
+[qa] direct_sd raw='Nothing is hanging from the oven handle.'
+[qa] memory_hint_chars=3995 selected=10 raw_empty=False init_error=none
+[ours] sample 38 done: Nothing is hanging from the oven handle | total=37.148s mem=0.0s qa=37.148s decode=2.4757s reuse=True
+[ours] sample 39/50: Is the light above the sink turned on?...
+  memorize phase: SKIP (reuse episode memory in ep_648fa0e0e065190b4dfd_hm3d-v0_017-hm3d-Dd4bFSTQ8gi)
+[qa] draft_policy: steps=1 bias=0.15 margin=10.501 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=4
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 4.4943s  (Avg: 4.4943s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2566s  (Avg: 0.2566s/round)
+├─ Verification Strategy : 0.0169s  (Avg: 0.0169s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=2 elapsed=4.779s
+[sd_trace] target_final='No' draft_all_rounds='No'
+[sd_trace] round=1 draft='No' accepted='No' rejected='' target_corr=''
+[qa] direct_sd raw='No'
+[qa] memory_hint_chars=3996 selected=10 raw_empty=False init_error=none
+[ours] sample 39 done: No | total=36.841s mem=0.0s qa=36.841s decode=4.7793s reuse=True
+[ours] sample 40/50: Where can I warm up?...
+  memorize phase: SKIP (reuse episode memory in ep_648fa0e0e065190b4dfd_hm3d-v0_017-hm3d-Dd4bFSTQ8gi)
+[qa] draft_policy: steps=1 bias=0.25 margin=1.801 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 3
+├─ Draft Model Generate  : 0.7887s  (Avg: 0.2629s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.7724s  (Avg: 0.2575s/round)
+├─ Verification Strategy : 0.0855s  (Avg: 0.0285s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.6666666666666666 memory_items=10 new_tokens=4 elapsed=1.659s
+[sd_trace] target_final='near the fireplace' draft_all_rounds='to |  the'
+[sd_trace] round=1 draft='to' accepted='' rejected='to' target_corr='near'
+[sd_trace] round=2 draft=' the' accepted=' the' rejected='' target_corr=' fireplace'
+[sd_trace] round=3 draft='' accepted='' rejected='' target_corr=''
+[qa] direct_sd raw='near the fireplace'
+[qa] memory_hint_chars=3998 selected=10 raw_empty=False init_error=none
+[ours] sample 40 done: near the fireplace | total=32.796s mem=0.0s qa=32.796s decode=1.6588s reuse=True
+[ours] sample 41/50: Where can I get recipes for what to cook?...
+  memorize phase: SKIP (reuse episode memory in ep_648fa0e0e065190b4dfd_hm3d-v0_017-hm3d-Dd4bFSTQ8gi)
+[qa] draft_policy: steps=1 bias=0.25 margin=1.801 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 3
+├─ Draft Model Generate  : 0.8960s  (Avg: 0.2987s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.7088s  (Avg: 0.2363s/round)
+├─ Verification Strategy : 0.0801s  (Avg: 0.0267s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.6666666666666666 memory_items=10 new_tokens=5 elapsed=1.696s
+[sd_trace] target_final='on kitchen countertop' draft_all_rounds='in |  kitchen | op'
+[sd_trace] round=1 draft='in' accepted='' rejected='in' target_corr='on'
+[sd_trace] round=2 draft=' kitchen' accepted=' kitchen' rejected='' target_corr=' countert'
+[sd_trace] round=3 draft='op' accepted='op' rejected='' target_corr=''
+[qa] direct_sd raw='on kitchen countertop'
+[qa] memory_hint_chars=3998 selected=10 raw_empty=False init_error=none
+[ours] sample 41 done: on kitchen countertop | total=32.119s mem=0.0s qa=32.119s decode=1.6963s reuse=True
+[ours] sample 42/50: What is shown on the painting above the couch?...
+  memorize phase: SKIP (reuse episode memory in ep_648fa0e0e065190b4dfd_hm3d-v0_017-hm3d-Dd4bFSTQ8gi)
+[qa] draft_policy: steps=1 bias=0.25 margin=1.901 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 4
+├─ Draft Model Generate  : 0.8493s  (Avg: 0.2123s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.9328s  (Avg: 0.2332s/round)
+├─ Verification Strategy : 0.0186s  (Avg: 0.0047s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=8 elapsed=1.812s
+[sd_trace] target_final='abstract landscape with horizontal brushstrokes' draft_all_rounds='abstract |  with |  brush | rokes'
+[sd_trace] round=1 draft='abstract' accepted='abstract' rejected='' target_corr=' landscape'
+[sd_trace] round=2 draft=' with' accepted=' with' rejected='' target_corr=' horizontal'
+[sd_trace] round=3 draft=' brush' accepted=' brush' rejected='' target_corr='st'
+[sd_trace] round=4 draft='rokes' accepted='rokes' rejected='' target_corr=''
+[qa] direct_sd raw='abstract landscape with horizontal brushstrokes'
+[qa] memory_hint_chars=3996 selected=10 raw_empty=False init_error=none
+[ours] sample 42 done: abstract landscape with horizontal brushstrokes | total=31.606s mem=0.0s qa=31.606s decode=1.8124s reuse=True
+[ours] sample 43/50: Where can I get drinking water in the kitchen?...
+  memorize phase: SKIP (reuse episode memory in ep_648fa0e0e065190b4dfd_hm3d-v0_017-hm3d-Dd4bFSTQ8gi)
+[qa] draft_policy: steps=3 bias=0.4 margin=5.201 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 19
+├─ Draft Model Generate  : 3.2044s  (Avg: 0.1687s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 4.2879s  (Avg: 0.2257s/round)
+├─ Verification Strategy : 0.0748s  (Avg: 0.0039s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.8214285714285714 memory_items=10 new_tokens=65 elapsed=7.588s
+[sd_trace] target_final='refator: refrigerator, cabinets, countertop, door, paper towel roll, decorative sign, vase with flowers, white refrigerator, white cabinets, wooden floor, door, countertop items, white refrigerator, white cabinets, wooden floor, door, countertop, paper towel roll, decorative sign, vase with flowers, white refrigerator' draft_all_rounds='under the kitchen | rigerator | : left wall | , cabinets, | op, door |  wall, wall |  towel roll, |  sign, vase |  flowers, white | , white cabinets |  wooden floor, | , countertop | , white refrigerator |  white cabinets, |  floor, door |  countertop, |  towel roll, |  sign, vase |  flowers, white'
+[sd_trace] round=1 draft='under the kitchen' accepted='' rejected='under the kitchen' target_corr='ref'
+[sd_trace] round=2 draft='rigerator' accepted='' rejected='rigerator' target_corr='ator'
+[sd_trace] round=3 draft=': left wall' accepted=':' rejected=' left wall' target_corr=' refrigerator'
+[sd_trace] round=4 draft=', cabinets,' accepted=', cabinets,' rejected='' target_corr=' countert'
+[sd_trace] round=5 draft='op, door' accepted='op, door' rejected='' target_corr=','
+[sd_trace] round=6 draft=' wall, wall' accepted='' rejected=' wall, wall' target_corr=' paper'
+[sd_trace] round=7 draft=' towel roll,' accepted=' towel roll,' rejected='' target_corr=' decorative'
+[sd_trace] round=8 draft=' sign, vase' accepted=' sign, vase' rejected='' target_corr=' with'
+[qa] direct_sd raw='refator: refrigerator, cabinets, countertop, door, paper towel roll, decorative sign, vase with flowers, white refrigera'
+[qa] memory_hint_chars=3999 selected=10 raw_empty=False init_error=none
+[ours] sample 43 done: refator: refrigerator, cabinets, countertop, door, paper towel roll, decorative sign, vase with flowers, white refrigera | total=35.613s mem=0.0s qa=35.613s decode=7.5875s reuse=True
+[ours] sample 44/50: Where is the microwave?...
+  memorize phase: SKIP (reuse episode memory in ep_648fa0e0e065190b4dfd_hm3d-v0_017-hm3d-Dd4bFSTQ8gi)
+[qa] draft_policy: steps=3 bias=0.4 margin=7.5 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 0.6617s  (Avg: 0.6617s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2376s  (Avg: 0.2376s/round)
+├─ Verification Strategy : 0.0161s  (Avg: 0.0161s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=4 elapsed=0.926s
+[sd_trace] target_final='not in memory' draft_all_rounds='not in memory'
+[sd_trace] round=1 draft='not in memory' accepted='not in memory' rejected='' target_corr=''
+[qa] direct_sd refusal='not in memory'; treating as empty
+[qa] direct_sd empty; retrying target-only baseline
+[qa] direct_sd: baseline_only=True memory_items=10 max_tokens=64
+[sd_trace] sd_path=False acceptance_rate=None memory_items=0 new_tokens=4 elapsed=0.363s
+[sd_trace] target_final=None draft_all_rounds=None
+[qa] direct_sd refusal='not in memory'; treating as empty
+[qa] memory_hint_chars=4000 selected=10 raw_empty=True init_error=none
+[ours] sample 44 done: ERROR:qa:agent returned ERROR (see stderr_tail) | stderr=ading checkpoint shards:  75%|███████▌  | 3/4 [00:11<00:03,  3. | total=47.875s mem=0.0s qa=47.875s decode=Nones reuse=True
+[ours] sample 45/50: What objects are in the black cubby shelf?...
+[memorize] fresh HOME (no prior sqlite.db)
+[memorize] direct episodic only (skip memory-agent absorb)
+[Direct Episodic Cache Hit] Reusing offline caption: 54dd4a370dc98a6c1e36d605a16e0989d8505a46ff4c94b1f7c40647e6f8016b.txt
+[direct_episodic] inserted batch 1: 'bedroom: bed, sliding glass door, wooden panels, vertical blinds'
+[Direct Episodic Cache Hit] Reusing offline caption: a4d8fa6582b96dbcbb46f7770c23401a66a4e25aa07350a11c777e8b8159a140.txt
+[direct_episodic] inserted batch 2: 'hallway/entryway: open door to adjacent room, tiled floor, wall with switch and '
+[Direct Episodic Cache Hit] Reusing offline caption: abfd42272248068d03751c0ef8a82c2e8e93e65b6853b5810958d98387a9d7a2.txt
+[direct_episodic] inserted batch 3: 'bedroom: bed, sliding glass door, wooden panels, vertical blinds'
+[Direct Episodic Cache Hit] Reusing offline caption: fa4ae4f3c0b2d7dc2bf12d72f408fc887cb506027232509237f563592526fa66.txt
+[direct_episodic] inserted batch 4: 'hallway: doorframe, wall, tiled floor, distant room with desk and monitor'
+[Direct Episodic Cache Hit] Reusing offline caption: ed5e1581d179ca471e3a561ac2f519fbdaac964d488e2afd08ae738d0d1be90b.txt
+[direct_episodic] inserted batch 5: 'bedroom: bed, sliding glass door, plywood panels, tiled floor'
+[Direct Episodic Cache Hit] Reusing offline caption: cec7f0b14e744cc501313f21ecd76aeae119029eb4a0bc694b553ff4e4943ece.txt
+[direct_episodic] inserted batch 6: 'hallway: tiled floor, wall-mounted light, dark cabinet with baskets, framed art,'
+[Direct Episodic Cache Hit] Reusing offline caption: 3f9712ca918a1af41a5b1e4c5c118e4267f01c80d47cb57256e02e3aa4e83936.txt
+[direct_episodic] inserted batch 7: 'hallway/entryway: staircase with white railing, wall art, two doorways'
+[Direct Episodic Cache Hit] Reusing offline caption: a2240de10ba210dd70051d38c87c9683d1eba5c871e972b8a925e8889aaf0591.txt
+[direct_episodic] inserted batch 8: 'hallway/entryway: bookshelf with art and plant, white wall, door'
+[Direct Episodic Cache Hit] Reusing offline caption: a087ebf11083606e5d20137cf75f04d86d787d119082d924354ef32f978bfc0b.txt
+[direct_episodic] inserted batch 9: 'hallway/entryway: tiled floor, two doorways, wall art, bookshelf'
+[Direct Episodic Cache Hit] Reusing offline caption: c9422bd52dcc25b7ce2fdad15e01cd61a1729293601e4fbf66cd7faba374d160.txt
+[direct_episodic] inserted batch 10: 'staircase: marble steps with white walls, art above, doorway visible'
+[Direct Episodic Cache Hit] Reusing offline caption: 53f9673ebc064d973a8da2549fb0a629f5f7db748c7e3fab84caaf0070328664.txt
+[direct_episodic] inserted batch 11: 'living room: white refrigerator, wall art with red flowers, doorway to adjacent '
+[Direct Episodic Cache Hit] Reusing offline caption: bf51298375047e67ae119c6994ca422feff2e695d89353bd76a6569da655b604.txt
+[direct_episodic] inserted batch 12: 'hallway: staircase railing, large pendant light, two doorways, stacked wood pane'
+[Direct Episodic Cache Hit] Reusing offline caption: 7d2abcfa56efc987d012eb7091a09ddc776286489613ea3e8edbeeb5aa886c59.txt
+[direct_episodic] inserted batch 13: 'hallway: staircase railing, frosted window, pendant light, doorway to bedroom'
+[Direct Episodic Cache Hit] Reusing offline caption: da21c3d8a3a381f8118f6618006b28b60596a17f4c06f7139bd3b8b5e417e359.txt
+[direct_episodic] inserted batch 14: 'hallway/entryway: staircase railing, frosted glass door, hanging light fixture'
+[Direct Episodic Cache Hit] Reusing offline caption: 379b2b88e27c09c0f547fa9709a46e1913e40f18dbcc166d52e955622e786776.txt
+[direct_episodic] inserted batch 15: 'hallway: staircase railing, white walls, tiled floor, doorways to rooms'
+[Direct Episodic Cache Hit] Reusing offline caption: 2075ef8bfc72a174a687c48aa1b0ce7d340e200420bff551612b81be9dc96657.txt
+[direct_episodic] inserted batch 16: 'hallway: white walls, tiled floor, open door to bedroom, open door to living are'
+[memorize] direct episodic inserts: 16
+  memorize phase: OK (8.0s)
+[qa] draft_policy: steps=2 bias=0.3 margin=3.602 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 2
+├─ Draft Model Generate  : 0.7491s  (Avg: 0.3746s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.4064s  (Avg: 0.2032s/round)
+├─ Verification Strategy : 0.0727s  (Avg: 0.0364s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.0 memory_items=10 new_tokens=2 elapsed=1.237s
+[sd_trace] target_final='book' draft_all_rounds='none mentioned | shelf'
+[sd_trace] round=1 draft='none mentioned' accepted='' rejected='none mentioned' target_corr='book'
+[sd_trace] round=2 draft='shelf' accepted='' rejected='shelf' target_corr=''
+[qa] direct_sd raw='book'
+[qa] memory_hint_chars=3991 selected=10 raw_empty=False init_error=none
+[ours] sample 45 done: book | total=38.918s mem=7.97s qa=30.948s decode=1.2374s reuse=False
+[ours] sample 46/50: What color is the chair in the bedroom?...
+  memorize phase: SKIP (reuse episode memory in ep_ab74b4586509a260aecd_hm3d-v0_018-hm3d-dHwjuKfkRUR)
+[qa] draft_policy: steps=1 bias=0.25 margin=1.997 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=8
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 0.5398s  (Avg: 0.5398s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2250s  (Avg: 0.2250s/round)
+├─ Verification Strategy : 0.0153s  (Avg: 0.0153s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=2 elapsed=0.789s
+[sd_trace] target_final='Red' draft_all_rounds='Red'
+[sd_trace] round=1 draft='Red' accepted='Red' rejected='' target_corr=''
+[qa] direct_sd raw='Red'
+[qa] memory_hint_chars=3995 selected=10 raw_empty=False init_error=none
+[ours] sample 46 done: Red | total=29.088s mem=0.0s qa=29.088s decode=0.7895s reuse=True
+[ours] sample 47/50: What is in between the two bedroom doorways?...
+  memorize phase: SKIP (reuse episode memory in ep_ab74b4586509a260aecd_hm3d-v0_018-hm3d-dHwjuKfkRUR)
+[qa] draft_policy: steps=3 bias=0.4 margin=5.508 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 4
+├─ Draft Model Generate  : 1.0228s  (Avg: 0.2557s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.7999s  (Avg: 0.2000s/round)
+├─ Verification Strategy : 0.0723s  (Avg: 0.0181s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.5454545454545454 memory_items=10 new_tokens=10 elapsed=1.906s
+[sd_trace] target_final='card boxes, door, piano, wall art' draft_all_rounds='hallway/ | board boxes | , door, | , wall art'
+[sd_trace] round=1 draft='hallway/' accepted='' rejected='hallway/' target_corr='card'
+[sd_trace] round=2 draft='board boxes' accepted='' rejected='board boxes' target_corr=' boxes'
+[sd_trace] round=3 draft=', door,' accepted=', door,' rejected='' target_corr=' piano'
+[sd_trace] round=4 draft=', wall art' accepted=', wall art' rejected='' target_corr=''
+[qa] direct_sd raw='card boxes, door, piano, wall art'
+[qa] memory_hint_chars=3999 selected=10 raw_empty=False init_error=none
+[ours] sample 47 done: card boxes, door, piano, wall art | total=31.187s mem=0.0s qa=31.187s decode=1.9056s reuse=True
+[ours] sample 48/50: What can be seen outside the bedroom window?...
+  memorize phase: SKIP (reuse episode memory in ep_ab74b4586509a260aecd_hm3d-v0_018-hm3d-dHwjuKfkRUR)
+[qa] draft_policy: steps=1 bias=0.25 margin=1.503 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 4
+├─ Draft Model Generate  : 0.8685s  (Avg: 0.2171s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.8139s  (Avg: 0.2035s/round)
+├─ Verification Strategy : 0.0772s  (Avg: 0.0193s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=0.75 memory_items=10 new_tokens=7 elapsed=1.770s
+[sd_trace] target_final='wooden panels, vertical blinds' draft_all_rounds='cur | en | , |  blinds'
+[sd_trace] round=1 draft='cur' accepted='' rejected='cur' target_corr='wood'
+[sd_trace] round=2 draft='en' accepted='en' rejected='' target_corr=' panels'
+[sd_trace] round=3 draft=',' accepted=',' rejected='' target_corr=' vertical'
+[sd_trace] round=4 draft=' blinds' accepted=' blinds' rejected='' target_corr=''
+[qa] direct_sd raw='wooden panels, vertical blinds'
+[qa] memory_hint_chars=3987 selected=10 raw_empty=False init_error=none
+[ours] sample 48 done: wooden panels, vertical blinds | total=31.398s mem=0.0s qa=31.398s decode=1.77s reuse=True
+[ours] sample 49/50: Is the sliding door open or closed?...
+  memorize phase: SKIP (reuse episode memory in ep_ab74b4586509a260aecd_hm3d-v0_018-hm3d-dHwjuKfkRUR)
+[qa] draft_policy: steps=1 bias=0.25 margin=0.053 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=64
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 0.5390s  (Avg: 0.5390s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2366s  (Avg: 0.2366s/round)
+├─ Verification Strategy : 0.0148s  (Avg: 0.0148s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=2 elapsed=0.799s
+[sd_trace] target_final='Open' draft_all_rounds='Open'
+[sd_trace] round=1 draft='Open' accepted='Open' rejected='' target_corr=''
+[qa] direct_sd raw='Open'
+[qa] memory_hint_chars=3996 selected=10 raw_empty=False init_error=none
+[ours] sample 49 done: Closed | total=30.745s mem=0.0s qa=30.745s decode=0.7994s reuse=True
+[ours] sample 50/50: Is the chandelier turned on?...
+  memorize phase: SKIP (reuse episode memory in ep_ab74b4586509a260aecd_hm3d-v0_018-hm3d-dHwjuKfkRUR)
+[qa] draft_policy: steps=1 bias=0.0 margin=3.701 conflict=False
+[qa] direct_sd: baseline_only=False memory_items=10 max_tokens=4
+=================================== SPECULATIVE DECODING PROFILE ===================================
+Total Speculative Rounds: 1
+├─ Draft Model Generate  : 4.6155s  (Avg: 4.6155s/round)
+├─ Memory RoPE Align     : 0.0000s  (Avg: 0.0000s/round)
+├─ Target Model Forward  : 0.2147s  (Avg: 0.2147s/round)
+├─ Verification Strategy : 0.0170s  (Avg: 0.0170s/round)
+====================================================================================================
+[sd_trace] sd_path=True acceptance_rate=1.0 memory_items=10 new_tokens=2 elapsed=4.856s
+[sd_trace] target_final='Yes' draft_all_rounds='Yes'
+[sd_trace] round=1 draft='Yes' accepted='Yes' rejected='' target_corr=''
+[qa] direct_sd raw='Yes'
+[qa] memory_hint_chars=3997 selected=10 raw_empty=False init_error=none
+[ours] sample 50 done: Yes | total=34.075s mem=0.0s qa=34.075s decode=4.8565s reuse=True
+Wrote results (ours=50) to /tmp/openeqa_work/open_eqa_runs/compare_o150_n50_f16_20260726_161401/mma_sd.json
+--- MMA+SD summary ---
+OpenEQA summary — variant=ours
+total=50  exact=6  hit=8  partial=6  miss=28  error=2  good=20/50  model=48  rescued=0
+
+ #  match    source        gold                      prediction                question
+------------------------------------------------------------------------------------------------------------------------
+ 1  EXACT    MODEL         Yes                       Yes                       Is there room for more furniture ...
+ 2  MISS     MODEL         Yes.                      No                        Are the kitchen bar chairs tucked...
+ 3  EXACT    MODEL         Yes                       Yes                       Is the backyard fenced?
+ 4  MISS     MODEL         Use the basket on the...  on countertop             Where can I put my apples?
+ 5  PARTIAL  MODEL         The mirror above the ...  In the mirror which i...  What can I use to check my appear...
+ 6  EXACT    MODEL         Roman numerals            Roman numerals            What kind of numbering does the b...
+ 7  MISS     MODEL         A man and a child, lo...  person walking in sno...  What is the picture seen from the...
+ 8  ERROR    ERROR         Above the oven            ERROR:qa:agent return...  Where is the microwave?
+ 9  PARTIAL  MODEL         Underneath the wooden...  near dining table         Where is the red and white checke...
+10  MISS     MODEL         A smoke detector          framed mirror             What is the circular object on th...
+11  MISS     MODEL         A blanket                 wooden chest              What is the yellow object on top ...
+12  MISS     MODEL         Grey                      Brown                     What color is the trim of the mir...
+13  HIT      MODEL         Dark brown                Brown                     What color is the staircase railing?
+14  MISS     MODEL         Photos of people          wallpaper is hung alo...  What is hung along the walls of t...
+15  MISS     MODEL         A vase with flowers       dining table              What is at the center of the dini...
+16  MISS     MODEL         Yes.                      No                        Is the dining room light turned on?
+17  EXACT    MODEL         Yes                       Yes                       Is the bedroom door open?
+18  MISS     MODEL         On the grey rug behin...  by the white door         Where can I dry my shoes when I c...
+19  HIT      MODEL         Curtains                  t                         What can be used to provide priva...
+20  MISS     MODEL         The china cabinet         Console table             What type of furniture is used to...
+21  PARTIAL  MODEL         To the left of the di...  to the right of doorw...  Where is the china cabinet?
+22  HIT      MODEL         A chandelier              ornate chandelier         What is above the coffee table?
+23  MISS     MODEL         A piano                   bookshelf                 What is at the back of the living...
+24  MISS     MODEL         Gold                      Silver                    What color are the air vents belo...
+25  HIT      MODEL         A coffee table            coffee table              What is in between the two couches?
+26  MISS     MODEL         A painting                framed picture            What is above the piano?
+27  MISS     MODEL         No.                       Yes                       Is there natural light in the room?
+28  MISS     MODEL         Open                      Closed                    Is the piano keyboard cover open ...
+29  HIT      MODEL         The piano                 piano                     What can I use to entertain my gu...
+30  PARTIAL  MODEL         The couch                 on the tufted sofa        Where can I lay down and read a b...
+31  HIT      MODEL         Yes.                      Yes                       Can this home be used for a large...
+32  MISS     MODEL         Yes.                      No                        Is the person who lives here an a...
+33  PARTIAL  MODEL         On the couch              on the sofa               Where is the pillow with the face...
+34  MISS     MODEL         A blue, white, and or...  wall art                  What is above the wooden table in...
+35  MISS     MODEL         Blue                      White                     What color are the pillows in the...
+36  EXACT    MODEL         Brown                     Brown                     What color is the front door?
+37  MISS     MODEL         A storage closet          console table             What is to the left of the frontd...
+38  MISS     MODEL         A towel                   Nothing is hanging fr...  What is hanging from the oven han...
+39  MISS     MODEL         Yes                       No                        Is the light above the sink turne...
+40  PARTIAL  MODEL         Next to the fireplace     near the fireplace        Where can I warm up?
+41  MISS     MODEL         The open cookbook on ...  on kitchen countertop     Where can I get recipes for what ...
+42  MISS     MODEL         Horses                    abstract landscape wi...  What is shown on the painting abo...
+43  MISS     MODEL         From water dispenser ...  refator: refrigerator...  Where can I get drinking water in...
+44  ERROR    ERROR         Above the stovetop        ERROR:qa:agent return...  Where is the microwave?
+45  HIT      MODEL         Books                     book                      What objects are in the black cub...
+46  MISS     MODEL         Black                     Red                       What color is the chair in the be...
+47  MISS     MODEL         A light switch            card boxes, door, pia...  What is in between the two bedroo...
+48  MISS     MODEL         A pond                    wooden panels, vertic...  What can be seen outside the bedr...
+49  EXACT    MODEL         Closed                    Closed                    Is the sliding door open or closed?
+50  HIT      MODEL         Yes.                      Yes                       Is the chandelier turned on?
+DONE RUN_DIR=/tmp/openeqa_work/open_eqa_runs/compare_o150_n50_f16_20260726_161401
+TIMING_JSON=/tmp/openeqa_work/open_eqa_runs/compare_o150_n50_f16_20260726_161401/timing_summary.json
