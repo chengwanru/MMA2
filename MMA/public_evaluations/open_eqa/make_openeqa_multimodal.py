@@ -284,25 +284,35 @@ def _video_frame_count(mp4_path: str) -> int:
 
 
 def _write_video_frame(mp4_path: str, frame_idx: int, out_path: str) -> bool:
+    from PIL import Image
+
+    frame = None
     try:
         import cv2  # type: ignore
 
         cap = cv2.VideoCapture(mp4_path)
-        if not cap.isOpened():
-            return False
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-        ok, frame = cap.read()
-        cap.release()
-        if ok and frame is not None:
-            return bool(cv2.imwrite(out_path, frame))
+        if cap.isOpened():
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+            ok, cv_frame = cap.read()
+            cap.release()
+            if ok and cv_frame is not None:
+                frame = cv2.cvtColor(cv_frame, cv2.COLOR_BGR2RGB)
     except Exception:
         pass
-    try:
-        import imageio.v2 as imageio
 
-        with imageio.get_reader(mp4_path) as reader:
-            frame = reader.get_data(frame_idx)
-        imageio.imwrite(out_path, frame)
+    if frame is None:
+        try:
+            import imageio.v2 as imageio
+
+            with imageio.get_reader(mp4_path) as reader:
+                frame = reader.get_data(frame_idx)
+        except Exception:
+            return False
+
+    try:
+        image = Image.fromarray(frame)
+        image = image.resize((224, 224), Image.Resampling.LANCZOS)
+        image.save(out_path)
         return True
     except Exception:
         return False
@@ -396,8 +406,13 @@ def _minimal_frames_from_tar(
             extracted = tar.extractfile(member)
             if extracted is None:
                 continue
-            with open(out_path, "wb") as f:
-                f.write(extracted.read())
+            from io import BytesIO
+            from PIL import Image
+
+            img = Image.open(BytesIO(extracted.read())).convert("RGB")
+            img = img.resize((224, 224), Image.Resampling.LANCZOS)
+            img.save(out_path)
+
             out_paths.append(out_path)
             out_names.append(out_name)
 

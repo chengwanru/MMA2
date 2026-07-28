@@ -206,7 +206,7 @@ export MMA_DRAFT_FAST_SINGLE_STEP="${MMA_DRAFT_FAST_SINGLE_STEP:-1}"
 export MMA_SD_TARGET_KV_CACHE="${MMA_SD_TARGET_KV_CACHE:-1}"
 # Default off (matches historical MMA@64=26). Set =1 for VR ablations.
 export MMA_ENABLE_VISUAL_ROUTING="${MMA_ENABLE_VISUAL_ROUTING:-0}"
-export OPENEQA_VL_MAX_PIXELS="${OPENEQA_VL_MAX_PIXELS:-401408}"
+export OPENEQA_VL_MAX_PIXELS="50176"
 
 # AIBox-compatible backend (from use_mma_env.sh; reaffirm here)
 export MMA_VL_NATIVE_TARGET="${MMA_VL_NATIVE_TARGET:-1}"
