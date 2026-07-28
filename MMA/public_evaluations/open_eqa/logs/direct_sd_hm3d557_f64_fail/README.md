@@ -19,7 +19,7 @@ So this is a **setting mismatch** (multi-frame VL + SD without memory compressio
 
 ## Files
 
-- `run_excerpt.log` — representative lines from the AIBox run (profile + empty/slow samples)
+- `run_excerpt.txt` — representative lines from the AIBox run (profile + empty/slow samples)
 - Full AIBox dirs (if still present): `/workspace/open_eqa_runs/direct_sd_hm3d557_f64_*/`
 
 ## Related paper baselines
