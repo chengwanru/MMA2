@@ -3230,7 +3230,9 @@ def normalize_qa_prediction(
             if expanded:
                 answer = expanded
             answer = _canonicalize_color_spelling(answer, memory_hint)
-            answer = _yes_no_memory_override(answer, memory_hint, question)
+            # Hybrid VL already looked at pixels; do not flip Yes/No from text memory.
+            if prediction_source != "hybrid_vl":
+                answer = _yes_no_memory_override(answer, memory_hint, question)
             answer = _compact_object_phrase(answer, question)
             if prediction_source == "hybrid_vl" and _is_where_question(question):
                 answer = _compact_where_phrase(answer, question)
@@ -3265,6 +3267,30 @@ def normalize_qa_prediction(
     )
     # "What color pattern …" is pattern QA, not free-form color QA.
     color_q = ("color" in q_l or "colour" in q_l) and "pattern" not in q_l
+
+    # Hybrid VL path: light cleanup only. Memory/text fusion already happened in
+    # reconcile_hybrid_qa_answer; do not re-apply force / open-closed / where overrides.
+    if prediction_source == "hybrid_vl":
+        if open_closed_q:
+            oc = _extract_open_closed(raw_text)
+            if oc:
+                return _finalize(oc, raw_text)
+        if yes_no_q:
+            cleaned_yn = _clean_phrase(raw_text, yes_no_q=True) or ""
+            if cleaned_yn.lower() in ("yes", "no"):
+                return _finalize(cleaned_yn.capitalize(), raw_text)
+        if color_q:
+            color_raw = _extract_color_answer(raw_text, question)
+            if color_raw:
+                return _finalize(color_raw, raw_text)
+        cleaned = _clean_phrase(raw_text, yes_no_q=False) or raw_text
+        if cleaned and not _is_bad_answer(cleaned) and not _is_refusal_answer(cleaned):
+            return _finalize(cleaned, raw_text)
+        # Empty / refusal hybrid: allow memory fallback below via ERROR path semantics.
+        fallback = _answer_from_memory_hint(memory_hint, question)
+        if fallback:
+            return _finalize(fallback, raw_text)
+        return "", raw_text
 
     # Short-term: strong memory evidence overrides wrong model inventions.
     forced = _force_answer_from_strong_hint(memory_hint, question, raw_text)

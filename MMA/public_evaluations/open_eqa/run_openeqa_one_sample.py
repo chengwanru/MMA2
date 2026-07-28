@@ -929,6 +929,8 @@ def _run_qa(
     memory_hint = ""
     init_error = ""
     hybrid_meta: Dict[str, Any] = {}
+    qa_answer_source = ""
+    reconcile_meta: Dict[str, Any] = {}
 
     try:
         agent = _init_agent(config_path, for_qa=True)
@@ -972,26 +974,81 @@ def _run_qa(
 
         # Hybrid: weak-text retrieve top frames → question-conditioned VL (not SD+images).
         try:
-            from openeqa_hybrid_vl import hybrid_vl_enabled, run_hybrid_qa
+            from openeqa_hybrid_vl import (
+                hybrid_memory_reconcile_enabled,
+                hybrid_ensemble_text_sd_enabled,
+                hybrid_skip_text_sd,
+                hybrid_vl_enabled,
+                reconcile_hybrid_qa_answer,
+                run_hybrid_qa,
+                should_run_text_sd_for_reconcile,
+            )
 
             if hybrid_vl_enabled():
+                memory_hint_early = (draft_policy or {}).get("top_memory_hint") or (
+                    (draft_policy or {}).get("top_memory_preview") or ""
+                )
+                if selected_events:
+                    rebuilt = memory_hint_from_events(
+                        selected_events, question=question
+                    )
+                    if len(rebuilt) >= len(memory_hint_early or ""):
+                        memory_hint_early = rebuilt
+
                 hybrid_meta = run_hybrid_qa(sample, selected_events, question) or {}
                 hybrid_pred = (hybrid_meta.get("prediction") or "").strip()
-                if hybrid_pred and not hybrid_pred.upper().startswith("ERROR"):
-                    raw_prediction = hybrid_pred
-                    skip_text = os.environ.get(
-                        "OPENEQA_QA_HYBRID_SKIP_TEXT_SD", "1"
-                    ).strip().lower() not in ("0", "false", "no")
-                    if skip_text:
-                        print(
-                            "  [hybrid_vl] using VL answer; skip text-only SD",
-                            flush=True,
-                        )
-                else:
+                text_sd_raw = ""
+
+                run_text_sd = False
+                if not hybrid_pred or hybrid_pred.upper().startswith("ERROR"):
+                    run_text_sd = True
                     print(
                         "  [hybrid_vl] empty/failed; falling back to text SD",
                         flush=True,
                     )
+                elif hybrid_memory_reconcile_enabled():
+                    run_text_sd = hybrid_ensemble_text_sd_enabled() and (
+                        should_run_text_sd_for_reconcile(
+                            hybrid_pred, memory_hint_early, question
+                        )
+                    )
+                else:
+                    run_text_sd = not hybrid_skip_text_sd()
+
+                if run_text_sd:
+                    try:
+                        if _qa_uses_direct_sd():
+                            text_sd_raw = _qa_direct_sd_with_fallback(
+                                _mma_core(agent), formatted, question
+                            )
+                        else:
+                            text_sd_raw = _qa_send(agent, formatted)
+                    except Exception as exc:
+                        print(f"  [hybrid_vl] text SD for reconcile failed: {exc}", flush=True)
+                        text_sd_raw = ""
+
+                if hybrid_memory_reconcile_enabled():
+                    raw_prediction, qa_answer_source, reconcile_meta = (
+                        reconcile_hybrid_qa_answer(
+                            question=question,
+                            memory_hint=memory_hint_early,
+                            hybrid_pred=hybrid_pred,
+                            text_sd_pred=text_sd_raw,
+                        )
+                    )
+                    print(
+                        "  [hybrid_vl] reconcile "
+                        f"source={qa_answer_source} reason={reconcile_meta.get('reason')}",
+                        flush=True,
+                    )
+                elif hybrid_pred and not hybrid_pred.upper().startswith("ERROR"):
+                    raw_prediction = hybrid_pred
+                    qa_answer_source = "hybrid_vl"
+                    if hybrid_skip_text_sd():
+                        print(
+                            "  [hybrid_vl] using VL answer; skip text-only SD",
+                            flush=True,
+                        )
         except Exception as exc:
             print(f"  [hybrid_vl] exception: {exc}", flush=True)
             traceback.print_exc()
@@ -1053,6 +1110,9 @@ def _run_qa(
         raw_prediction,
         question=question,
         memory_hint=memory_hint,
+        prediction_source=(
+            "hybrid_vl" if qa_answer_source == "hybrid_vl" else ""
+        ),
     )
     if not prediction and raw_prediction not in ("", "ERROR"):
         for line in raw_prediction.splitlines():
@@ -1090,7 +1150,8 @@ def _run_qa(
                 raw_prediction = "ERROR"
 
     sd_stats = collect_speculative_sd_stats() if agent is not None else {}
-    qa_answer_source = _qa_answer_source(raw_prediction, prediction)
+    if not qa_answer_source:
+        qa_answer_source = _qa_answer_source(raw_prediction, prediction)
     if (hybrid_meta or {}).get("prediction") and qa_answer_source == "model":
         qa_answer_source = "hybrid_vl"
 
@@ -1108,6 +1169,8 @@ def _run_qa(
         )
         if hybrid_meta:
             debug_payload["hybrid_vl"] = hybrid_meta
+        if reconcile_meta:
+            debug_payload["hybrid_reconcile"] = reconcile_meta
         write_debug_file(home_dir, "qa", debug_payload)
         log_debug_summary(debug_payload, "qa")
     else:
@@ -1123,6 +1186,11 @@ def _run_qa(
                 "elapsed_sec": hybrid_meta.get("elapsed_sec"),
                 "error": hybrid_meta.get("error"),
                 "prediction": hybrid_meta.get("prediction"),
+            }
+        if reconcile_meta:
+            debug_payload["hybrid_reconcile"] = {
+                "reason": reconcile_meta.get("reason"),
+                "source": qa_answer_source,
             }
 
     pred_s = (prediction or "").strip()

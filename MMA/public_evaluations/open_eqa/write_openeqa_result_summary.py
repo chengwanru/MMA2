@@ -74,7 +74,7 @@ def _qa_answer_source(row: Dict[str, Any]) -> str:
     qa = debug.get("qa") if isinstance(debug, dict) else None
     if isinstance(qa, dict):
         src = (qa.get("qa_answer_source") or "").strip().lower()
-        if src in ("model", "memory_hint", "error"):
+        if src in ("model", "memory_hint", "error", "hybrid_vl", "text_sd"):
             return src
         raw = (qa.get("prediction_raw") or "").strip()
         pred = (row.get("prediction") or "").strip()
@@ -90,7 +90,14 @@ def _qa_answer_source(row: Dict[str, Any]) -> str:
 def _summarize_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     summary_rows: List[Dict[str, Any]] = []
     counts = {"EXACT": 0, "HIT": 0, "PARTIAL": 0, "MISS": 0, "ERROR": 0, "?": 0}
-    source_counts = {"model": 0, "memory_hint": 0, "error": 0, "unknown": 0}
+    source_counts = {
+        "model": 0,
+        "hybrid_vl": 0,
+        "text_sd": 0,
+        "memory_hint": 0,
+        "error": 0,
+        "unknown": 0,
+    }
     for i, row in enumerate(rows, start=1):
         gold = (row.get("gold_answer") or row.get("answer") or "").strip()
         pred = (row.get("prediction") or "").strip()
@@ -119,6 +126,8 @@ def _summarize_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "error": counts["ERROR"],
         "substring_or_overlap_hits": good,
         "model_answers": source_counts.get("model", 0),
+        "hybrid_vl_answers": source_counts.get("hybrid_vl", 0),
+        "text_sd_answers": source_counts.get("text_sd", 0),
         "memory_hint_rescued": source_counts.get("memory_hint", 0),
         "rows": summary_rows,
     }
@@ -130,7 +139,10 @@ def _format_text(variant: str, block: Dict[str, Any]) -> str:
         f"total={block['total']}  exact={block['exact']}  hit={block['hit']}  "
         f"partial={block['partial']}  miss={block['miss']}  error={block['error']}  "
         f"good={block['substring_or_overlap_hits']}/{block['total']}  "
-        f"model={block.get('model_answers', 0)}  rescued={block.get('memory_hint_rescued', 0)}",
+        f"model={block.get('model_answers', 0)}  "
+        f"hybrid={block.get('hybrid_vl_answers', 0)}  "
+        f"text_sd={block.get('text_sd_answers', 0)}  "
+        f"rescued={block.get('memory_hint_rescued', 0)}",
         "",
         f"{'#':>2}  {'match':<7}  {'source':<12}  {'gold':<24}  {'prediction':<24}  question",
         "-" * 120,

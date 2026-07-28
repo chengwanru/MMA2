@@ -436,6 +436,240 @@ def answer_with_hybrid_vl(
     return out
 
 
+_MEMORY_CAPTION_TEMPLATE_RE = re.compile(
+    r"(?:"
+    r"^[A-Za-z][\w\s]*:\s*(?:left|right)\s+(?:wall|side)\b"
+    r"|@[\w]"
+    r"|^Functional_cues:"
+    r"|^Attributes:"
+    r"|^ROOM:"
+    r"|^OBJECTS:"
+    r"|^NOT_VISIBLE:"
+    r"|→"
+    r")",
+    re.I,
+)
+
+
+def hybrid_memory_reconcile_enabled() -> bool:
+    return os.environ.get("OPENEQA_QA_HYBRID_MEMORY_RECONCILE", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+
+
+def hybrid_ensemble_text_sd_enabled() -> bool:
+    return os.environ.get("OPENEQA_QA_HYBRID_ENSEMBLE_SD", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+
+
+def hybrid_skip_text_sd() -> bool:
+    return os.environ.get("OPENEQA_QA_HYBRID_SKIP_TEXT_SD", "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def looks_like_memory_caption_template(text: str) -> bool:
+    phrase = (text or "").strip()
+    if not phrase:
+        return False
+    if _MEMORY_CAPTION_TEMPLATE_RE.search(phrase):
+        return True
+    if re.search(r"\b(?:left|right)\s+(?:wall|side)\b", phrase, re.I) and ":" in phrase:
+        return True
+    return False
+
+
+def should_run_text_sd_for_reconcile(
+    hybrid_pred: str,
+    memory_hint: str,
+    question: str,
+) -> bool:
+    """Lazy text-SD: only when hybrid is empty, refused, templated, or misses memory."""
+    from openeqa_memory import (
+        _answer_from_memory_hint,
+        _is_bad_answer,
+        _is_refusal_answer,
+        _prediction_covers_memory_answer,
+        is_refusal_answer,
+    )
+
+    hybrid = (hybrid_pred or "").strip()
+    if not hybrid or hybrid.upper().startswith("ERROR"):
+        return True
+    if (
+        _is_refusal_answer(hybrid)
+        or is_refusal_answer(hybrid)
+        or looks_like_memory_caption_template(hybrid)
+        or re.search(r"\bno visible\b", hybrid, re.I)
+    ):
+        return True
+    mem_ans = _answer_from_memory_hint(memory_hint, question) if memory_hint else ""
+    if not mem_ans:
+        return False
+    hybrid_clean = hybrid
+    if _is_bad_answer(hybrid_clean) or looks_like_memory_caption_template(hybrid_clean):
+        return True
+    return not _prediction_covers_memory_answer(hybrid_clean, mem_ans)
+
+
+def reconcile_hybrid_qa_answer(
+    *,
+    question: str,
+    memory_hint: str,
+    hybrid_pred: str = "",
+    text_sd_pred: str = "",
+) -> Tuple[str, str, Dict[str, Any]]:
+    """Fuse hybrid VL, text SD, and memory extraction into one answer.
+
+    Returns (answer_raw, source, meta) where source is hybrid_vl | text_sd | memory_hint.
+    """
+    from openeqa_memory import (
+        _answer_from_memory_hint,
+        _is_bad_answer,
+        _is_refusal_answer,
+        _is_valid_where_answer,
+        _is_where_question,
+        _looks_like_scene_or_inventory_dump,
+        _prediction_covers_memory_answer,
+        is_refusal_answer,
+        normalize_qa_prediction,
+    )
+
+    meta: Dict[str, Any] = {
+        "hybrid_pred": (hybrid_pred or "").strip(),
+        "text_sd_pred": (text_sd_pred or "").strip(),
+        "memory_hint_chars": len(memory_hint or ""),
+    }
+    hybrid = (hybrid_pred or "").strip()
+    text_sd = (text_sd_pred or "").strip()
+    mem_raw = (
+        _answer_from_memory_hint(memory_hint, question) if (memory_hint or "").strip() else ""
+    )
+    meta["memory_extract"] = mem_raw
+
+    def _norm_hybrid(raw: str) -> str:
+        if not raw:
+            return ""
+        pred, _ = normalize_qa_prediction(
+            raw,
+            question=question,
+            memory_hint="",
+            prediction_source="hybrid_vl",
+        )
+        return (pred or raw).strip()
+
+    def _norm_sd(raw: str) -> str:
+        if not raw:
+            return ""
+        pred, _ = normalize_qa_prediction(
+            raw,
+            question=question,
+            memory_hint=memory_hint,
+        )
+        return (pred or raw).strip()
+
+    def _norm_mem() -> str:
+        if not (memory_hint or "").strip():
+            return ""
+        pred, _ = normalize_qa_prediction(
+            "ERROR",
+            question=question,
+            memory_hint=memory_hint,
+        )
+        if pred and not pred.upper().startswith("ERROR"):
+            return pred.strip()
+        return (mem_raw or "").strip()
+
+    hybrid_n = _norm_hybrid(hybrid)
+    sd_n = _norm_sd(text_sd)
+    mem_n = _norm_mem()
+    meta["hybrid_norm"] = hybrid_n
+    meta["text_sd_norm"] = sd_n
+    meta["memory_norm"] = mem_n
+
+    def _hybrid_trusted() -> bool:
+        if not hybrid_n:
+            return False
+        if (
+            _is_refusal_answer(hybrid)
+            or is_refusal_answer(hybrid)
+            or looks_like_memory_caption_template(hybrid)
+            or looks_like_memory_caption_template(hybrid_n)
+            or re.search(r"\bno visible\b", hybrid, re.I)
+        ):
+            return False
+        if _is_bad_answer(hybrid_n):
+            return False
+        if _looks_like_scene_or_inventory_dump(hybrid_n):
+            return False
+        if mem_n and not _prediction_covers_memory_answer(hybrid_n, mem_n):
+            if _is_where_question(question):
+                if not _is_valid_where_answer(hybrid_n, question):
+                    return False
+                if re.search(r"\b(?:near|through|by)\b", hybrid_n, re.I) and len(
+                    hybrid_n.split()
+                ) <= 4:
+                    return False
+            else:
+                return False
+        return True
+
+    if mem_n:
+        if not hybrid_n or not _hybrid_trusted():
+            if sd_n and _prediction_covers_memory_answer(sd_n, mem_n):
+                meta["reason"] = "text_sd_covers_memory"
+                return text_sd or sd_n, "text_sd", meta
+            meta["reason"] = "memory_beats_untrusted_hybrid"
+            return "ERROR", "memory_hint", meta
+
+    if sd_n and hybrid_n:
+        if _hybrid_trusted():
+            if _prediction_covers_memory_answer(hybrid_n, sd_n) or len(hybrid_n) <= len(
+                sd_n
+            ):
+                meta["reason"] = "trusted_hybrid"
+                return hybrid, "hybrid_vl", meta
+            meta["reason"] = "text_sd_over_hybrid"
+            return text_sd or sd_n, "text_sd", meta
+        meta["reason"] = "text_sd_untrusted_hybrid"
+        return text_sd or sd_n, "text_sd", meta
+
+    if hybrid_n and _hybrid_trusted():
+        meta["reason"] = "trusted_hybrid_only"
+        return hybrid, "hybrid_vl", meta
+    if sd_n:
+        meta["reason"] = "text_sd_only"
+        return text_sd or sd_n, "text_sd", meta
+    if mem_n:
+        meta["reason"] = "memory_only"
+        return "ERROR", "memory_hint", meta
+    if hybrid and not _hybrid_trusted():
+        mem_fallback = _norm_mem()
+        if mem_fallback:
+            meta["reason"] = "memory_fallback_untrusted_hybrid"
+            return "ERROR", "memory_hint", meta
+        if sd_n:
+            meta["reason"] = "text_sd_untrusted_hybrid_no_memory"
+            return text_sd or sd_n, "text_sd", meta
+        meta["reason"] = "untrusted_hybrid_discarded"
+        return "", "error", meta
+    if hybrid:
+        meta["reason"] = "hybrid_fallback"
+        return hybrid, "hybrid_vl", meta
+    if text_sd:
+        meta["reason"] = "text_sd_fallback"
+        return text_sd, "text_sd", meta
+    meta["reason"] = "empty"
+    return "", "error", meta
+
+
 def run_hybrid_qa(
     sample: Dict[str, Any],
     selected_events: Sequence[Any],

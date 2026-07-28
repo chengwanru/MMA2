@@ -132,5 +132,41 @@ class HybridNormalizeTests(unittest.TestCase):
         self.assertEqual(pred, "Donald Duck")
 
 
+class HybridReconcileTests(unittest.TestCase):
+    def test_template_leak_prefers_memory(self):
+        from openeqa_hybrid_vl import reconcile_hybrid_qa_answer
+
+        hint = (
+            "bedroom: full length mirror by door | "
+            "WORLD_CUES: upstairs bedroom with mirror"
+        )
+        ans, source, _meta = reconcile_hybrid_qa_answer(
+            question="Where is the full length mirror?",
+            memory_hint=hint,
+            hybrid_pred="Dresser: right wall",
+            text_sd_pred="",
+        )
+        self.assertEqual(source, "memory_hint")
+        self.assertEqual(ans, "ERROR")
+
+    def test_door_template_rejected(self):
+        from openeqa_hybrid_vl import looks_like_memory_caption_template
+
+        self.assertTrue(looks_like_memory_caption_template("Dresser: right wall"))
+
+    def test_refusal_prefers_text_sd(self):
+        from openeqa_hybrid_vl import reconcile_hybrid_qa_answer
+
+        ans, source, meta = reconcile_hybrid_qa_answer(
+            question="What type of heating does this house have?",
+            memory_hint="OBJECTS: table, chairs, dresser, windows",
+            hybrid_pred="No visible heating system",
+            text_sd_pred="radiator",
+        )
+        self.assertEqual(source, "text_sd")
+        self.assertEqual(ans, "radiator")
+        self.assertEqual(meta.get("reason"), "text_sd_untrusted_hybrid")
+
+
 if __name__ == "__main__":
     unittest.main()
