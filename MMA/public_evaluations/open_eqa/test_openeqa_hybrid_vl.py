@@ -167,6 +167,34 @@ class HybridReconcileTests(unittest.TestCase):
         self.assertEqual(ans, "radiator")
         self.assertEqual(meta.get("reason"), "text_sd_untrusted_hybrid")
 
+    def test_text_sd_where_not_clobbered_by_second_normalize(self):
+        """Mirrors #53: reconcile picks text_sd; final normalize must keep it."""
+        from openeqa_hybrid_vl import reconcile_hybrid_qa_answer
+        from openeqa_memory import normalize_qa_prediction
+
+        hint = (
+            "ROOM: dining | OBJECTS: bowl, table, chairs | "
+            "SPATIAL: bowl: center of breakfast table"
+        )
+        raw, source, _meta = reconcile_hybrid_qa_answer(
+            question="Where is the breakfast table?",
+            memory_hint=hint,
+            hybrid_pred="stairs",
+            text_sd_pred="center of dining room",
+        )
+        self.assertEqual(source, "text_sd")
+        # Same protection as run_openeqa_one_sample after reconcile.
+        pred, _ = normalize_qa_prediction(
+            raw,
+            question="Where is the breakfast table?",
+            memory_hint="",
+            prediction_source="hybrid_vl",
+        )
+        self.assertNotIn("bowl", pred.lower())
+        self.assertTrue(
+            "dining" in pred.lower() or "center" in pred.lower() or "room" in pred.lower()
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

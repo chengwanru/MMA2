@@ -998,6 +998,11 @@ def _run_qa(
                 hybrid_meta = run_hybrid_qa(sample, selected_events, question) or {}
                 hybrid_pred = (hybrid_meta.get("prediction") or "").strip()
                 text_sd_raw = ""
+                # Hybrid VL uses baseline/target-only client; drop that cache before
+                # text SD or draft stays unloaded ("Draft model is not loaded").
+                os.environ.pop("MMA_TARGET_ONLY", None)
+                os.environ.pop("MMA_SPECULATIVE_BASELINE", None)
+                _clear_speculative_client_cache()
 
                 run_text_sd = False
                 if not hybrid_pred or hybrid_pred.upper().startswith("ERROR"):
@@ -1106,13 +1111,14 @@ def _run_qa(
         flush=True,
     )
 
+    # Reconcile already chose hybrid_vl / text_sd; second-pass memory force
+    # must not rewrite (e.g. "center of dining room" → "A bowl").
+    _protected = qa_answer_source in ("hybrid_vl", "text_sd")
     prediction, _ = normalize_qa_prediction(
         raw_prediction,
         question=question,
-        memory_hint=memory_hint,
-        prediction_source=(
-            "hybrid_vl" if qa_answer_source == "hybrid_vl" else ""
-        ),
+        memory_hint=memory_hint if not _protected else "",
+        prediction_source="hybrid_vl" if _protected else "",
     )
     if not prediction and raw_prediction not in ("", "ERROR"):
         for line in raw_prediction.splitlines():
