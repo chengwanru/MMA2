@@ -290,6 +290,7 @@ if [[ "${ARMS}" == "both" || "${ARMS}" == "mma" ]]; then
   fi
 
   t0=$(date +%s)
+  set +e
   "${PY}" run_openeqa_eval.py \
     --input_file "${INPUT}" \
     --output_file "${OUT_MMA}" \
@@ -299,7 +300,27 @@ if [[ "${ARMS}" == "both" || "${ARMS}" == "mma" ]]; then
     --offset 0 \
     --variants ours \
     2>&1 | tee -a "${LOG}"
+  mma_eval_exit=${PIPESTATUS[0]}
+  set -e
   _record_wall mma_eval_wall_sec "$(( $(date +%s) - t0 ))"
+
+  if [[ "${mma_eval_exit}" -ne 0 ]]; then
+    echo "ERROR: run_openeqa_eval.py exited ${mma_eval_exit}" | tee -a "${LOG}"
+    if [[ ! -f "${OUT_MMA}" && -f "${OUT_MMA%.json}.checkpoint.json" ]]; then
+      echo "NOTE: checkpoint exists at ${OUT_MMA%.json}.checkpoint.json — recover with recover_openeqa_from_log.py" | tee -a "${LOG}"
+    fi
+    exit "${mma_eval_exit}"
+  fi
+  if [[ ! -f "${OUT_MMA}" ]]; then
+    ckpt="${OUT_MMA%.json}.checkpoint.json"
+    if [[ -f "${ckpt}" ]]; then
+      echo "WARN: ${OUT_MMA} missing; promoting checkpoint ${ckpt}" | tee -a "${LOG}"
+      cp -f "${ckpt}" "${OUT_MMA}"
+    else
+      echo "ERROR: ${OUT_MMA} not written (no checkpoint). Check log for OOM/traceback." | tee -a "${LOG}"
+      exit 1
+    fi
+  fi
 
   "${PY}" - <<PY
 import json, statistics as st

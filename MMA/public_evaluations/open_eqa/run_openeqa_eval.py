@@ -436,6 +436,63 @@ def _invoke_one_sample_phase(
     }
 
 
+def _strip_debug_for_disk(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop inline debug when persisted separately to keep final JSON small."""
+    out = dict(row)
+    if out.get("debug_file"):
+        out.pop("debug", None)
+    return out
+
+
+def _checkpoint_enabled() -> bool:
+    return os.environ.get("OPENEQA_CHECKPOINT", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+
+
+def _checkpoint_path(output_file: str) -> Path:
+    p = Path(output_file)
+    return p.with_name(f"{p.stem}.checkpoint{p.suffix}")
+
+
+def _write_results_file(
+    output_file: str,
+    results: Dict[str, List[Dict[str, Any]]],
+) -> None:
+    path = Path(output_file).resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    slim = {
+        key: [_strip_debug_for_disk(row) for row in rows]
+        for key, rows in results.items()
+    }
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(slim, f, ensure_ascii=False, indent=2)
+    tmp.replace(path)
+
+
+def _write_checkpoint(
+    output_file: str,
+    variant_name: str,
+    rows: List[Dict[str, Any]],
+) -> None:
+    if not output_file or not _checkpoint_enabled():
+        return
+    ckpt = _checkpoint_path(output_file)
+    existing: Dict[str, List[Dict[str, Any]]] = {}
+    if ckpt.is_file():
+        try:
+            loaded = json.loads(ckpt.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                existing = loaded
+        except (OSError, json.JSONDecodeError):
+            existing = {}
+    existing[variant_name] = [_strip_debug_for_disk(row) for row in rows]
+    _write_results_file(str(ckpt), existing)
+
+
 def _persist_sample_debug(
     output_file: str,
     sample_idx: int,
@@ -731,6 +788,8 @@ def _run_variant(
                 result.setdefault("metadata", {})[k] = v
 
         results.append(result)
+        if output_file:
+            _write_checkpoint(output_file, variant_name, results)
 
     return results
 
@@ -889,6 +948,8 @@ def _run_variant_speedup(
                 result.setdefault("metadata", {})[k] = v
 
         results.append(result)
+        if output_file:
+            _write_checkpoint(output_file, variant_name, results)
 
     return results
 
@@ -922,10 +983,7 @@ def main() -> None:
             output_file=args.output_file,
         )
 
-    os.makedirs(os.path.dirname(
-        os.path.abspath(args.output_file)), exist_ok=True)
-    with open(args.output_file, "w", encoding="utf-8") as f:
-        json.dump(results, f, ensure_ascii=False, indent=2)
+    _write_results_file(args.output_file, results)
 
     ran = " + ".join(f"{k}={len(v)}" for k, v in results.items())
     print(f"Wrote results ({ran}) to {args.output_file}")
