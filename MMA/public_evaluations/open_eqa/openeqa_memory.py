@@ -3227,11 +3227,16 @@ def _extract_color_answer(text: str, question: str = "") -> str:
 
     # Mirror / trim color: bind to the mirror frame, not wall/sofa whites.
     if "mirror" in q_l and ("color" in q_l or "colour" in q_l or "trim" in q_l):
+        # Exclude commas/semicolons from the gap: flat "OBJECTS: white door,
+        # dark cabinet, framed mirror" list captions put unrelated items a
+        # few words apart, and the old [^.\n] gap let "white" (the door's
+        # color) bind to "mirror" just because they're on the same list line
+        # -- overriding a correct raw model answer ("silver") with "White".
         near = re.search(
-            rf"\bmirror\b[^.\n]{{0,50}}\b((?:dark|light|bright|pale)\s+)?({'|'.join(_COLOR_WORDS)}|gold|golden|brass)\b"
+            rf"\bmirror\b[^.,;\n]{{0,50}}\b((?:dark|light|bright|pale)\s+)?({'|'.join(_COLOR_WORDS)}|gold|golden|brass)\b"
             rf"(?:\s+frame|\s+trim)?|"
             rf"\b((?:dark|light)\s+)?(gold|golden|brass|{'|'.join(_COLOR_WORDS)})\s+"
-            rf"(?:frame|trim)?[^.\n]{{0,20}}\bmirror\b|"
+            rf"(?:frame|trim)?[^.,;\n]{{0,20}}\bmirror\b|"
             rf"\bmirror\s*:\s*[^\n]{{0,40}}\b(gold|golden|brass|{'|'.join(_COLOR_WORDS)})\b",
             lowered,
         )
@@ -3255,9 +3260,12 @@ def _extract_color_answer(text: str, question: str = "") -> str:
         if near:
             phrase = ((near.group(1) or "") + near.group(2)).strip()
             return phrase[0].upper() + phrase[1:] if phrase else ""
-        # Or "<subject> ... is <color>"
+        # Or "<subject> ... is <color>". Exclude commas/semicolons from the gap
+        # -- otherwise a flat "OBJECTS: cabinets, white door, ..." list binds
+        # an unrelated item's color to the asked subject just because they're
+        # a few list-entries apart on the same line.
         after = re.search(
-            rf"\b(?:{alias_alt})\b[^.]{{0,40}}\b((?:dark|light|bright|pale)\s+)?({'|'.join(_COLOR_WORDS)})\b",
+            rf"\b(?:{alias_alt})\b[^.,;\n]{{0,40}}\b((?:dark|light|bright|pale)\s+)?({'|'.join(_COLOR_WORDS)})\b",
             lowered,
         )
         if after:
