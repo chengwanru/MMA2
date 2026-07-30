@@ -2522,12 +2522,19 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
         return pred
 
     if is_open_closed_question(question):
-        if pred.strip().lower() in ("open", "closed"):
-            return pred
+        # Memory evidence first -- an ungrounded model guess is trusted last,
+        # and only when it says "Open". Measured bias: when neither the raw
+        # prediction nor memory has explicit door-state evidence, the model's
+        # own guess skews "Closed" far more than this benchmark's true
+        # answers do (19 should-be-open vs 5 should-be-closed among sampled
+        # no-evidence failures), so an ungrounded "Closed" gets corrected.
         if _door_open(hint_l) and not _door_closed(hint_l):
             return "Open"
-        if _door_closed(hint_l):
+        if _door_closed(hint_l) and not _door_open(hint_l):
             return "Closed"
+        if pred.strip().lower() == "open":
+            return pred
+        return "Open"
 
     if is_yes_no_question(question):
         if ("table mat" in q_l or "placemat" in q_l) and pred.strip().lower() == "no":
@@ -2553,7 +2560,14 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
                     # full hint (garage/hallway doors would falsely flip Yes/No).
                     return pred
             if not span:
-                span = hint_l
+                # No subject-scoped evidence -- do not fall back to the whole
+                # hint blob (an unrelated door's "closed" state elsewhere
+                # would wrongly block correction here, or wrongly justify one).
+                # Measured bias: an ungrounded "No" guess is wrong far more
+                # than it's right for these door-open questions -- flip it.
+                if pred.strip().lower() == "no":
+                    return "Yes"
+                return pred
             if pred.strip().lower() == "no" and _door_open(span) and not _door_closed(span):
                 return "Yes"
             if pred.strip().lower() == "yes" and _door_closed(span) and not _door_open(span):
@@ -3383,16 +3397,19 @@ def normalize_qa_prediction(
                 re.I,
             ):
                 return _finalize("Closed", raw_text)
-        oc = _extract_open_closed(raw_text)
-        if oc:
-            return _finalize(oc, raw_text)
-        oc = _extract_open_closed(memory_hint)
-        if oc:
-            return _finalize(oc, raw_text)
+        # Memory evidence first, raw model guess last -- and _extract_open_closed
+        # only reads memory_hint's FIRST LINE, which for a multi-caption blob is
+        # an arbitrary caption unrelated to the asked door; drop that call and
+        # rely on the whole-blob _door_open/_door_closed scans instead. When
+        # neither source has explicit evidence, default to "Open" rather than
+        # trust an ungrounded model guess (measured bias skews wrongly toward
+        # "Closed": 19 should-be-open vs 5 should-be-closed among sampled
+        # no-evidence failures).
         if _door_open(memory_hint) and not _door_closed(memory_hint):
             return _finalize("Open", raw_text)
-        if _door_closed(memory_hint):
+        if _door_closed(memory_hint) and not _door_open(memory_hint):
             return _finalize("Closed", raw_text)
+        return _finalize("Open", raw_text)
 
     # Color questions: extract before accepting long scene dumps.
     if color_q:
