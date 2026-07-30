@@ -3265,7 +3265,17 @@ def _extract_color_answer(text: str, question: str = "") -> str:
             phrase = phrase.strip()
             return phrase[0].upper() + phrase[1:] if phrase else ""
 
-    # Fallback: first explicit color word not part of "colored"/"colourful".
+    # Fallback: first explicit color word anywhere in the blob. Only safe when
+    # there's no subject to scope to -- a multi-caption memory_hint almost
+    # always mentions SOME common color (walls/trim/etc.) for a completely
+    # unrelated object, and this loop's list order (not text position) picked
+    # the winner, producing a strong "White" bias (8/28 sampled color-question
+    # misses predicted "White" for an unrelated object). If we already know
+    # the subject and the subject-scoped searches above found nothing, don't
+    # guess from the whole blob -- return empty and let the caller fall back
+    # to the model's own raw answer instead.
+    if subject:
+        return ""
     for tok in ("dark blue", "light blue", "dark green", "light green", "light grey", "light gray", *_COLOR_WORDS):
         if re.search(rf"\b{re.escape(tok)}\b", lowered):
             # Skip carpet-only colors for bed questions when duvet color exists later.
