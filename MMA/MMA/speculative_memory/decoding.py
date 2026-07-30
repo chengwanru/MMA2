@@ -703,19 +703,23 @@ def generate_with_speculative_memory(
             continue
 
         # Target forward: context + draft, with memory KV; get logits for verify + bonus
-        full_ids = draft_result.full_output_ids
-        if full_ids is None:
-            full_ids = torch.cat(
-                [
-                    current_ids,
-                    torch.tensor(
-                        [draft_result.draft_token_ids],
-                        dtype=torch.long,
-                        device=device,
-                    ),
-                ],
-                dim=1,
-            )
+        # full_output_ids is the raw (pre-EOS-trim) generate() output; draft_token_ids
+        # may be shorter (e.g. trimmed at the first EOS -- see generate_draft_tokens).
+        # Always rebuild from current_ids + the (possibly trimmed) draft_token_ids so
+        # full_ids.size(1) == context_len + num_draft exactly, or logits_to_keep below
+        # silently reads one position too late (verifies draft_token_ids[i] against the
+        # target distribution meant for position i+1).
+        full_ids = torch.cat(
+            [
+                current_ids,
+                torch.tensor(
+                    [draft_result.draft_token_ids],
+                    dtype=torch.long,
+                    device=device,
+                ),
+            ],
+            dim=1,
+        )
         full_ids = full_ids.to(device)
         # We need logits at positions (context_len-1, context_len, ..., context_len+num_draft-1)
         # i.e. num_draft positions for verify, plus last for bonus token -> logits_to_keep = num_draft + 1
