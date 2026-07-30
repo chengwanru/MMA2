@@ -2961,7 +2961,7 @@ def _extract_count_answer(text: str, question: str = "") -> str:
     }
     m = re.search(
         rf"\b({'|'.join(num_words)})\s+{re.escape(head)}s?\b|"
-        rf"\b{re.escape(head)}s?\b[^.\n]{{0,30}}\b({'|'.join(num_words)})\b|"
+        rf"\b{re.escape(head)}s?\b[^.,;\n]{{0,30}}\b({'|'.join(num_words)})\b|"
         rf"\b{re.escape(head)}s?\s*:\s*({'|'.join(num_words)})\b",
         blob,
     )
@@ -3122,12 +3122,12 @@ def _extract_painting_content_from_memory(hint: str, question: str) -> str:
 
     # Prefer content bound to painting/picture attributes.
     m = re.search(
-        r"\b(?:painting|picture|artwork|wall art)\b[^.\n]{0,80}"
+        r"\b(?:painting|picture|artwork|wall art)\b[^.,;\n]{0,80}"
         r"\b((?:white|red|orange|blue|pink|yellow)\s+flowers?|flowers?|"
         r"pier|dock|bridge|boat|landscape|portrait|mountain|forest|"
         r"bird|cat|dog|horse|owl|tiger)\b|"
         r"\b((?:white|red|orange|blue|pink|yellow)\s+flowers?|flowers?|"
-        r"pier|dock|bridge)\b[^.\n]{0,40}\b(?:painting|picture|artwork)\b",
+        r"pier|dock|bridge)\b[^.,;\n]{0,40}\b(?:painting|picture|artwork)\b",
         blob,
     )
     if m:
@@ -3435,22 +3435,22 @@ def normalize_qa_prediction(
         # Prefer explicit front-door STATES over fridge/cabinet door guesses.
         if "front door" in q_l:
             if re.search(
-                r"(?:front\s+door[^.\n]{0,60}\bopen\b|\bopen\b[^.\n]{0,40}front\s+door|"
+                r"(?:front\s+door[^.,;\n]{0,60}\bopen\b|\bopen\b[^.,;\n]{0,40}front\s+door|"
                 r"states:\s*front door:\s*open)",
                 hint_l,
                 re.I,
             ) and not re.search(
-                r"(?:front\s+door[^.\n]{0,60}\bclosed\b|states:\s*front door:\s*closed)",
+                r"(?:front\s+door[^.,;\n]{0,60}\bclosed\b|states:\s*front door:\s*closed)",
                 hint_l,
                 re.I,
             ):
                 return _finalize("Open", raw_text)
             if re.search(
-                r"(?:front\s+door[^.\n]{0,60}\bclosed\b|states:\s*front door:\s*closed)",
+                r"(?:front\s+door[^.,;\n]{0,60}\bclosed\b|states:\s*front door:\s*closed)",
                 hint_l,
                 re.I,
             ) and not re.search(
-                r"(?:front\s+door[^.\n]{0,60}\bopen\b|states:\s*front door:\s*open)",
+                r"(?:front\s+door[^.,;\n]{0,60}\bopen\b|states:\s*front door:\s*open)",
                 hint_l,
                 re.I,
             ):
@@ -4366,8 +4366,8 @@ def _extract_top_shelf_object(hint: str) -> str:
         r"shelf\s*\(top[^)]*\)\s*[:\-]?\s*([^;\n]+)",
         r"\b((?:teal|blue|green|red|white|black)\s+)?(?:ice\s+)?cooler\b",
         r"\b((?:teal|blue|green|red|white|black)\s+)?(?:plastic\s+)?(?:container|cooler|bin|box)\b"
-        r"[^.\n]{0,30}\b(?:top\s+shelf|top\s+level|on the shelf)\b",
-        r"\b(?:top\s+shelf|top\s+level|on the shelf)\b[^.\n]{0,40}"
+        r"[^.,;\n]{0,30}\b(?:top\s+shelf|top\s+level|on the shelf)\b",
+        r"\b(?:top\s+shelf|top\s+level|on the shelf)\b[^.,;\n]{0,40}"
         r"\b((?:teal|blue|green|red|white|black)\s+)?(?:ice\s+)?cooler\b",
     )
     for pat in patterns:
@@ -4603,14 +4603,14 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
         # "underneath the four paintings: radiator" / "paintings above radiator"
         if family == "under":
             m = re.search(
-                rf"(?:{'|'.join(re.escape(a) for a in aliases)})[^.\n]{{0,40}}"
+                rf"(?:{'|'.join(re.escape(a) for a in aliases)})[^.,;\n]{{0,40}}"
                 rf"\b(?:above|over)\b\s+(?:the\s+|a\s+|an\s+)?([a-z][a-z \-]{{1,30}})",
                 body,
             )
             if m:
                 _add(base + 4, m.group(1))
             m = re.search(
-                rf"\b(radiator|heater|vent|shelf|cabinet|dresser|console)\b[^.\n]{{0,40}}"
+                rf"\b(radiator|heater|vent|shelf|cabinet|dresser|console)\b[^.,;\n]{{0,40}}"
                 rf"(?:{'|'.join(re.escape(a) for a in aliases)})",
                 body,
             )
@@ -4621,7 +4621,7 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
             other = "right" if family == "left" else "left"
             m = re.search(
                 rf"\b(hand\s+towel|towel|light\s+switch|switch|radiator|plant|vase|lamp|clock|door|window|"
-                rf"cabinet|sink|mirror)\b[^.\n]{{0,50}}"
+                rf"cabinet|sink|mirror)\b[^.,;\n]{{0,50}}"
                 rf"(?:to the {other} of|{other} of)\s+(?:the\s+)?"
                 rf"(?:{'|'.join(re.escape(a) for a in aliases)})",
                 body,
@@ -4635,8 +4635,8 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
                     score = base + 6
                 _add(score, m.group(1))
             m = re.search(
-                rf"(?:{'|'.join(re.escape(a) for a in aliases)})[^.\n]{{0,40}}"
-                rf"(?:to the {family}[^.\n]{{0,20}}|on the {family})\s*"
+                rf"(?:{'|'.join(re.escape(a) for a in aliases)})[^.,;\n]{{0,40}}"
+                rf"(?:to the {family}[^.,;\n]{{0,20}}|on the {family})\s*"
                 rf"([a-z][a-z \-]{{1,30}})",
                 body,
             )
@@ -4646,7 +4646,7 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
         if family == "across":
             m = re.search(
                 rf"(?:across(?: from)?|opposite|facing)\s+(?:the\s+)?"
-                rf"(?:{'|'.join(re.escape(a) for a in aliases)})\b[^.\n]{{0,20}}"
+                rf"(?:{'|'.join(re.escape(a) for a in aliases)})\b[^.,;\n]{{0,20}}"
                 rf"(?:is\s+)?(?:a\s+|an\s+|the\s+)?([a-z][a-z \-]{{1,30}})",
                 body,
             )
@@ -4654,7 +4654,7 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
                 _add(base + 4, m.group(1))
             m = re.search(
                 rf"\b(mirror|painting|picture|window|door|fireplace|cabinet|couch|sofa|table)\b"
-                rf"[^.\n]{{0,40}}(?:across|opposite|facing)[^.\n]{{0,40}}"
+                rf"[^.,;\n]{{0,40}}(?:across|opposite|facing)[^.,;\n]{{0,40}}"
                 rf"(?:{'|'.join(re.escape(a) for a in aliases)})",
                 body,
             )
@@ -4680,7 +4680,7 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
     # Whole-blob fallbacks for common inverse phrasing.
     if family == "under" and not candidates:
         m = re.search(
-            rf"(?:{'|'.join(re.escape(a) for a in aliases)})[^.\n]{{0,50}}"
+            rf"(?:{'|'.join(re.escape(a) for a in aliases)})[^.,;\n]{{0,50}}"
             rf"\b(?:above|over)\b\s+(?:the\s+|a\s+|an\s+)?(radiator|heater|cabinet|shelf)",
             hint_l,
         )
@@ -4996,7 +4996,7 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
     # Opener / broom: prefer canonical landmarks when present anywhere in memory.
     if subject in ("opener",) or "opener" in (question or "").lower():
         m = re.search(
-            rf"(?:garage\s+)?(?:door\s+)?opener[^.!?\n]{{0,50}}\b{rel}\b[^.!?\n]{{0,40}}"
+            rf"(?:garage\s+)?(?:door\s+)?opener[^.,;!?\n]{{0,50}}\b{rel}\b[^.,;!?\n]{{0,40}}"
             rf"(?:house\s+)?doorway",
             hint_l,
         )
@@ -5005,20 +5005,20 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
             if out and "opener" not in out.lower().split()[-2:]:
                 # Prefer the relation+landmark span.
                 rm = re.search(
-                    rf"\b{rel}\b[^.!?\n]{{0,40}}(?:house\s+)?doorway", m.group(0))
+                    rf"\b{rel}\b[^.,;!?\n]{{0,40}}(?:house\s+)?doorway", m.group(0))
                 if rm:
                     out2 = _finalize_loc(rm.group(0))
                     if out2:
                         return out2
                 return out
         m = re.search(
-            rf"\b{rel}\b[^.!?\n]{{0,20}}(?:house\s+)?doorway[^.!?\n]{{0,40}}"
+            rf"\b{rel}\b[^.,;!?\n]{{0,20}}(?:house\s+)?doorway[^.,;!?\n]{{0,40}}"
             rf"(?:garage\s+)?(?:door\s+)?opener",
             hint_l,
         )
         if m:
             rm = re.search(
-                rf"\b{rel}\b[^.!?\n]{{0,40}}(?:house\s+)?doorway", m.group(0))
+                rf"\b{rel}\b[^.,;!?\n]{{0,40}}(?:house\s+)?doorway", m.group(0))
             if rm:
                 out = _finalize_loc(rm.group(0))
                 if out:
@@ -5026,7 +5026,7 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
 
     if subject == "broom" or "broom" in (question or "").lower():
         m = re.search(
-            r"\bbroom\b[^.!?\n]{0,40}\b(?:below|under)\b[^.!?\n]{0,40}opener",
+            r"\bbroom\b[^.,;!?\n]{0,40}\b(?:below|under)\b[^.,;!?\n]{0,40}opener",
             hint_l,
         )
         if m:
@@ -5034,8 +5034,8 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
             if out:
                 return out
         m = re.search(
-            r"\b(?:below|under)\b[^.!?\n]{0,20}(?:the\s+)?(?:garage\s+)?(?:door\s+)?opener"
-            r"[^.!?\n]{0,30}\bbroom\b",
+            r"\b(?:below|under)\b[^.,;!?\n]{0,20}(?:the\s+)?(?:garage\s+)?(?:door\s+)?opener"
+            r"[^.,;!?\n]{0,30}\bbroom\b",
             hint_l,
         )
         if m:
@@ -5046,7 +5046,7 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
     # Prefer "SUBJECT … REL landmark" or "REL landmark … SUBJECT".
     for alias in aliases:
         m = re.search(
-            rf"\b{re.escape(alias)}\b[^.!?\n]{{0,50}}\b{rel}\b[^.!?\n]{{0,40}}",
+            rf"\b{re.escape(alias)}\b[^.,;!?\n]{{0,50}}\b{rel}\b[^.,;!?\n]{{0,40}}",
             hint_l,
         )
         if m:
@@ -5054,7 +5054,7 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
             if out:
                 return out
         m = re.search(
-            rf"\b{rel}\b[^.!?\n]{{0,40}}\b{re.escape(alias)}\b",
+            rf"\b{rel}\b[^.,;!?\n]{{0,40}}\b{re.escape(alias)}\b",
             hint_l,
         )
         if m:
@@ -5087,7 +5087,7 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
 
     for alias in aliases:
         m = re.search(
-            rf"[^.!?\n]{{0,50}}\b{re.escape(alias)}\b[^.!?\n]{{0,60}}",
+            rf"[^.,;!?\n]{{0,50}}\b{re.escape(alias)}\b[^.,;!?\n]{{0,60}}",
             hint_l,
         )
         if not m:
@@ -5274,8 +5274,8 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
         if subject:
             # Prefer lines/clauses mentioning the subject doors.
             scoped = re.findall(
-                rf"[^.\n]*\b{subject}\b[^.\n]*\bdoors?\b[^.\n]*|"
-                rf"[^.\n]*\bdoors?\b[^.\n]*\b{subject}\b[^.\n]*",
+                rf"[^.,;\n]*\b{subject}\b[^.,;\n]*\bdoors?\b[^.,;\n]*|"
+                rf"[^.,;\n]*\bdoors?\b[^.,;\n]*\b{subject}\b[^.,;\n]*",
                 hint_l,
             )
             if scoped:
@@ -5335,7 +5335,7 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
     ):
         # Prefer explicit functional cue bindings when present.
         fm = re.search(
-            r"(?:brush\s+teeth|wash\s+hands?)[^.\n]{0,40}sink[^.\n]{0,40}"
+            r"(?:brush\s+teeth|wash\s+hands?)[^.,;\n]{0,40}sink[^.,;\n]{0,40}"
             r"(?:bathroom|kitchen)?",
             hint_l,
         )
@@ -5611,11 +5611,11 @@ def _answer_from_memory_hint(hint: str, question: str) -> str:
             # Prefer explicit "upstairs bedroom" style phrases near the subject.
             for alias in _subject_alias_terms(subject) or (subject,):
                 m = re.search(
-                    rf"\b{re.escape(alias)}\b[^.\n]{{0,80}}"
+                    rf"\b{re.escape(alias)}\b[^.,;\n]{{0,80}}"
                     rf"\b(upstairs\s+bedroom|bedroom|bathroom|kitchen|living room|"
                     rf"hallway|garage|dining)\b|"
                     rf"\b(upstairs\s+bedroom|bedroom|bathroom|kitchen|living room|"
-                    rf"hallway|garage|dining)\b[^.\n]{{0,80}}\b{re.escape(alias)}\b",
+                    rf"hallway|garage|dining)\b[^.,;\n]{{0,80}}\b{re.escape(alias)}\b",
                     hint_l,
                 )
                 if m:
@@ -6224,7 +6224,7 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
         if "window" in q and "bedroom" in q and ("open" in q or "closed" in q):
             if "bedroom" in b_rooms and "window" in blob:
                 pri += 10
-            if re.search(r"window[^.\n]{0,40}\bopen\b|\bopen\b[^.\n]{0,40}window", blob):
+            if re.search(r"window[^.,;\n]{0,40}\bopen\b|\bopen\b[^.,;\n]{0,40}window", blob):
                 pri += 8
         if "clutter" in q and "bedroom" in q:
             if "bedroom" in b_rooms:
