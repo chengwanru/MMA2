@@ -3358,7 +3358,12 @@ def normalize_qa_prediction(
         return "", raw_text
 
     # Short-term: strong memory evidence overrides wrong model inventions.
-    forced = _force_answer_from_strong_hint(memory_hint, question, raw_text)
+    # Skip for on/off choice questions -- this produced a garbled, wrong-format
+    # answer ("The lamp in the living room on") for a case where raw_text was
+    # already the correct, clean "off"; the dedicated on_off_q branch below
+    # handles this question type safely.
+    forced = "" if on_off_q else _force_answer_from_strong_hint(
+        memory_hint, question, raw_text)
     if forced:
         return _finalize(forced, raw_text)
 
