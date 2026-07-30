@@ -4715,7 +4715,19 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
                 flush=True,
             )
         return ""
-    candidates.sort(key=lambda x: x[0], reverse=True)
+    # Tie-break same-score candidates by: how many captions independently agree
+    # on that exact phrase (corroboration), then phrase specificity (word count)
+    # — "closet door" mentioned by 3 captions should beat a bare "door" that only
+    # wins because its caption happened to be inserted first (sort is stable, so
+    # equal scores previously fell back to insertion/retrieval-rank order, letting
+    # a less specific, uncorroborated match win over a more specific one).
+    phrase_counts: Dict[str, int] = {}
+    for _, obj in candidates:
+        phrase_counts[obj] = phrase_counts.get(obj, 0) + 1
+    candidates.sort(
+        key=lambda x: (x[0], phrase_counts[x[1]], len(x[1].split())),
+        reverse=True,
+    )
     if os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes"):
         print(
             f"  [rel_extract] question={question!r} family={family!r} "
