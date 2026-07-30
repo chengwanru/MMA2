@@ -4905,6 +4905,25 @@ def _extract_location_from_memory(hint: str, question: str) -> str:
             continue
         cleaned = re.sub(r"^(?:localization|spatial)\s*:\s*",
                          "", line, flags=re.I).strip()
+        # A LOCALIZATION/SPATIAL line is often several "subject: value" clauses
+        # separated by ';' ("door: near wall; mirror: above sink; ..."). The
+        # alias check above only confirmed the subject is mentioned SOMEWHERE
+        # on the line -- pick out the specific clause that actually names it
+        # before binding, otherwise a later blind "keep the first clause"
+        # step (_clean_phrase) can keep an unrelated object's clause and leak
+        # its raw "subject: value" text through as the answer (e.g. "Where is
+        # the mirror?" -> "Door: near wall").
+        if ";" in cleaned:
+            clauses = [c.strip() for c in cleaned.split(";") if c.strip()]
+            matched_clause = next(
+                (
+                    c for c in clauses
+                    if any(re.search(rf"\b{re.escape(a)}\b", c) for a in aliases)
+                ),
+                None,
+            )
+            if matched_clause:
+                cleaned = matched_clause
         # LOCALIZATION bindings: "microwave: above oven" → "above oven"
         for alias in aliases:
             m_bind = re.match(
