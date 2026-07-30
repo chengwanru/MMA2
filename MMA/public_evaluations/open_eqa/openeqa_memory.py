@@ -353,7 +353,8 @@ _OBJECT_LIST_DUMP_RE = re.compile(
 )
 _SPATIAL_REL_RE = re.compile(
     r"\b(above|below|under|beneath|beside|near|between|behind|inside|outside|"
-    r"(?:to\s+the\s+)?left\s+of|(?:to\s+the\s+)?right\s+of|next\s+to)\b"
+    r"(?:to\s+the\s+)?left\s+of|(?:to\s+the\s+)?right\s+of|next\s+to|"
+    r"(?:directly\s+)?across(?:\s+from)?)\b"
     r"\s+(?:the\s+|a\s+|an\s+)?(.{2,40}?)(?:\?|$)",
     re.I,
 )
@@ -1623,6 +1624,21 @@ _SUBJECT_PREF_TOKENS = (
 def _question_subject_noun(question: str) -> str:
     """Best-effort subject noun for attribute / where / type / yes-no questions."""
     q_l = (question or "").lower().strip()
+    if not _is_where_question(question):
+        # Covers "to the left/right of", "between", "next to", "across" etc.
+        # (the explicit "above"/"below" patterns below only cover two of the
+        # relations _parse_spatial_question already recognizes via _SPATIAL_REL_RE).
+        spatial = _parse_spatial_question(question)
+        if spatial:
+            _, landmark = spatial
+            words = [w for w in landmark.split() if w not in _QUESTION_STOPWORDS]
+            if words:
+                for pref in _SUBJECT_PREF_TOKENS:
+                    if pref in words:
+                        return pref
+                head = words[-1] if len(words) > 1 else words[0]
+                if head not in _GENERIC_SUBJECTS and head not in _QUESTION_STOPWORDS:
+                    return head
     patterns = (
         r"what\s+style\s+of\s+(?:the\s+|a\s+|an\s+)?([a-z]+)",
         r"what\s+is\s+above\s+(?:the\s+|a\s+|an\s+)?([a-z]+(?:\s+[a-z]+){0,3})",
