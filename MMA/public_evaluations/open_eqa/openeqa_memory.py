@@ -4298,22 +4298,29 @@ def _extract_top_shelf_object(hint: str) -> str:
 
 
 def _parse_relation_object_question(question: str) -> Optional[Tuple[str, str]]:
-    """Parse 'What is <rel> <landmark>?' → (relation_family, landmark_phrase)."""
+    """Parse 'What is [descriptor] <rel> <landmark>?' → (relation_family, landmark_phrase).
+
+    ``(?:.{0,40}?\\s)?`` lets a descriptor clause sit between "what is" and the
+    relation word (e.g. "What is the white object on the wall above the TV?" —
+    previously required "what is above ..." verbatim from the start, so this
+    common "identify by attribute + rough location, disambiguated by a
+    landmark relation" phrasing never reached relational extraction at all).
+    """
     q = re.sub(r"\s+", " ", (question or "").strip().lower()).rstrip("?.!")
     patterns = (
-        (r"what is (underneath|under|below) (?:the |a |an )?(.+)$", "under"),
-        (r"what is (?:to the )?(left of) (?:the |a |an )?(.+)$", "left"),
-        (r"what is (?:to the )?(right of) (?:the |a |an )?(.+)$", "right"),
-        (r"what is (above|over) (?:the |a |an )?(.+)$", "above"),
-        (r"what is (behind) (?:the |a |an )?(.+)$", "behind"),
-        (r"what is (in front of) (?:the |a |an )?(.+)$", "front"),
-        (r"what is (next to|beside|near) (?:the |a |an )?(.+)$", "beside"),
-        (r"what is (?:on )?(?:the )?(?:center|middle) of (?:the |a |an )?(.+)$", "center"),
-        (r"what is directly across(?: from)? (?:the |a |an )?(.+)$", "across"),
-        (r"what is (?:in )?between (.+)$", "between"),
+        (r"what is (?:.{0,40}?\s)?(underneath|under|below) (?:the |a |an )?(.+)$", "under"),
+        (r"what is (?:.{0,40}?\s)?(?:to the )?(left of) (?:the |a |an )?(.+)$", "left"),
+        (r"what is (?:.{0,40}?\s)?(?:to the )?(right of) (?:the |a |an )?(.+)$", "right"),
+        (r"what is (?:.{0,40}?\s)?(above|over) (?:the |a |an )?(.+)$", "above"),
+        (r"what is (?:.{0,40}?\s)?(behind) (?:the |a |an )?(.+)$", "behind"),
+        (r"what is (?:.{0,40}?\s)?(in front of) (?:the |a |an )?(.+)$", "front"),
+        (r"what is (?:.{0,40}?\s)?(next to|beside|near) (?:the |a |an )?(.+)$", "beside"),
+        (r"what is (?:.{0,40}?\s)?(?:on )?(?:the )?(?:center|middle) of (?:the |a |an )?(.+)$", "center"),
+        (r"what is (?:.{0,40}?\s)?directly across(?: from)? (?:the |a |an )?(.+)$", "across"),
+        (r"what is (?:.{0,40}?\s)?(?:in )?between (.+)$", "between"),
         # "What is hanging from/on the oven handle?"
-        (r"what is hanging (?:from|on|off of|off) (?:the |a |an )?(.+)$", "hanging"),
-        (r"what is hung (?:from|on) (?:the |a |an )?(.+)$", "hanging"),
+        (r"what is (?:.{0,40}?\s)?hanging (?:from|on|off of|off) (?:the |a |an )?(.+)$", "hanging"),
+        (r"what is (?:.{0,40}?\s)?hung (?:from|on) (?:the |a |an )?(.+)$", "hanging"),
     )
     for pat, family in patterns:
         m = re.match(pat, q)
