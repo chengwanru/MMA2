@@ -4716,16 +4716,29 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
             )
         return ""
     # Tie-break same-score candidates by: how many captions independently agree
-    # on that exact phrase (corroboration), then phrase specificity (word count)
-    # — "closet door" mentioned by 3 captions should beat a bare "door" that only
-    # wins because its caption happened to be inserted first (sort is stable, so
-    # equal scores previously fell back to insertion/retrieval-rank order, letting
-    # a less specific, uncorroborated match win over a more specific one).
-    phrase_counts: Dict[str, int] = {}
-    for _, obj in candidates:
-        phrase_counts[obj] = phrase_counts.get(obj, 0) + 1
+    # on that exact phrase at that score tier (corroboration), then phrase
+    # specificity (content-word count, article stripped) — "closet door"
+    # mentioned by 3 captions should beat a bare "door" that only wins because
+    # its caption happened to be inserted first (sort is stable, so equal
+    # scores previously fell back to insertion/retrieval-rank order, letting a
+    # less specific, uncorroborated match win over a more specific one).
+    # Count per (score, phrase) pair, not phrase alone -- "a door" showing up
+    # once each at scores 9/8/7 must not out-corroborate "closet door" showing
+    # up 3x at score 9 alone.
+    pair_counts: Dict[Tuple[int, str], int] = {}
+    for s, obj in candidates:
+        pair_counts[(s, obj)] = pair_counts.get((s, obj), 0) + 1
+
+    def _content_word_count(phrase: str) -> int:
+        stripped = re.sub(r"^(?:a|an|the)\s+", "", phrase, flags=re.I)
+        return len(stripped.split())
+
     candidates.sort(
-        key=lambda x: (x[0], phrase_counts[x[1]], len(x[1].split())),
+        key=lambda x: (
+            x[0],
+            pair_counts[(x[0], x[1])],
+            _content_word_count(x[1]),
+        ),
         reverse=True,
     )
     if os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes"):
