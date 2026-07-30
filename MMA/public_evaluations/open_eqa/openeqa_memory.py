@@ -4707,8 +4707,22 @@ def _extract_relational_object_from_memory(hint: str, question: str) -> str:
             ]
 
     if not candidates:
+        if os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes"):
+            print(
+                f"  [rel_extract] question={question!r} family={family!r} "
+                f"landmark={landmark!r} aliases={aliases!r} -> NO CANDIDATES "
+                "(fell through to co-occurrence fallback if any ran above)",
+                flush=True,
+            )
         return ""
     candidates.sort(key=lambda x: x[0], reverse=True)
+    if os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes"):
+        print(
+            f"  [rel_extract] question={question!r} family={family!r} "
+            f"landmark={landmark!r} aliases={aliases!r} "
+            f"candidates(sorted)={candidates!r} -> winner={candidates[0][1]!r}",
+            flush=True,
+        )
     return candidates[0][1]
 
 
