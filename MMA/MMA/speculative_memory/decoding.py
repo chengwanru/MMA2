@@ -745,6 +745,9 @@ def generate_with_speculative_memory(
             draft0 = int(draft_result.draft_token_ids[0])
             print(
                 f"[sd_verify] round={time_stats['total_rounds']} "
+                f"num_draft={num_draft} logits_to_keep={logits_to_keep} "
+                f"draft_token_ids={draft_result.draft_token_ids} "
+                f"full_ids_shape={tuple(full_ids.shape)} context_len={context_len} "
                 f"logits={tuple(logits.shape)} draft0={draft0} "
                 f"target_top1={top1} "
                 f"draft0_txt={_decode_token_ids([draft0])!r} "
