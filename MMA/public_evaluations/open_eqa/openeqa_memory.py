@@ -3382,6 +3382,8 @@ def normalize_qa_prediction(
     # handles this question type safely.
     forced = "" if on_off_q else _force_answer_from_strong_hint(
         memory_hint, question, raw_text)
+    if os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes"):
+        print(f"  [dbg_force] question={question!r} raw={raw_text!r} forced={forced!r}", flush=True)
     if forced:
         return _finalize(forced, raw_text)
 
@@ -3519,6 +3521,8 @@ def normalize_qa_prediction(
         _extract_painting_content_from_memory,
     ):
         mem_val = extractor(memory_hint, question)
+        if os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes") and mem_val:
+            print(f"  [dbg_extractor] {extractor.__name__} -> {mem_val!r}", flush=True)
         if not mem_val:
             continue
         cleaned_x = _clean_phrase(raw_text, yes_no_q=False) or ""
@@ -3593,6 +3597,8 @@ def normalize_qa_prediction(
                 ):
                     return _finalize(dest, raw_text)
         loc = _extract_location_from_memory(memory_hint, question)
+        if os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes"):
+            print(f"  [dbg_where_loc] question={question!r} cleaned_where={cleaned_where!r} loc={loc!r}", flush=True)
         model_ok = bool(cleaned_where and _is_valid_where_answer(
             cleaned_where, question))
         subject = _question_subject_noun(question)
