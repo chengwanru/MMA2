@@ -2549,6 +2549,14 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
                 if extra in q_l and extra not in subject_terms:
                     subject_terms.append(extra)
             span = _subject_state_span(hint_l, subject_terms)
+            # _subject_state_span returns a window around the FIRST matching
+            # term -- for a room-scoped question ("bedroom door") that term is
+            # often just the room label ("bedroom: wooden nightstand,
+            # louvered closet doors...") with no mention of an actual door,
+            # let alone the asked one. A span that never says "door"/"doorway"
+            # at all is not evidence about the door -- treat it as no evidence.
+            if span and not re.search(r"\bdoors?\b|\bdoorways?\b", span):
+                span = ""
             if "patio" in q_l and ("door" in q_l or "doorway" in q_l):
                 patio_terms = ["patio", "patio door",
                                "glass door", "sliding door"]
@@ -2559,12 +2567,15 @@ def _yes_no_memory_override(pred: str, memory_hint: str, question: str) -> str:
                     # No patio-specific open/closed clause: do not fall back to the
                     # full hint (garage/hallway doors would falsely flip Yes/No).
                     return pred
-            if not span:
-                # No subject-scoped evidence -- do not fall back to the whole
-                # hint blob (an unrelated door's "closed" state elsewhere
-                # would wrongly block correction here, or wrongly justify one).
-                # Measured bias: an ungrounded "No" guess is wrong far more
-                # than it's right for these door-open questions -- flip it.
+            if not span or (not _door_open(span) and not _door_closed(span)):
+                # No subject-scoped state evidence -- either no span at all,
+                # or a span that mentions a door in passing (e.g. "louvered
+                # closet doors" in a room inventory) without ever saying it's
+                # open/closed. Do not fall back to the whole hint blob (an
+                # unrelated door's "closed" state elsewhere would wrongly
+                # gate the correction). Measured bias: an ungrounded "No"
+                # guess is wrong far more than it's right for these
+                # door-open questions -- flip it.
                 if pred.strip().lower() == "no":
                     return "Yes"
                 return pred
