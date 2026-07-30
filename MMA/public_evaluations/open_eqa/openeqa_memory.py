@@ -6082,8 +6082,14 @@ def select_events_for_qa(events: List[Any], question: str) -> List[Any]:
                 pri -= 6
         return pri
 
-    # Where questions: float spatial-localized subject rows before inventory dumps.
-    if where_q and subject:
+    # Where / relational-spatial questions ("what is left of X?"): float
+    # spatial-localized subject rows before inventory dumps. Previously gated on
+    # where_q alone, so "what is <rel> <landmark>?" phrasing (no leading "where")
+    # never got this boost even after subject was correctly extracted, letting the
+    # exact SPATIAL-labeled evidence row miss the top-k QA window (see e.g.
+    # "What is to the left of the staircase?" -> gold in a hallway caption whose
+    # SPATIAL line says "closet door is left of staircase" but never made the cut).
+    if (where_q or _parse_spatial_question(question)) and subject:
         spatial_rows = [
             event
             for event in ranked
