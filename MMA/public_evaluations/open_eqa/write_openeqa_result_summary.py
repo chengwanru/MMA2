@@ -69,8 +69,21 @@ def _truncate(text: str, limit: int = 72) -> str:
     return text[: limit - 3] + "..."
 
 
-def _qa_answer_source(row: Dict[str, Any]) -> str:
+def _load_debug(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     debug = row.get("debug")
+    if isinstance(debug, dict):
+        return debug
+    debug_file = row.get("debug_file")
+    if debug_file:
+        try:
+            return json.loads(Path(debug_file).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+    return None
+
+
+def _qa_answer_source(row: Dict[str, Any]) -> str:
+    debug = _load_debug(row)
     qa = debug.get("qa") if isinstance(debug, dict) else None
     if isinstance(qa, dict):
         src = (qa.get("qa_answer_source") or "").strip().lower()
