@@ -751,6 +751,26 @@ def generate_with_speculative_memory(
                 f"top1_txt={_decode_token_ids([top1])!r}",
                 flush=True,
             )
+            # DEBUG: sanity-check position-0 alignment. Run a plain target-only
+            # forward on current_ids (context, no draft tokens appended) and
+            # compare its top-1 to target_logits_for_verify[0]'s top-1. If they
+            # differ, the SD verify path is reading the wrong position.
+            with torch.no_grad():
+                sanity_logits = _target_forward_logits(
+                    current_ids,
+                    context_len=context_len,
+                    logits_to_keep=1,
+                    memory_kv_positioned=_memory_kv_at(context_len),
+                )
+            sanity_top1 = int(sanity_logits[-1].argmax(dim=-1).item())
+            match = "MATCH" if sanity_top1 == top1 else "MISMATCH"
+            print(
+                f"[sd_verify_sanity] round={time_stats['total_rounds']} "
+                f"context_len={context_len} full_ids_len={full_ids.size(1)} "
+                f"plain_top1={sanity_top1} plain_top1_txt={_decode_token_ids([sanity_top1])!r} "
+                f"vs sd_top1={top1} sd_top1_txt={_decode_token_ids([top1])!r} -> {match}",
+                flush=True,
+            )
 
         # Verify
         with CudaTimer(device) as t_verify:
