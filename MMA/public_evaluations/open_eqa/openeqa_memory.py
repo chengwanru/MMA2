@@ -1173,6 +1173,22 @@ def _is_valid_where_answer(answer: str, question: str) -> bool:
         return False
     if re.match(r"^art_content\s*:", phrase, re.I):
         return False
+    # Positive requirement: a real "where" answer names a spatial relation or
+    # a room, not just a bare attribute/color/count phrase. The loosest
+    # memory-blob fallback in _extract_location_from_memory grabs whatever
+    # text is near the asked subject with no relation-word requirement at
+    # all, so without this check a caption's ATTRIBUTES color description
+    # (e.g. "red and white flowers" describing a PAINTING) can pass through
+    # as a location answer for "Where are the orange flowers?".
+    if not re.search(
+        r"\b(?:in|on|under|above|over|below|near|beside|behind|inside|outside|"
+        r"left of|right of|next to|in front of|by the|at the|top of|bottom of|"
+        r"bedroom|bathroom|kitchen|living room|hallway|garage|dining|closet|"
+        r"basement|attic|patio|balcony|entryway|foyer|office|study)\b",
+        phrase,
+        re.I,
+    ):
+        return False
     return True
 
 
@@ -3382,8 +3398,6 @@ def normalize_qa_prediction(
     # handles this question type safely.
     forced = "" if on_off_q else _force_answer_from_strong_hint(
         memory_hint, question, raw_text)
-    if os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes"):
-        print(f"  [dbg_force] question={question!r} raw={raw_text!r} forced={forced!r}", flush=True)
     if forced:
         return _finalize(forced, raw_text)
 
@@ -3521,8 +3535,6 @@ def normalize_qa_prediction(
         _extract_painting_content_from_memory,
     ):
         mem_val = extractor(memory_hint, question)
-        if os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes") and mem_val:
-            print(f"  [dbg_extractor] {extractor.__name__} -> {mem_val!r}", flush=True)
         if not mem_val:
             continue
         cleaned_x = _clean_phrase(raw_text, yes_no_q=False) or ""
@@ -3597,8 +3609,6 @@ def normalize_qa_prediction(
                 ):
                     return _finalize(dest, raw_text)
         loc = _extract_location_from_memory(memory_hint, question)
-        if os.environ.get("OPENEQA_VL_DEBUG", "").strip().lower() in ("1", "true", "yes"):
-            print(f"  [dbg_where_loc] question={question!r} cleaned_where={cleaned_where!r} loc={loc!r}", flush=True)
         model_ok = bool(cleaned_where and _is_valid_where_answer(
             cleaned_where, question))
         subject = _question_subject_noun(question)
