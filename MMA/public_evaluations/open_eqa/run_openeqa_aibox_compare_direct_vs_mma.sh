@@ -569,4 +569,12 @@ PY
 fi
 
 echo "DONE RUN_DIR=${RUN_DIR}" | tee -a "${LOG}"
+
+# Mirror this run's outputs between /nix and /tmp (whichever WORK_ROOT wasn't
+# used) so results survive either side going away. Best-effort: never fail
+# the run over a sync hiccup.
+SYNC_SCRIPT="${OEQA}/sync_openeqa_runs.sh"
+if [[ -x "${SYNC_SCRIPT}" ]]; then
+  bash "${SYNC_SCRIPT}" | tee -a "${LOG}" || echo "WARN: sync_openeqa_runs.sh failed (non-fatal)" | tee -a "${LOG}"
+fi
 echo "TIMING_JSON=${TIMING_JSON}" | tee -a "${LOG}"
