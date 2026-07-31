@@ -518,11 +518,27 @@ def _sd_decode_sec_from_debug(qa_debug: Any) -> Optional[float]:
         return None
     for key in ("speculative_stats", "sd_stats", "sd"):
         stats = qa_debug.get(key)
-        if isinstance(stats, dict) and stats.get("elapsed_sec") is not None:
+        if not isinstance(stats, dict):
+            continue
+        if stats.get("elapsed_sec") is not None:
             try:
                 return round(float(stats["elapsed_sec"]), 4)
             except (TypeError, ValueError):
-                return None
+                pass
+        # decoding.py never sets a top-level "elapsed_sec"; it only fills
+        # time_stats (draft_time/rope_time/target_time/verify_time). Fall back
+        # to summing those so qa_decode_sec isn't silently null.
+        ts = stats.get("time_stats")
+        if isinstance(ts, dict):
+            parts = [
+                ts.get("draft_time"),
+                ts.get("rope_time"),
+                ts.get("target_time"),
+                ts.get("verify_time"),
+            ]
+            nums = [float(p) for p in parts if p is not None]
+            if nums:
+                return round(sum(nums), 4)
     return None
 
 

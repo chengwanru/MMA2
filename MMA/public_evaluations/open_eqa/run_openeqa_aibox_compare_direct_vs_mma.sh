@@ -339,6 +339,21 @@ def _nested(d, *keys):
         cur = cur.get(k)
     return cur
 
+def _row_debug(r):
+    # run_openeqa_eval.py strips inline "debug" from disk once a row has a
+    # "debug_file" (to keep mma_sd.json small) -- reload it from there so we
+    # can still read speculative_stats.time_stats for the per-round breakdown.
+    d = r.get("debug")
+    if isinstance(d, dict):
+        return d
+    df = r.get("debug_file")
+    if df:
+        try:
+            return json.loads(Path(df).read_text())
+        except (OSError, json.JSONDecodeError):
+            return None
+    return None
+
 for r in rows:
     t = r.get("timing") or {}
     if r.get("elapsed_sec") is not None:
@@ -347,11 +362,11 @@ for r in rows:
         mems.append(float(t["memorize_sec"]))
     if t.get("qa_sec") is not None:
         qas.append(float(t["qa_sec"]))
-    if t.get("qa_decode_sec") is not None:
-        decodes.append(float(t["qa_decode_sec"]))
-    spec = _nested(r, "debug", "qa", "speculative_stats")
+    row_decode_t = t.get("qa_decode_sec")
+    dbg = _row_debug(r)
+    spec = _nested(dbg, "qa", "speculative_stats")
     if not isinstance(spec, dict):
-        spec = _nested(r, "debug", "speculative_stats")
+        spec = _nested(dbg, "speculative_stats")
     ts = spec.get("time_stats") if isinstance(spec, dict) else None
     if isinstance(ts, dict):
         draft_t = ts.get("draft_time")
@@ -370,12 +385,20 @@ for r in rows:
         if target_t is not None or verify_t is not None:
             vt = float(target_t or 0.0) + float(verify_t or 0.0)
             verify_targets.append(vt)
-        decode_t = t.get("qa_decode_sec")
+        if row_decode_t is None:
+            # Older runs never had qa_decode_sec computed inline; recover it
+            # from the same time_stats we just loaded.
+            parts = [p for p in (draft_t, rope_t, target_t, verify_t) if p is not None]
+            if parts:
+                row_decode_t = sum(float(p) for p in parts)
+        decode_t = row_decode_t
         if decode_t is not None:
             sched = float(decode_t) - float(draft_t or 0.0) - float(target_t or 0.0) - float(verify_t or 0.0)
             if sched < 0 and sched > -1e-3:
                 sched = 0.0
             sched_aligns.append(sched)
+    if row_decode_t is not None:
+        decodes.append(float(row_decode_t))
 def _stats(xs):
     if not xs:
         return None
