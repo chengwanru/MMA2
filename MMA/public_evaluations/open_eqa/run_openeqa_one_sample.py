@@ -638,14 +638,30 @@ def _clear_speculative_client_cache() -> None:
         pass
 
 
+def _qa_sd_attach_frames_count() -> int:
+    """How many frames to attach directly to the text-SD prompt (0 = text-only).
+
+    Unlike hybrid_vl (a separate baseline-only VL call, reconciled after the
+    fact), this keeps normal speculative decoding (draft+target) active and
+    just gives it a few images alongside the memory/caption text -- for
+    questions where language poorly encodes spatial layout.
+    """
+    try:
+        return max(0, int(os.environ.get("OPENEQA_QA_SD_ATTACH_FRAMES", "0")))
+    except ValueError:
+        return 0
+
+
 def _qa_direct_sd_send(
     mma_agent,
     formatted: str,
     question: str,
     *,
     baseline_only: bool = False,
+    image_paths: Optional[List[str]] = None,
+    selected_events: Optional[List[Any]] = None,
 ) -> str:
-    """Text-only speculative QA with episodic memory_items (no chat-agent tools)."""
+    """Text-only (or text+few-frames) speculative QA with episodic memory_items."""
     import traceback
 
     from mma.llm_api.llm_client import LLMClient
@@ -714,6 +730,33 @@ def _qa_direct_sd_send(
             tools=None,
             retrieved_memories={"memory_items": memory_items},
         )
+        n_attach = 0 if baseline_only else _qa_sd_attach_frames_count()
+        if n_attach > 0 and image_paths:
+            from openeqa_hybrid_vl import resolve_hybrid_frames
+
+            frames = resolve_hybrid_frames(
+                selected_events or selected,
+                image_paths,
+                question=question,
+                max_frames=n_attach,
+            )
+            if frames:
+                # _vl_parts_to_messages() builds the user turn ENTIRELY from
+                # vl_content_parts (chat is only consulted for the system
+                # message) -- so the user text has to be re-added here too,
+                # or the question/memory text silently drops from the prompt.
+                vl_content_parts = list(request_data.get("vl_content_parts") or [])
+                vl_content_parts.insert(0, ("text", f"user: {user_prompt}\n"))
+                vl_content_parts.extend(("image", p) for p in frames)
+                request_data["vl_content_parts"] = vl_content_parts
+                request_data["image_paths"] = list(
+                    request_data.get("image_paths") or []
+                ) + list(frames)
+                print(
+                    f"  [qa] direct_sd: attached {len(frames)} frames "
+                    f"{[os.path.basename(p) for p in frames]}",
+                    flush=True,
+                )
         request_data["collect_stats"] = True
         request_data["stats_out"] = {}
         response = client.request(request_data)
@@ -795,9 +838,22 @@ def _qa_answer_source(raw_prediction: str, prediction: str) -> str:
     return "model"
 
 
-def _qa_direct_sd_with_fallback(mma_agent, formatted: str, question: str) -> str:
+def _qa_direct_sd_with_fallback(
+    mma_agent,
+    formatted: str,
+    question: str,
+    *,
+    image_paths: Optional[List[str]] = None,
+    selected_events: Optional[List[Any]] = None,
+) -> str:
     os.environ.pop("OPENEQA_QA_OOM", None)
-    raw = _qa_direct_sd_send(mma_agent, formatted, question)
+    raw = _qa_direct_sd_send(
+        mma_agent,
+        formatted,
+        question,
+        image_paths=image_paths,
+        selected_events=selected_events,
+    )
     if raw:
         return raw
     # OOM: do NOT reload target-only — that doubles VRAM pressure and fails again.
@@ -1063,7 +1119,11 @@ def _run_qa(
             if not raw_prediction:
                 if _qa_uses_direct_sd():
                     raw_prediction = _qa_direct_sd_with_fallback(
-                        _mma_core(agent), formatted, question
+                        _mma_core(agent),
+                        formatted,
+                        question,
+                        image_paths=sample.get("image_paths") or sample.get("images"),
+                        selected_events=selected_events,
                     )
                 else:
                     raw_prediction = _qa_send(agent, formatted)
@@ -1080,7 +1140,11 @@ def _run_qa(
                 print("  [qa] empty first response; retrying yes/no fallback", flush=True)
                 if _qa_uses_direct_sd():
                     raw_prediction = _qa_direct_sd_with_fallback(
-                        _mma_core(agent), fallback, question
+                        _mma_core(agent),
+                        fallback,
+                        question,
+                        image_paths=sample.get("image_paths") or sample.get("images"),
+                        selected_events=selected_events,
                     )
                 else:
                     raw_prediction = _qa_send(agent, fallback)
