@@ -673,6 +673,9 @@ def _qa_direct_sd_send(
     block = format_episodic_block_for_qa(selected)
     memory_items = events_to_memory_items(selected)
     user_prompt = f"Episodic Memory:\n{block}\n\n{formatted}" if block.strip() else formatted
+    will_attach_frames = (
+        not baseline_only and _qa_sd_attach_frames_count() > 0 and bool(image_paths)
+    )
     system_prompt = (
         "You answer embodied VQA questions using the episodic memory provided by the user. "
         "Reply in English only with a short factual phrase (1-5 words). "
@@ -683,6 +686,14 @@ def _qa_direct_sd_send(
         "'no object mentioned', or 'not enough information' when any related object "
         "appears in the memory — prefer the best matching object or attribute instead."
     )
+    if will_attach_frames:
+        system_prompt += (
+            " You are also given a few real photos from the scene. The memory text may "
+            "describe a different room or moment than these specific photos — if the "
+            "memory and the photos disagree (color, state, location, what object is "
+            "present), trust what you actually see in the photos and answer based on "
+            "that, not the memory text."
+        )
 
     state = mma_agent.agent_states.agent_state
     llm_config = state.llm_config

@@ -56,6 +56,13 @@ def main() -> None:
     ap.add_argument("--a-high", type=int, default=4, help="Min score for A to count as 'high'.")
     ap.add_argument("--b-low", type=int, default=2, help="Max score for B to count as 'low'.")
     ap.add_argument("--limit", type=int, default=15)
+    ap.add_argument(
+        "--dump-qids",
+        type=Path,
+        default=None,
+        help="Write ALL matching question_ids (not just --limit) to this JSON file, "
+        "for building a targeted subset re-run.",
+    )
     args = ap.parse_args()
 
     dataset_path = _default_dataset()
@@ -82,6 +89,13 @@ def main() -> None:
     cases.sort(key=lambda x: (x[1] - x[2]), reverse=True)
 
     print(f"{args.a_label} high (>={args.a_high}) / {args.b_label} low (<={args.b_low}): {len(cases)} case(s)\n")
+
+    if args.dump_qids:
+        args.dump_qids.write_text(
+            json.dumps([qid for qid, _, _ in cases], indent=2), encoding="utf-8"
+        )
+        print(f"Wrote {len(cases)} question_id(s) to {args.dump_qids}\n")
+
     for qid, sa, sb in cases[: args.limit]:
         a, b = a_rows[qid], b_rows[qid]
         print("=" * 100)
