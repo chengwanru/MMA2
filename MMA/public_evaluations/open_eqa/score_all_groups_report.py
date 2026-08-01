@@ -447,52 +447,72 @@ def render_group_md(group: Dict[str, Any], acc: Dict[str, Any], timing: Dict[str
     return "".join(lines)
 
 
-def _load_key_pool(path: Path) -> List[str]:
-    keys = []
+def _load_key_pool(path: Path) -> List[tuple]:
+    """Each line is '<api_key>' or '<api_key> <base_url>' (whitespace-separated).
+
+    A per-line base_url is needed because Aliyun Bailian/DashScope issues a
+    dedicated endpoint hostname PER WORKSPACE (e.g. ws-mn14fafs1pqqatf2... vs
+    ws-15m8ouecym116iu3...) -- keys from different people's accounts are not
+    interchangeable against a single shared --openai-base-url. A line with
+    just a key falls back to --openai-base-url.
+    """
+    entries = []
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if line and not line.startswith("#"):
-            keys.append(line)
-    return keys
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        key = parts[0]
+        base_url = parts[1] if len(parts) > 1 else None
+        entries.append((key, base_url))
+    return entries
 
 
-def _wrap_with_key_rotation(score_fn, *, keys: List[str], api_key_env: str):
-    """Wrap an API-based score_fn so a failing call (quota exhausted, auth,
-    transient network) advances to the next key in the pool and retries the
-    same question, instead of counting toward _score_group's abort budget.
-    The "current key" pointer only moves forward -- once key i is exhausted
-    every later question starts directly on the first untried key after it,
-    never re-probing dead keys. Only re-raises (letting the normal
-    consecutive-failure/abort logic in _score_group take over) once every
-    key in the pool has failed for this specific question.
+def _wrap_with_key_rotation(base_cfg, *, entries: List[tuple]):
+    """Build a score_fn that advances to the next (key, base_url) pair in the
+    pool on a failing call (quota exhausted, auth, transient network, wrong
+    endpoint) and retries the same question, instead of counting toward
+    _score_group's abort budget. The "current key" pointer only moves
+    forward -- once entry i is exhausted every later question starts
+    directly on the first untried entry after it, never re-probing dead
+    ones. Only re-raises (letting the normal consecutive-failure/abort logic
+    in _score_group take over) once every entry in the pool has failed for
+    this specific question. Returns (score_fn, cfg_for_preflight).
     """
+    import dataclasses
+
     state = {"idx": 0}
-    os.environ[api_key_env] = keys[state["idx"]]
+
+    def _cfg_for(idx: int):
+        key, base_url = entries[idx]
+        os.environ[base_cfg.api_key_env] = key
+        return base_cfg if base_url is None else dataclasses.replace(base_cfg, base_url=base_url)
 
     def wrapped(*, question, answer, prediction, extra_answers, verbose):
         last_exc: Optional[Exception] = None
-        for attempt in range(len(keys)):
+        for _ in range(len(entries)):
+            cfg = _cfg_for(state["idx"])
             try:
-                return score_fn(
+                return get_llm_match_score(
                     question=question,
                     answer=answer,
                     prediction=prediction,
                     extra_answers=extra_answers,
+                    cfg=cfg,
                     verbose=verbose,
                 )
             except Exception as exc:
                 last_exc = exc
-                state["idx"] = (state["idx"] + 1) % len(keys)
-                os.environ[api_key_env] = keys[state["idx"]]
+                state["idx"] = (state["idx"] + 1) % len(entries)
                 print(
-                    f"  [key_pool] call failed ({exc}); switching to key "
-                    f"#{state['idx'] + 1}/{len(keys)}",
+                    f"  [key_pool] call failed ({exc}); switching to entry "
+                    f"#{state['idx'] + 1}/{len(entries)}",
                     file=sys.stderr,
                 )
         assert last_exc is not None
         raise last_exc
 
-    return wrapped
+    return wrapped, _cfg_for(0)
 
 
 def main() -> None:
@@ -567,31 +587,34 @@ def main() -> None:
         cfg = resolve_judge_config(args.judge_profile, model=args.judge_model, base_url=args.openai_base_url)
         judge_name = cfg.name
         judge_model = cfg.model
-        print(f"Judge: profile={cfg.name} model={cfg.model} base_url={cfg.base_url}")
 
-        key_pool: Optional[List[str]] = None
+        key_pool: Optional[List[tuple]] = None
         if args.key_pool_file:
             key_pool = _load_key_pool(args.key_pool_file)
             if not key_pool:
                 print(f"ERROR: {args.key_pool_file} has no keys", file=sys.stderr)
                 sys.exit(1)
-            os.environ[cfg.api_key_env] = key_pool[0]
-            print(f"Loaded {len(key_pool)} key(s) from {args.key_pool_file}; starting on key #1")
-
-        validate_judge_credentials(cfg, preflight=True)
-
-        def score_fn(*, question, answer, prediction, extra_answers, verbose):
-            return get_llm_match_score(
-                question=question,
-                answer=answer,
-                prediction=prediction,
-                extra_answers=extra_answers,
-                cfg=cfg,
-                verbose=verbose,
+            n_with_url = sum(1 for _, u in key_pool if u)
+            print(
+                f"Loaded {len(key_pool)} key(s) from {args.key_pool_file} "
+                f"({n_with_url} with a per-key base_url override); starting on entry #1"
             )
+            score_fn, preflight_cfg = _wrap_with_key_rotation(cfg, entries=key_pool)
+        else:
+            preflight_cfg = cfg
 
-        if key_pool:
-            score_fn = _wrap_with_key_rotation(score_fn, keys=key_pool, api_key_env=cfg.api_key_env)
+            def score_fn(*, question, answer, prediction, extra_answers, verbose):
+                return get_llm_match_score(
+                    question=question,
+                    answer=answer,
+                    prediction=prediction,
+                    extra_answers=extra_answers,
+                    cfg=cfg,
+                    verbose=verbose,
+                )
+
+        print(f"Judge: profile={preflight_cfg.name} model={preflight_cfg.model} base_url={preflight_cfg.base_url}")
+        validate_judge_credentials(preflight_cfg, preflight=True)
 
     print()
 
