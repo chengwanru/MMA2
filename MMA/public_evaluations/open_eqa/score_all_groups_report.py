@@ -125,6 +125,24 @@ GROUPS: List[Dict[str, Any]] = [
             "vr_baddraft": "N", "reject_strategy": "greedy+semantic",
         },
     },
+    {
+        "name": "MMA+SD + visual routing (64f, resize)",
+        "path": "/nix/openeqa_work/open_eqa_runs/mma_sd_vr_resize_full557_f64_20260801_193533/mma_sd.json",
+        "variant": "ours",
+        "settings": {
+            "frames": 64, "resize": "Y", "hybrid": "N", "visual_routing": "Y",
+            "vr_baddraft": "N", "reject_strategy": "greedy+semantic",
+        },
+    },
+    {
+        "name": "MMA+SD + visual routing (16f)",
+        "path": "/nix/openeqa_work/open_eqa_runs/mma_sd_vr_full557_f16_20260801_193533/mma_sd.json",
+        "variant": "ours",
+        "settings": {
+            "frames": 16, "resize": "N", "hybrid": "N", "visual_routing": "Y",
+            "vr_baddraft": "N", "reject_strategy": "greedy+semantic",
+        },
+    },
 ]
 
 
