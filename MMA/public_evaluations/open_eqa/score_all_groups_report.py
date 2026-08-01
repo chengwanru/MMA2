@@ -273,8 +273,10 @@ def _timing_summary(rows: List[Dict[str, Any]], is_direct: bool) -> Dict[str, An
 def _score_group(
     group: Dict[str, Any],
     dataset_path: Path,
-    cfg,
     *,
+    score_fn,
+    judge_name: str,
+    judge_model: str,
     metrics_dir: Path,
     limit: Optional[int],
     verbose: bool,
@@ -289,8 +291,8 @@ def _score_group(
     if limit is not None:
         official = official[:limit]
 
-    safe_model = re.sub(r"[^A-Za-z0-9._-]+", "_", cfg.model)
-    metrics_path = metrics_dir / f"{path.parent.name}-{group['variant']}-{cfg.name}-{safe_model}-metrics.json"
+    safe_model = re.sub(r"[^A-Za-z0-9._-]+", "_", judge_model)
+    metrics_path = metrics_dir / f"{path.parent.name}-{group['variant']}-{judge_name}-{safe_model}-metrics.json"
     all_scores: Dict[str, int] = {}
     if metrics_path.is_file():
         all_scores = json.loads(metrics_path.read_text(encoding="utf-8"))
@@ -314,12 +316,11 @@ def _score_group(
         if ds_item is None:
             continue
         try:
-            score = get_llm_match_score(
+            score = score_fn(
                 question=ds_item["question"],
                 answer=ds_item["answer"],
                 prediction=item["answer"],
                 extra_answers=ds_item.get("extra_answers"),
-                cfg=cfg,
                 verbose=verbose,
             )
         except Exception as exc:
@@ -368,7 +369,7 @@ def _score_group(
         "normalized": normalized,
         "distribution": dist,
         "metrics_path": str(metrics_path),
-        "judge_model": cfg.model,
+        "judge_model": judge_model,
     }
 
 
@@ -430,9 +431,16 @@ def main() -> None:
     ap.add_argument("--out", required=True, help="Output Markdown report path.")
     ap.add_argument("--groups", default=None, help="Comma-separated group name substrings to include (default: all).")
     ap.add_argument("--limit", type=int, default=None, help="Score only the first N questions per group (for testing).")
-    ap.add_argument("--judge-profile", default="deepseek")
+    ap.add_argument("--judge-profile", default="deepseek", help="Ignored if --local-judge-model-path is set.")
     ap.add_argument("--judge-model", default=None)
     ap.add_argument("--openai-base-url", default=None)
+    ap.add_argument(
+        "--local-judge-model-path",
+        default=None,
+        help="Path to a local HF model (e.g. the already-downloaded Qwen3-VL-8B-Instruct) "
+        "to use as judge instead of any API. No key/quota needed.",
+    )
+    ap.add_argument("--local-judge-device", default="cuda:0")
     ap.add_argument("--env-file", type=Path, default=None)
     ap.add_argument("--metrics-dir", type=Path, default=_OPEN_EQA_DIR / "results" / "metrics")
     ap.add_argument("--dataset", type=Path, default=None)
@@ -445,10 +453,45 @@ def main() -> None:
         print(f"Loaded env from {env_path}")
 
     dataset_path = args.dataset or _default_dataset()
-    cfg = resolve_judge_config(args.judge_profile, model=args.judge_model, base_url=args.openai_base_url)
-    print(f"Judge: profile={cfg.name} model={cfg.model} base_url={cfg.base_url}")
-    validate_judge_credentials(cfg, preflight=True)
-    print("Preflight OK.\n")
+
+    if args.local_judge_model_path:
+        from openeqa_local_judge import LocalJudgeConfig, get_local_judge_score
+
+        local_cfg = LocalJudgeConfig(
+            model_path=args.local_judge_model_path, device=args.local_judge_device
+        )
+        judge_name = "local"
+        judge_model = args.local_judge_model_path
+
+        def score_fn(*, question, answer, prediction, extra_answers, verbose):
+            return get_local_judge_score(
+                question=question,
+                answer=answer,
+                prediction=prediction,
+                extra_answers=extra_answers,
+                cfg=local_cfg,
+                verbose=verbose,
+            )
+
+        print(f"Judge: local model={judge_model} device={args.local_judge_device}")
+    else:
+        cfg = resolve_judge_config(args.judge_profile, model=args.judge_model, base_url=args.openai_base_url)
+        judge_name = cfg.name
+        judge_model = cfg.model
+        print(f"Judge: profile={cfg.name} model={cfg.model} base_url={cfg.base_url}")
+        validate_judge_credentials(cfg, preflight=True)
+
+        def score_fn(*, question, answer, prediction, extra_answers, verbose):
+            return get_llm_match_score(
+                question=question,
+                answer=answer,
+                prediction=prediction,
+                extra_answers=extra_answers,
+                cfg=cfg,
+                verbose=verbose,
+            )
+
+    print()
 
     groups = GROUPS
     if args.groups:
@@ -473,7 +516,9 @@ def main() -> None:
             judge = _score_group(
                 group,
                 dataset_path,
-                cfg,
+                score_fn=score_fn,
+                judge_name=judge_name,
+                judge_model=judge_model,
                 metrics_dir=args.metrics_dir,
                 limit=args.limit,
                 verbose=args.verbose,
@@ -507,7 +552,9 @@ def main() -> None:
         "group's number is the mean over all judged questions. ERROR/empty predictions are exported as an "
         "empty string (never a fabricated answer) before judging, so they score at or near the 1-5 floor "
         "on their own merits rather than being hand-corrected.\n\n"
-        f"**Judge for this report:** {cfg.name} / {cfg.model} (base_url={cfg.base_url})\n\n"
+        f"**Judge for this report:** {judge_name} / {judge_model}"
+        + (f" (base_url={cfg.base_url})" if judge_name != "local" else " (local, no API)")
+        + "\n\n"
         + ("**NOTE: --limit was set, this is a partial/test run.**\n\n" if args.limit else "")
     )
     out_path.write_text(header + "\n".join(sections), encoding="utf-8")
