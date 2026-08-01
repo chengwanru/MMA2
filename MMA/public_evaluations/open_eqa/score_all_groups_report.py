@@ -325,6 +325,13 @@ def _score_group(
     normalized = None
     mean_raw = None
     if scored:
+        # Official OpenEQA LLM-Match protocol: each question's 1-5 judge score
+        # is linearly rescaled to 0-100 via (score-1)/4*100, then averaged
+        # across all judged questions in the set. Averaging first and
+        # rescaling once (as done here) is mathematically identical -- rescale
+        # is linear -- to rescaling per-question then averaging (what
+        # evaluate_predictions_file() in openeqa_llm_match.py does); both give
+        # the same group-level number.
         mean_raw = round(sum(scored) / len(scored), 3)
         normalized = round(100.0 * (mean_raw - 1) / 4, 1)
 
@@ -369,19 +376,19 @@ def render_group_md(group: Dict[str, Any], acc: Dict[str, Any], timing: Dict[str
         )
     else:
         lines.append("no scores yet\n\n")
-    lines.append("**Timing**\n\n")
+    lines.append("**Timing (per question, seconds)**\n\n")
     if "elapsed_sec" in timing:
-        lines.append(_fmt_stats("elapsed_sec (single VL forward, no MMA/SD)", timing["elapsed_sec"]))
+        lines.append(_fmt_stats("Single VL forward pass (no MMA memory, no speculative decoding)", timing["elapsed_sec"]))
     else:
-        lines.append(_fmt_stats("total_sec", timing.get("total_sec")))
-        lines.append(_fmt_stats("memorize_sec", timing.get("memorize_sec")))
-        lines.append(_fmt_stats("qa_wall_sec", timing.get("qa_wall_sec")))
-        lines.append(_fmt_stats("qa_decode_sec (SD round total)", timing.get("qa_decode_sec")))
-        lines.append(_fmt_stats("qa_draft_generation_sec", timing.get("qa_draft_generation_sec")))
-        lines.append(_fmt_stats("qa_target_forward_sec", timing.get("qa_target_forward_sec")))
-        lines.append(_fmt_stats("qa_verification_sec", timing.get("qa_verification_sec")))
-        lines.append(_fmt_stats("qa_rope_align_sec", timing.get("qa_rope_align_sec")))
-        lines.append(_fmt_stats("qa_sd_sched_align_overhead_sec", timing.get("qa_sd_sched_align_overhead_sec")))
+        lines.append(_fmt_stats("Total wall time (memorize + QA)", timing.get("total_sec")))
+        lines.append(_fmt_stats("Episodic memory write ('memorize') phase", timing.get("memorize_sec")))
+        lines.append(_fmt_stats("QA phase wall time", timing.get("qa_wall_sec")))
+        lines.append(_fmt_stats("Speculative decoding total (draft+align+target+verify, summed across rounds)", timing.get("qa_decode_sec")))
+        lines.append(_fmt_stats("Draft model (2B) token generation", timing.get("qa_draft_generation_sec")))
+        lines.append(_fmt_stats("Target model (8B) forward pass", timing.get("qa_target_forward_sec")))
+        lines.append(_fmt_stats("Verification (accept/reject draft tokens)", timing.get("qa_verification_sec")))
+        lines.append(_fmt_stats("Memory RoPE realignment", timing.get("qa_rope_align_sec")))
+        lines.append(_fmt_stats("Unaccounted scheduling/alignment overhead (decode total minus the four components above)", timing.get("qa_sd_sched_align_overhead_sec")))
     lines.append("\n")
     return "".join(lines)
 
@@ -444,8 +451,20 @@ def main() -> None:
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     header = (
-        "# OpenEQA HM3D (557q) Ablation Report\n\n"
-        f"Judge: {cfg.name} / {cfg.model} (base_url={cfg.base_url})\n\n"
+        "# OpenEQA HM3D Ablation Report\n\n"
+        "**Benchmark:** [OpenEQA](https://open-eqa.github.io/) (Majumdar et al., CVPR 2024) episodic-memory "
+        "split, HM3D scenes -- 557 open-vocabulary questions total (object recognition, spatial reasoning, "
+        "object states, functional reasoning, world knowledge), each grounded in a short RGB frame sequence "
+        "sampled per episode. Each group below runs the full 557-question set unless noted.\n\n"
+        "**Scoring methodology:** two metrics per group.\n"
+        "1. *Substring-match accuracy* (`good`) -- our own lightweight heuristic: EXACT/HIT/PARTIAL count as "
+        "good, MISS/ERROR do not. Fast, free, used for iteration.\n"
+        "2. *LLM-Match* -- the official OpenEQA protocol: an LLM judge rates each prediction against the gold "
+        "answer on a 1-5 scale, each score is linearly rescaled to 0-100 via `(score-1)/4*100`, and the "
+        "group's number is the mean over all judged questions. ERROR/empty predictions are exported as an "
+        "empty string (never a fabricated answer) before judging, so they score at or near the 1-5 floor "
+        "on their own merits rather than being hand-corrected.\n\n"
+        f"**Judge for this report:** {cfg.name} / {cfg.model} (base_url={cfg.base_url})\n\n"
         + ("**NOTE: --limit was set, this is a partial/test run.**\n\n" if args.limit else "")
     )
     out_path.write_text(header + "\n".join(sections), encoding="utf-8")
