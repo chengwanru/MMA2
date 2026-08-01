@@ -515,14 +515,18 @@ def _wrap_with_key_rotation(base_cfg, *, entries: List[tuple]):
     return wrapped, _cfg_for(0)
 
 
-def _claim_next_group(groups: List[Dict[str, Any]], queue_dir: Path) -> Optional[Dict[str, Any]]:
+def _claim_next_group(groups: List[Dict[str, Any]], queue_dir: Path) -> Optional[tuple]:
     """Atomically claim the next not-yet-claimed group for this worker.
 
     Uses exclusive file creation (open(..., "x")) as the claim: on a shared
     filesystem this is atomic, so two concurrent workers racing for the same
     group can never both win. Groups are identified by their (stable) index
     in GROUPS, not by name, so renames don't matter. Returns None once every
-    group has a claim file -- the caller should then exit cleanly.
+    group has a claim file -- the caller should then exit cleanly. Returns
+    (group, claim_file_path) so the caller can release the claim (unlink the
+    file) if it has to abort partway through -- otherwise an exhausted key
+    would leave its group permanently stuck, since no other worker checks
+    whether a claim's owner is still alive.
     """
     queue_dir.mkdir(parents=True, exist_ok=True)
     for idx, group in enumerate(groups):
@@ -530,7 +534,7 @@ def _claim_next_group(groups: List[Dict[str, Any]], queue_dir: Path) -> Optional
         try:
             with open(claim_file, "x") as f:
                 f.write(f"pid={os.getpid()} group={group['name']}\n")
-            return group
+            return group, claim_file
         except FileExistsError:
             continue
     return None
@@ -661,16 +665,17 @@ def main() -> None:
     def _group_iterator():
         if args.group_queue_dir:
             while True:
-                group = _claim_next_group(groups, args.group_queue_dir)
-                if group is None:
+                claimed = _claim_next_group(groups, args.group_queue_dir)
+                if claimed is None:
                     print("\n[group_queue] no unclaimed groups left; this worker is done.")
                     return
-                yield group
+                yield claimed
         else:
-            yield from groups
+            for group in groups:
+                yield group, None
 
     sections = []
-    for group in _group_iterator():
+    for group, claim_file in _group_iterator():
         print(f"=== {group['name']} ===", flush=True)
         path = Path(group["path"])
         if not path.is_file():
@@ -696,6 +701,16 @@ def main() -> None:
             )
         except RuntimeError as exc:
             print(f"\nABORTED: {exc}", file=sys.stderr)
+            if claim_file is not None:
+                try:
+                    claim_file.unlink()
+                    print(
+                        f"[group_queue] released claim on {group['name']!r} "
+                        "so another worker (with a working key) can pick it up.",
+                        file=sys.stderr,
+                    )
+                except OSError:
+                    pass
             print(
                 f"\n{len(sections)}/{len(groups)} group(s) already completed this run "
                 "were NOT written to --out (nothing lost -- their scores are cached and "
