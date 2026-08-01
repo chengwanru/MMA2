@@ -589,13 +589,24 @@ def main() -> None:
     ap.add_argument("--env-file", type=Path, default=None)
     ap.add_argument("--metrics-dir", type=Path, default=_OPEN_EQA_DIR / "results" / "metrics")
     ap.add_argument("--dataset", type=Path, default=None)
+    ap.add_argument(
+        "--no-env-file",
+        action="store_true",
+        help="Skip loading --env-file (or the default openeqa_judge_smoke.env) entirely. "
+        "Needed when launching a key-pool/queue worker with its key already set inline "
+        "(e.g. DEEPSEEK_API_KEY=... nohup python ...) -- otherwise the env file's "
+        "override=True load silently replaces that key with whatever it contains.",
+    )
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
-    env_path = args.env_file or (_OPEN_EQA_DIR / "openeqa_judge_smoke.env")
-    if env_path.is_file():
-        load_env_file(env_path, override=True)
-        print(f"Loaded env from {env_path}")
+    if args.no_env_file:
+        print("Skipping env-file load (--no-env-file); using process environment as-is.")
+    else:
+        env_path = args.env_file or (_OPEN_EQA_DIR / "openeqa_judge_smoke.env")
+        if env_path.is_file():
+            load_env_file(env_path, override=True)
+            print(f"Loaded env from {env_path}")
 
     dataset_path = args.dataset or _default_dataset()
 
