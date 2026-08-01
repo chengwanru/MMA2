@@ -54,6 +54,14 @@ JUDGE_PROFILES: Dict[str, JudgeConfig] = {
         base_url="https://api.groq.com/openai/v1",
         max_tokens=64,
     ),
+    # DeepSeek API
+    "deepseek": JudgeConfig(
+        name="deepseek",
+        model=os.environ.get("OPENEQA_DEEPSEEK_MODEL", "deepseek-chat"),
+        api_key_env="DEEPSEEK_API_KEY",
+        base_url="https://api.deepseek.com",
+        max_tokens=1024, # In case of reasoner or verbose outputs
+    ),
 }
 
 
@@ -156,9 +164,18 @@ def parse_score(output: str, tag: str = "Your mark:") -> int:
     text = (output or "").strip()
     if text.isdigit():
         return int(text)
+        
+    # Handle markdown like **Your mark:** 5 or <think>...</think>\nYour mark: 5
+    # Look for "your mark" followed by any characters that are NOT digits 1-5, then capture the first 1-5 digit.
+    # We find all matches and take the last one to handle reasoning blocks correctly.
+    matches = list(re.finditer(r"your\s*mark[^1-5]*([1-5])", text, flags=re.I))
+    if matches:
+        return int(matches[-1].group(1))
+        
     match = re.search(rf"{re.escape(tag)}\s*(\d+)", text, flags=re.I)
     if match:
         return int(match.group(1))
+        
     digits = re.findall(r"\b([1-5])\b", text)
     if digits:
         return int(digits[-1])
