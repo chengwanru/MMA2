@@ -270,6 +270,12 @@ def _timing_summary(rows: List[Dict[str, Any]], is_direct: bool) -> Dict[str, An
     }
 
 
+def _metrics_path_for(metrics_dir: Path, run_name: str, variant: str, judge_name: str, judge_model: str, worker_tag: str = "") -> Path:
+    safe_model = re.sub(r"[^A-Za-z0-9._-]+", "_", judge_model)
+    suffix = f"-worker_{re.sub(r'[^A-Za-z0-9._-]+', '_', worker_tag)}" if worker_tag else ""
+    return metrics_dir / f"{run_name}-{variant}-{judge_name}-{safe_model}{suffix}-metrics.json"
+
+
 def _score_group(
     group: Dict[str, Any],
     dataset_path: Path,
@@ -279,6 +285,8 @@ def _score_group(
     judge_model: str,
     metrics_dir: Path,
     limit: Optional[int],
+    offset: int,
+    worker_tag: str,
     verbose: bool,
     sleep_sec: float,
 ) -> Dict[str, Any]:
@@ -288,14 +296,26 @@ def _score_group(
     question_id_to_item = {item["question_id"]: item for item in dataset}
 
     official = export_official_rows(rows, dataset_path=dataset_path)
-    if limit is not None:
-        official = official[:limit]
+    # --offset/--limit slice this group's question list so N parallel workers
+    # (N API keys) can each own a disjoint range with zero coordination.
+    if offset or limit is not None:
+        official = official[offset : (offset + limit) if limit is not None else None]
 
-    safe_model = re.sub(r"[^A-Za-z0-9._-]+", "_", judge_model)
-    metrics_path = metrics_dir / f"{path.parent.name}-{group['variant']}-{judge_name}-{safe_model}-metrics.json"
+    # Canonical (merged) cache -- what a plain re-run / the final report pass reads.
+    canonical_path = _metrics_path_for(metrics_dir, path.parent.name, group["variant"], judge_name, judge_model)
+    # This process's own cache -- if worker_tag is set, a *separate* file so
+    # concurrent workers on the same group never read-modify-write the same
+    # JSON at once (which would silently drop each other's scores). Run
+    # merge_judge_metrics.py after all workers finish to fold worker files
+    # into the canonical one; an untagged run reads/writes canonical directly.
+    metrics_path = _metrics_path_for(
+        metrics_dir, path.parent.name, group["variant"], judge_name, judge_model, worker_tag
+    )
     all_scores: Dict[str, int] = {}
+    if canonical_path.is_file():
+        all_scores.update(json.loads(canonical_path.read_text(encoding="utf-8")))
     if metrics_path.is_file():
-        all_scores = json.loads(metrics_path.read_text(encoding="utf-8"))
+        all_scores.update(json.loads(metrics_path.read_text(encoding="utf-8")))
 
     # Resilience for running out of API quota / key issues mid-batch: a failed
     # call is NEVER written to all_scores as a fake score (that would silently
@@ -430,7 +450,17 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True, help="Output Markdown report path.")
     ap.add_argument("--groups", default=None, help="Comma-separated group name substrings to include (default: all).")
-    ap.add_argument("--limit", type=int, default=None, help="Score only the first N questions per group (for testing).")
+    ap.add_argument("--limit", type=int, default=None, help="Score only N questions per group, starting at --offset (for testing, or for splitting a group across parallel workers).")
+    ap.add_argument("--offset", type=int, default=0, help="Skip the first N questions per group before applying --limit.")
+    ap.add_argument(
+        "--worker-tag",
+        default="",
+        help="Distinct tag per parallel worker (e.g. a key nickname). When set, this "
+        "process writes to its own cache file instead of the shared canonical one, so "
+        "N workers with N different API keys can run concurrently on the same group "
+        "without racing on the same file. Run merge_judge_metrics.py afterward to fold "
+        "worker files into the canonical cache before generating the final report.",
+    )
     ap.add_argument("--judge-profile", default="deepseek", help="Ignored if --local-judge-model-path is set.")
     ap.add_argument("--judge-model", default=None)
     ap.add_argument("--openai-base-url", default=None)
@@ -521,6 +551,8 @@ def main() -> None:
                 judge_model=judge_model,
                 metrics_dir=args.metrics_dir,
                 limit=args.limit,
+                offset=args.offset,
+                worker_tag=args.worker_tag,
                 verbose=args.verbose,
                 sleep_sec=0.0,
             )
