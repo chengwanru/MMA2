@@ -120,7 +120,11 @@ def validate_judge_credentials(cfg: JudgeConfig, *, preflight: bool = False) -> 
     completion = client.chat.completions.create(
         model=cfg.model,
         messages=[{"role": "user", "content": "Reply with exactly: Your mark: 5"}],
-        max_tokens=16,
+        # Reasoning models (e.g. deepseek-v4-pro/r1) spend completion tokens on
+        # a hidden reasoning_content pass before ever emitting `content`; a
+        # small fixed budget here truncates before any answer text appears.
+        # Use the profile's own max_tokens (already sized for this) instead.
+        max_tokens=max(cfg.max_tokens, 16),
         temperature=0.0,
     )
     output = completion.choices[0].message.content or ""
