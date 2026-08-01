@@ -515,6 +515,27 @@ def _wrap_with_key_rotation(base_cfg, *, entries: List[tuple]):
     return wrapped, _cfg_for(0)
 
 
+def _claim_next_group(groups: List[Dict[str, Any]], queue_dir: Path) -> Optional[Dict[str, Any]]:
+    """Atomically claim the next not-yet-claimed group for this worker.
+
+    Uses exclusive file creation (open(..., "x")) as the claim: on a shared
+    filesystem this is atomic, so two concurrent workers racing for the same
+    group can never both win. Groups are identified by their (stable) index
+    in GROUPS, not by name, so renames don't matter. Returns None once every
+    group has a claim file -- the caller should then exit cleanly.
+    """
+    queue_dir.mkdir(parents=True, exist_ok=True)
+    for idx, group in enumerate(groups):
+        claim_file = queue_dir / f"claimed_{idx}.txt"
+        try:
+            with open(claim_file, "x") as f:
+                f.write(f"pid={os.getpid()} group={group['name']}\n")
+            return group
+        except FileExistsError:
+            continue
+    return None
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True, help="Output Markdown report path.")
@@ -529,6 +550,17 @@ def main() -> None:
         "N workers with N different API keys can run concurrently on the same group "
         "without racing on the same file. Run merge_judge_metrics.py afterward to fold "
         "worker files into the canonical cache before generating the final report.",
+    )
+    ap.add_argument(
+        "--group-queue-dir",
+        type=Path,
+        default=None,
+        help="Directory used to coordinate N parallel workers claiming whole groups "
+        "dynamically (each worker: claim next unclaimed group -> score it fully with "
+        "its own key -> claim the next one -> ... until none left), instead of a fixed "
+        "N-way split. All workers must be launched with the SAME --groups filter (or "
+        "none) so group indices line up. Each worker should still pass its own "
+        "--worker-tag to avoid racing on the per-group cache file.",
     )
     ap.add_argument("--judge-profile", default="deepseek", help="Ignored if --local-judge-model-path is set.")
     ap.add_argument("--judge-model", default=None)
@@ -626,8 +658,19 @@ def main() -> None:
             print("ERROR: no groups matched --groups filter", file=sys.stderr)
             sys.exit(1)
 
+    def _group_iterator():
+        if args.group_queue_dir:
+            while True:
+                group = _claim_next_group(groups, args.group_queue_dir)
+                if group is None:
+                    print("\n[group_queue] no unclaimed groups left; this worker is done.")
+                    return
+                yield group
+        else:
+            yield from groups
+
     sections = []
-    for group in groups:
+    for group in _group_iterator():
         print(f"=== {group['name']} ===", flush=True)
         path = Path(group["path"])
         if not path.is_file():
