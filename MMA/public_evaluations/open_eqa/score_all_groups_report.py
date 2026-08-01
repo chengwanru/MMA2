@@ -294,6 +294,17 @@ def _score_group(
     if metrics_path.is_file():
         all_scores = json.loads(metrics_path.read_text(encoding="utf-8"))
 
+    # Resilience for running out of API quota / key issues mid-batch: a failed
+    # call is NEVER written to all_scores as a fake score (that would silently
+    # bake a wrong number into a "real" result). Instead we count consecutive
+    # failures and hard-abort the whole script once quota/auth is clearly the
+    # problem, leaving metrics_path exactly as it was after the last success.
+    # Re-running the identical command later (after fixing the key) just skips
+    # every question_id already in metrics_path and continues from there --
+    # no re-scoring, no duplicate spend, no corrupted partial numbers.
+    consecutive_failures = 0
+    MAX_CONSECUTIVE_FAILURES = 3
+
     for idx, item in enumerate(official):
         qid = item["question_id"]
         if qid in all_scores:
@@ -311,8 +322,21 @@ def _score_group(
                 verbose=verbose,
             )
         except Exception as exc:
-            print(f"  WARN: score failed for {qid}: {exc}", file=sys.stderr)
-            score = 1
+            consecutive_failures += 1
+            print(
+                f"  WARN: score failed for {qid} ({consecutive_failures}/{MAX_CONSECUTIVE_FAILURES}): {exc}",
+                file=sys.stderr,
+            )
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                raise RuntimeError(
+                    f"{MAX_CONSECUTIVE_FAILURES} consecutive judge calls failed "
+                    f"(likely quota/auth/network) -- stopping to avoid faking scores. "
+                    f"Progress so far is saved at {metrics_path}. "
+                    f"Fix the key/quota and re-run the exact same command to resume; "
+                    f"already-scored questions are skipped automatically."
+                ) from exc
+            continue
+        consecutive_failures = 0
         all_scores[qid] = score
         metrics_path.parent.mkdir(parents=True, exist_ok=True)
         metrics_path.write_text(json.dumps(all_scores, indent=2), encoding="utf-8")
@@ -354,14 +378,20 @@ def _fmt_stats(label: str, s: Optional[Dict[str, float]]) -> str:
 
 def render_group_md(group: Dict[str, Any], acc: Dict[str, Any], timing: Dict[str, Any], judge: Dict[str, Any]) -> str:
     s = group["settings"]
+    run_dir = str(Path(group["path"]).parent)
     lines = []
     lines.append(f"## {group['name']}\n")
-    lines.append(f"- Run: `{group['path']}`\n")
     lines.append(
         f"- Settings: frames={s['frames']}, resize={s['resize']}, hybrid={s['hybrid']}, "
         f"visual_routing={s['visual_routing']}, verify_reject_bad_draft={s['vr_baddraft']}, "
         f"reject_strategy={s['reject_strategy']}\n"
     )
+    lines.append("- Paths:\n")
+    lines.append(f"  - Run directory: `{run_dir}`\n")
+    lines.append(f"  - Results JSON (predictions, variant=`{group['variant']}`): `{group['path']}`\n")
+    lines.append(f"  - `run.log`: `{run_dir}/run.log`\n")
+    lines.append(f"  - Per-question debug files: `{run_dir}/openeqa_debug/`\n")
+    lines.append(f"  - LLM-Match per-question scores (resumable cache): `{judge['metrics_path']}`\n")
     lines.append("\n**Substring-match accuracy**\n\n")
     lines.append(
         f"total={acc['total']} exact={acc['EXACT']} hit={acc['HIT']} partial={acc['PARTIAL']} "
@@ -437,15 +467,26 @@ def main() -> None:
         is_direct = group["variant"] == "baseline"
         acc = _substring_accuracy(rows)
         timing = _timing_summary(rows, is_direct)
-        judge = _score_group(
-            group,
-            dataset_path,
-            cfg,
-            metrics_dir=args.metrics_dir,
-            limit=args.limit,
-            verbose=args.verbose,
-            sleep_sec=0.0,
-        )
+        try:
+            judge = _score_group(
+                group,
+                dataset_path,
+                cfg,
+                metrics_dir=args.metrics_dir,
+                limit=args.limit,
+                verbose=args.verbose,
+                sleep_sec=0.0,
+            )
+        except RuntimeError as exc:
+            print(f"\nABORTED: {exc}", file=sys.stderr)
+            print(
+                f"\n{len(sections)}/{len(groups)} group(s) already completed this run "
+                "were NOT written to --out (nothing lost -- their scores are cached and "
+                "will be picked up instantly on the next run). Re-run the identical "
+                "command after fixing the key/quota.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         sections.append(render_group_md(group, acc, timing, judge))
 
     out_path = Path(args.out)
