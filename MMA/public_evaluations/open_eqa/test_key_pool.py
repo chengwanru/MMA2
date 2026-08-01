@@ -25,6 +25,7 @@ def main() -> None:
     ap.add_argument("key_pool_file", type=Path)
     ap.add_argument("--model", default="deepseek-v4-pro")
     ap.add_argument("--api-key-env", default="DEEPSEEK_API_KEY")
+    ap.add_argument("--max-tokens", type=int, default=32)
     args = ap.parse_args()
 
     entries = _load_key_pool(args.key_pool_file)
@@ -45,15 +46,30 @@ def main() -> None:
             completion = client.chat.completions.create(
                 model=args.model,
                 messages=[{"role": "user", "content": "Reply with exactly: Your mark: 5"}],
-                max_tokens=32,
+                max_tokens=args.max_tokens,
                 temperature=0.0,
             )
-            output = completion.choices[0].message.content or ""
+        except Exception as exc:
+            print(f"  {label}: FAIL (request) -> {exc}")
+            results.append((i, False, str(exc)))
+            continue
+
+        choice = completion.choices[0]
+        output = choice.message.content or ""
+        reasoning = getattr(choice.message, "reasoning_content", None) or ""
+        finish_reason = choice.finish_reason
+        usage = completion.usage
+        try:
             score = parse_score(output)
             print(f"  {label}: OK -> {output!r} (parsed={score})")
             results.append((i, True, output))
-        except Exception as exc:
-            print(f"  {label}: FAIL -> {exc}")
+        except ValueError as exc:
+            print(
+                f"  {label}: FAIL (unparseable) -> content={output!r} "
+                f"finish_reason={finish_reason!r} "
+                f"reasoning_tokens={getattr(usage.completion_tokens_details, 'reasoning_tokens', None) if usage else None} "
+                f"reasoning_content={reasoning[:120]!r}"
+            )
             results.append((i, False, str(exc)))
 
     ok = sum(1 for _, success, _ in results if success)
