@@ -289,7 +289,8 @@ def _score_group(
     if limit is not None:
         official = official[:limit]
 
-    metrics_path = metrics_dir / f"{path.parent.name}-{group['variant']}-{cfg.name}-metrics.json"
+    safe_model = re.sub(r"[^A-Za-z0-9._-]+", "_", cfg.model)
+    metrics_path = metrics_dir / f"{path.parent.name}-{group['variant']}-{cfg.name}-{safe_model}-metrics.json"
     all_scores: Dict[str, int] = {}
     if metrics_path.is_file():
         all_scores = json.loads(metrics_path.read_text(encoding="utf-8"))
@@ -367,6 +368,7 @@ def _score_group(
         "normalized": normalized,
         "distribution": dist,
         "metrics_path": str(metrics_path),
+        "judge_model": cfg.model,
     }
 
 
@@ -397,7 +399,7 @@ def render_group_md(group: Dict[str, Any], acc: Dict[str, Any], timing: Dict[str
         f"total={acc['total']} exact={acc['EXACT']} hit={acc['HIT']} partial={acc['PARTIAL']} "
         f"miss={acc['MISS']} error={acc['ERROR']} good={acc['good']}/{acc['total']}\n\n"
     )
-    lines.append("**LLM-Judge score**\n\n")
+    lines.append(f"**LLM-Judge score** (judge model: `{judge['judge_model']}`)\n\n")
     if judge["mean_raw"] is not None:
         lines.append(
             f"mean=({judge['mean_raw']}/5) normalized={judge['normalized']}/100 "
