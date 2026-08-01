@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import statistics as st
 import sys
@@ -446,6 +447,54 @@ def render_group_md(group: Dict[str, Any], acc: Dict[str, Any], timing: Dict[str
     return "".join(lines)
 
 
+def _load_key_pool(path: Path) -> List[str]:
+    keys = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            keys.append(line)
+    return keys
+
+
+def _wrap_with_key_rotation(score_fn, *, keys: List[str], api_key_env: str):
+    """Wrap an API-based score_fn so a failing call (quota exhausted, auth,
+    transient network) advances to the next key in the pool and retries the
+    same question, instead of counting toward _score_group's abort budget.
+    The "current key" pointer only moves forward -- once key i is exhausted
+    every later question starts directly on the first untried key after it,
+    never re-probing dead keys. Only re-raises (letting the normal
+    consecutive-failure/abort logic in _score_group take over) once every
+    key in the pool has failed for this specific question.
+    """
+    state = {"idx": 0}
+    os.environ[api_key_env] = keys[state["idx"]]
+
+    def wrapped(*, question, answer, prediction, extra_answers, verbose):
+        last_exc: Optional[Exception] = None
+        for attempt in range(len(keys)):
+            try:
+                return score_fn(
+                    question=question,
+                    answer=answer,
+                    prediction=prediction,
+                    extra_answers=extra_answers,
+                    verbose=verbose,
+                )
+            except Exception as exc:
+                last_exc = exc
+                state["idx"] = (state["idx"] + 1) % len(keys)
+                os.environ[api_key_env] = keys[state["idx"]]
+                print(
+                    f"  [key_pool] call failed ({exc}); switching to key "
+                    f"#{state['idx'] + 1}/{len(keys)}",
+                    file=sys.stderr,
+                )
+        assert last_exc is not None
+        raise last_exc
+
+    return wrapped
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True, help="Output Markdown report path.")
@@ -471,6 +520,16 @@ def main() -> None:
         "to use as judge instead of any API. No key/quota needed.",
     )
     ap.add_argument("--local-judge-device", default="cuda:0")
+    ap.add_argument(
+        "--key-pool-file",
+        type=Path,
+        default=None,
+        help="Path to a file with one API key per line (blank lines / '#' comments "
+        "ignored). When set, a failing judge call (quota exhausted, auth, transient "
+        "network) automatically advances to the next key and retries the SAME "
+        "question in-process -- no manual --offset splitting across N processes "
+        "needed. Ignored for --local-judge-model-path.",
+    )
     ap.add_argument("--env-file", type=Path, default=None)
     ap.add_argument("--metrics-dir", type=Path, default=_OPEN_EQA_DIR / "results" / "metrics")
     ap.add_argument("--dataset", type=Path, default=None)
@@ -509,6 +568,16 @@ def main() -> None:
         judge_name = cfg.name
         judge_model = cfg.model
         print(f"Judge: profile={cfg.name} model={cfg.model} base_url={cfg.base_url}")
+
+        key_pool: Optional[List[str]] = None
+        if args.key_pool_file:
+            key_pool = _load_key_pool(args.key_pool_file)
+            if not key_pool:
+                print(f"ERROR: {args.key_pool_file} has no keys", file=sys.stderr)
+                sys.exit(1)
+            os.environ[cfg.api_key_env] = key_pool[0]
+            print(f"Loaded {len(key_pool)} key(s) from {args.key_pool_file}; starting on key #1")
+
         validate_judge_credentials(cfg, preflight=True)
 
         def score_fn(*, question, answer, prediction, extra_answers, verbose):
@@ -520,6 +589,9 @@ def main() -> None:
                 cfg=cfg,
                 verbose=verbose,
             )
+
+        if key_pool:
+            score_fn = _wrap_with_key_rotation(score_fn, keys=key_pool, api_key_env=cfg.api_key_env)
 
     print()
 
