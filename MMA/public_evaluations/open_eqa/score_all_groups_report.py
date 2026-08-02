@@ -161,6 +161,15 @@ GROUPS: List[Dict[str, Any]] = [
             "vr_baddraft": "--", "reject_strategy": "greedy+semantic",
         },
     },
+    {
+        "name": "Pure SD, no MMA (16f, no resize)",
+        "path": "/nix/openeqa_work/open_eqa_runs/direct_sd_novr_full557_f16_20260802_130351/direct_sd.raw.json",
+        "variant": "direct_sd",
+        "settings": {
+            "frames": 16, "resize": "N", "hybrid": "--", "visual_routing": "--",
+            "vr_baddraft": "--", "reject_strategy": "greedy+semantic",
+        },
+    },
 ]
 
 
