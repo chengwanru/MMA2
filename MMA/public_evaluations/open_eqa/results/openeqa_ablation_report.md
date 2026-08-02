@@ -395,3 +395,25 @@ mean=(2.686/5) normalized=42.1/100 n_judged=557/557 distribution={'1': 240, '2':
 
 - Speculative decoding, no MMA memory (draft+target, run_openeqa_direct_sd.py): mean=1.746s median=1.427s sum=972.415s (n=557)
 
+
+## Pure SD, no MMA (16f, no resize)
+- Settings: frames=16, resize=N, hybrid=--, visual_routing=--, verify_reject_bad_draft=--, reject_strategy=greedy+semantic
+- Paths:
+  - Run directory: `/nix/openeqa_work/open_eqa_runs/direct_sd_novr_full557_f16_20260802_130351`
+  - Results JSON (predictions, variant=`compare_sd`): `/nix/openeqa_work/open_eqa_runs/direct_sd_novr_full557_f16_20260802_130351/direct_sd.raw.json`
+  - `run.log`: `/nix/openeqa_work/open_eqa_runs/direct_sd_novr_full557_f16_20260802_130351/run.log`
+  - Per-question debug files: `/nix/openeqa_work/open_eqa_runs/direct_sd_novr_full557_f16_20260802_130351/openeqa_debug/`
+  - LLM-Match per-question scores (resumable cache): `/tmp/MMA2/MMA/public_evaluations/open_eqa/results/metrics/direct_sd_novr_full557_f16_20260802_130351-compare_sd-deepseek-deepseek-v4-pro-metrics.json`
+
+**Substring-match accuracy**
+
+total=557 exact=86 hit=77 partial=65 miss=329 error=0 good=228/557
+
+**LLM-Judge score** (judge model: `deepseek-v4-pro`)
+
+mean=(2.596/5) normalized=39.9/100 n_judged=557/557 distribution={'1': 260, '2': 29, '3': 93, '4': 26, '5': 149}
+
+**Timing (per question, seconds)**
+
+- Speculative decoding, no MMA memory (draft+target, run_openeqa_direct_sd.py): mean=0.508s median=0.444s sum=282.992s (n=557)
+
