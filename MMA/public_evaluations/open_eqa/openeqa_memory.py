@@ -6534,8 +6534,17 @@ def apply_draft_policy_to_env(policy: Dict[str, Any]) -> None:
     scale = float(policy.get("memory_bias_scale", 0.5))
     top_k = int(policy.get("qa_memory_top_k") or policy.get(
         "memory_bias_top_k") or qa_memory_top_k())
-    os.environ["OPENEQA_MAX_DRAFT_STEPS"] = str(
-        int(policy.get("max_draft_steps", 2)))
+    # This runs per-question and used to unconditionally clobber
+    # OPENEQA_MAX_DRAFT_STEPS with the internal 0-3 heuristic, silently
+    # discarding any external override set for the whole run (e.g. an
+    # ablation forcing longer draft bursts). OPENEQA_FORCE_MAX_DRAFT_STEPS
+    # lets a caller pin a fixed value that this function will not touch.
+    forced = os.environ.get("OPENEQA_FORCE_MAX_DRAFT_STEPS", "").strip()
+    if forced:
+        os.environ["OPENEQA_MAX_DRAFT_STEPS"] = forced
+    else:
+        os.environ["OPENEQA_MAX_DRAFT_STEPS"] = str(
+            int(policy.get("max_draft_steps", 2)))
     os.environ["MMA_MEMORY_BIAS_SCALE"] = "0" if scale <= 0.0 else str(scale)
     os.environ["MMA_MEMORY_BIAS_TOP_K"] = str(top_k)
     os.environ["OPENEQA_QA_MEMORY_TOP_K"] = str(top_k)
