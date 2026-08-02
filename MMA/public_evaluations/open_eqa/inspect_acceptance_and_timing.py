@@ -101,9 +101,15 @@ def main() -> None:
         if "elapsed_sec" in timing:
             s = timing["elapsed_sec"]
             print(f"  elapsed_sec: {s}")
+            if "full_elapsed_sec" in timing:
+                print(f"  full_elapsed_sec (tokenize+generate, comparable to MMA qa_full_elapsed_sec): {timing['full_elapsed_sec']}")
         else:
             for key in ("total_sec", "qa_decode_sec", "qa_draft_generation_sec", "qa_target_forward_sec", "qa_verification_sec"):
                 print(f"  {key}: {timing.get(key)}")
+            if timing.get("qa_full_elapsed_sec") is not None:
+                print(f"  qa_full_elapsed_sec (tokenize+generate only, model load excluded): {timing['qa_full_elapsed_sec']}")
+            if timing.get("qa_model_load_sec") is not None:
+                print(f"  qa_model_load_sec (one-time-per-subprocess, repeated every sample): {timing['qa_model_load_sec']}")
         print()
 
 

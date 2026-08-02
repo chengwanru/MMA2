@@ -268,16 +268,28 @@ def _row_debug(r: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 def _timing_summary(rows: List[Dict[str, Any]], is_direct: bool) -> Dict[str, Any]:
     if is_direct:
         ts = []
+        full_ts = []
         for r in rows:
-            elapsed = (r.get("result") or {}).get("elapsed_sec")
+            result = r.get("result") or {}
+            elapsed = result.get("elapsed_sec")
             if elapsed is None:
                 elapsed = r.get("elapsed_sec")
             if elapsed is not None:
                 ts.append(float(elapsed))
-        return {"elapsed_sec": _stats(ts)}
+            full_elapsed = result.get("full_elapsed_sec") or r.get("full_elapsed_sec")
+            if full_elapsed is not None:
+                full_ts.append(float(full_elapsed))
+        out = {"elapsed_sec": _stats(ts)}
+        if full_ts:
+            # full_elapsed_sec = tokenize + image-proc + generate (model load excluded);
+            # this is the field comparable to MMA's qa_wall_sec-minus-model_load, NOT
+            # the plain elapsed_sec above which undercounts by skipping tokenize time.
+            out["full_elapsed_sec"] = _stats(full_ts)
+        return out
 
     totals, mems, qas, decodes = [], [], [], []
     drafts, verify_targets, sched_aligns, ropes, verifies, targets = [], [], [], [], [], []
+    full_elapsed_qa, model_loads = [], []
     for r in rows:
         t = r.get("timing") or {}
         if r.get("elapsed_sec") is not None:
@@ -318,8 +330,13 @@ def _timing_summary(rows: List[Dict[str, Any]], is_direct: bool) -> Dict[str, An
                 sched_aligns.append(sched)
         if row_decode_t is not None:
             decodes.append(float(row_decode_t))
+        if isinstance(spec, dict):
+            if spec.get("full_elapsed_sec") is not None:
+                full_elapsed_qa.append(float(spec["full_elapsed_sec"]))
+            if spec.get("model_load_sec") is not None:
+                model_loads.append(float(spec["model_load_sec"]))
 
-    return {
+    out = {
         "total_sec": _stats(totals),
         "memorize_sec": _stats(mems),
         "qa_wall_sec": _stats(qas),
@@ -331,6 +348,17 @@ def _timing_summary(rows: List[Dict[str, Any]], is_direct: bool) -> Dict[str, An
         "qa_rope_align_sec": _stats(ropes),
         "qa_sd_sched_align_overhead_sec": _stats(sched_aligns),
     }
+    if full_elapsed_qa:
+        # qa_wall_sec above is the FULL subprocess wall-clock (includes Python
+        # startup + model reload from disk every sample, since this pipeline is
+        # subprocess-per-sample). qa_full_elapsed_sec is tokenize+generate only
+        # (model load excluded, reported separately) -- comparable to Direct-8B's
+        # full_elapsed_sec, unlike qa_wall_sec which is NOT comparable to anything
+        # from a warm, model-loaded-once process.
+        out["qa_full_elapsed_sec"] = _stats(full_elapsed_qa)
+    if model_loads:
+        out["qa_model_load_sec"] = _stats(model_loads)
+    return out
 
 
 def _metrics_path_for(metrics_dir: Path, run_name: str, variant: str, judge_name: str, judge_model: str, worker_tag: str = "") -> Path:
@@ -500,6 +528,13 @@ def render_group_md(group: Dict[str, Any], acc: Dict[str, Any], timing: Dict[str
             else "Single VL forward pass (no MMA memory, no speculative decoding)"
         )
         lines.append(_fmt_stats(elapsed_label, timing["elapsed_sec"]))
+        if "full_elapsed_sec" in timing:
+            lines.append(
+                _fmt_stats(
+                    "  ↳ full (tokenize+image-proc+generate; comparable to MMA qa_full_elapsed_sec below)",
+                    timing["full_elapsed_sec"],
+                )
+            )
     else:
         lines.append(_fmt_stats("Total wall time (memorize + QA)", timing.get("total_sec")))
         lines.append(_fmt_stats("Episodic memory write ('memorize') phase", timing.get("memorize_sec")))
@@ -510,6 +545,22 @@ def render_group_md(group: Dict[str, Any], acc: Dict[str, Any], timing: Dict[str
         lines.append(_fmt_stats("Verification (accept/reject draft tokens)", timing.get("qa_verification_sec")))
         lines.append(_fmt_stats("Memory RoPE realignment", timing.get("qa_rope_align_sec")))
         lines.append(_fmt_stats("Unaccounted scheduling/alignment overhead (decode total minus the four components above)", timing.get("qa_sd_sched_align_overhead_sec")))
+        if timing.get("qa_full_elapsed_sec") is not None:
+            lines.append(
+                _fmt_stats(
+                    "  ↳ QA full (tokenize+generate only, model load excluded; "
+                    "comparable to Direct-8B's full_elapsed_sec above, "
+                    "NOT comparable to 'QA phase wall time' which includes subprocess/model-reload cost)",
+                    timing["qa_full_elapsed_sec"],
+                )
+            )
+        if timing.get("qa_model_load_sec") is not None:
+            lines.append(
+                _fmt_stats(
+                    "  ↳ Model load from disk (one-time-per-subprocess cost, repeated every sample)",
+                    timing["qa_model_load_sec"],
+                )
+            )
     lines.append("\n")
     return "".join(lines)
 
