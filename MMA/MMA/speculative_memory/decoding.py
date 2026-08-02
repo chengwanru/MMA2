@@ -315,6 +315,14 @@ def generate_with_speculative_memory(
                 "draft_tokens_accepted": 0,
                 "acceptance_rate": 0.0,
                 "draft_trace": [],
+                # Breaks "accepted" down by why: "greedy"/"threshold"/"prob_diff"/"block_verify"
+                # (draft token matched what the target actually would have produced) vs
+                # "semantic" (only an embedding-cosine-similarity match to the target's
+                # top-1/top-k -- the literal draft token is kept even though it wasn't the
+                # target's real choice). High "semantic" share inflates the acceptance-rate
+                # metric relative to what a reader assumes it means.
+                "accept_reason_counts": {},
+                "semantic_rescue_samples": [],
             }
         )
 
@@ -811,6 +819,25 @@ def generate_with_speculative_memory(
             stats_out["draft_tokens_accepted"] = (
                 int(stats_out["draft_tokens_accepted"]) + num_accepted
             )
+            reason_counts = stats_out.setdefault("accept_reason_counts", {})
+            for reason in (accept_result.accept_reasons or [])[:num_accepted]:
+                reason_counts[reason] = int(reason_counts.get(reason, 0)) + 1
+            if accept_result.semantic_rescues:
+                samples = stats_out.setdefault("semantic_rescue_samples", [])
+                for rescue in accept_result.semantic_rescues:
+                    if rescue.position >= num_accepted:
+                        continue  # trimmed by force_reject_accepted_prefix below
+                    if len(samples) >= 30:
+                        break
+                    samples.append(
+                        {
+                            "draft_token_id": rescue.draft_token_id,
+                            "draft_token_text": _decode_token_ids([rescue.draft_token_id]),
+                            "target_token_id": rescue.compare_token_id,
+                            "target_token_text": _decode_token_ids([rescue.compare_token_id]),
+                            "cosine_sim": round(rescue.cosine_sim, 4),
+                        }
+                    )
 
         # Append accepted draft tokens (stop at first EOS / chat-end; no bonus after).
         accepted_tokens = list(draft_result.draft_token_ids[:num_accepted])

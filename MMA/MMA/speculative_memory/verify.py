@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -33,6 +33,23 @@ class AcceptRejectResult:
     rejected_at: Optional[int]  # first index that was rejected, or None if all accepted
     target_logits_per_position: Optional[torch.Tensor] = None  # (num_draft, vocab_size) if needed
     pre_sampled_correction_token: Optional[int] = None  # Added for lossless block verification
+    # Per accepted position: "greedy" (draft token == target argmax, distribution-faithful) or
+    # "semantic" (accepted only via embedding cosine-similarity rescue -- the literal draft token
+    # is kept even though it wasn't the target's actual top choice). Lets a caller tell apart
+    # "real" acceptance from the softer semantic-rescue path, which is suspected to inflate the
+    # acceptance-rate metric on same-category/antonym vocabulary (colors, yes/no, directions).
+    accept_reasons: Optional[List[str]] = None
+    # For "semantic"-accepted positions only: (draft_token_id, compare_token_id, cosine_sim) so a
+    # caller can decode and eyeball exactly which token pairs the rescue is letting through.
+    semantic_rescues: Optional[List["SemanticRescueSample"]] = None
+
+
+@dataclass
+class SemanticRescueSample:
+    position: int
+    draft_token_id: int
+    compare_token_id: int
+    cosine_sim: float
 
 
 def resolve_reject_strategy(default: str = "greedy+semantic") -> str:
@@ -70,10 +87,14 @@ def _semantic_rescue(
     compare_tid: Optional[int],
     top_k: int,
     threshold: float,
-) -> bool:
-    """Accept draft token if it is semantically close to target top-k or compare_tid."""
+) -> Tuple[bool, Optional[int], Optional[float]]:
+    """Accept draft token if it is semantically close to target top-k or compare_tid.
+
+    Returns (accepted, matched_compare_tid, cosine_sim) so a caller can log/inspect exactly
+    which token pair crossed the threshold, instead of only a bool.
+    """
     if embedding_matrix is None or draft_tid < 0 or draft_tid >= embedding_matrix.size(0):
-        return False
+        return False, None, None
     emb_draft = embedding_matrix[draft_tid].float()
     candidate_ids = []
     if compare_tid is not None:
@@ -87,9 +108,10 @@ def _semantic_rescue(
         if compare < 0 or compare >= embedding_matrix.size(0):
             continue
         emb_compare = embedding_matrix[compare].float()
-        if F.cosine_similarity(emb_draft, emb_compare, dim=0).item() >= threshold:
-            return True
-    return False
+        sim = F.cosine_similarity(emb_draft, emb_compare, dim=0).item()
+        if sim >= threshold:
+            return True, compare, sim
+    return False, None, None
 
 
 def verify_draft_tokens(
@@ -134,6 +156,8 @@ def verify_draft_tokens(
     accepted: List[int] = []
     rejected_at: Optional[int] = None
     pre_sampled_token: Optional[int] = None
+    accept_reasons: List[str] = []
+    semantic_rescues: List[SemanticRescueSample] = []
 
     if use_block:
         probs_draft = torch.softmax(draft_logits_per_position[:num_draft].float(), dim=-1)
@@ -153,6 +177,9 @@ def verify_draft_tokens(
 
         initially_accepted = False
         sample_rejected_token = None
+        initial_reason: Optional[str] = None
+        semantic_compare_tid: Optional[int] = None
+        semantic_sim: Optional[float] = None
 
         if use_block:
             sampling_weights = torch.zeros(vocab_size + 1, device=device, dtype=probs_target.dtype)
@@ -171,6 +198,7 @@ def verify_draft_tokens(
 
             if chosen_token >= vocab_size:
                 initially_accepted = True
+                initial_reason = "block_verify"
             else:
                 initially_accepted = False
                 sample_rejected_token = chosen_token
@@ -179,32 +207,42 @@ def verify_draft_tokens(
             probs_draft = torch.softmax(draft_logits_per_position[:num_draft].float(), dim=-1)
             pd = probs_draft[i, tid].item()
             initially_accepted = abs(pd - p) <= prob_diff_threshold
+            initial_reason = "prob_diff" if initially_accepted else None
 
         elif use_prob_diff:
             initially_accepted = tid == target_top1_tid
+            initial_reason = "greedy" if initially_accepted else None
 
         elif use_threshold and not use_greedy and not use_prob_diff:
             initially_accepted = p >= accept_threshold
+            initial_reason = "threshold" if initially_accepted else None
 
         elif use_greedy:
             initially_accepted = tid == target_top1_tid
+            initial_reason = "greedy" if initially_accepted else None
 
         else:
             initially_accepted = False
 
         final_accepted = initially_accepted
+        reason = initial_reason if final_accepted else None
 
         if not final_accepted:
             if use_threshold and p >= accept_threshold:
                 final_accepted = True
+                reason = "threshold"
 
             if not final_accepted and use_greedy:
                 final_accepted = tid == target_top1_tid
+                if final_accepted:
+                    reason = "greedy"
 
             if not final_accepted and use_prob_diff and draft_logits_per_position is not None:
                 probs_draft = torch.softmax(draft_logits_per_position[:num_draft].float(), dim=-1)
                 pd = probs_draft[i, tid].item()
                 final_accepted = abs(pd - p) <= prob_diff_threshold
+                if final_accepted:
+                    reason = "prob_diff"
 
             if not final_accepted and use_semantic:
                 compare_tid = (
@@ -212,7 +250,7 @@ def verify_draft_tokens(
                     if (use_block and sample_rejected_token is not None)
                     else target_top1_tid
                 )
-                final_accepted = _semantic_rescue(
+                final_accepted, semantic_compare_tid, semantic_sim = _semantic_rescue(
                     tid,
                     probs_target[i],
                     embedding_matrix,
@@ -220,9 +258,21 @@ def verify_draft_tokens(
                     top_k=semantic_top_k,
                     threshold=semantic_threshold,
                 )
+                if final_accepted:
+                    reason = "semantic"
 
         if final_accepted:
             accepted.append(i)
+            accept_reasons.append(reason or "unknown")
+            if reason == "semantic" and semantic_compare_tid is not None and semantic_sim is not None:
+                semantic_rescues.append(
+                    SemanticRescueSample(
+                        position=i,
+                        draft_token_id=int(tid),
+                        compare_token_id=int(semantic_compare_tid),
+                        cosine_sim=float(semantic_sim),
+                    )
+                )
             if use_block:
                 ratio = probs_target[i, tid] / (qs_padded[i, tid] + 1e-12)
                 accept_probability = torch.clamp(ratio * accept_probability, max=1.0).item()
@@ -241,4 +291,6 @@ def verify_draft_tokens(
         rejected_at=rejected_at,
         target_logits_per_position=target_logits,
         pre_sampled_correction_token=pre_sampled_token,
+        accept_reasons=accept_reasons,
+        semantic_rescues=semantic_rescues,
     )
