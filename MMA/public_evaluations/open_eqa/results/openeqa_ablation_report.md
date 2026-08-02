@@ -343,3 +343,55 @@ mean=(2.619/5) normalized=40.5/100 n_judged=557/557 distribution={'1': 280, '2':
 - Memory RoPE realignment: mean=0.0s median=0.0s sum=0.0s (n=512)
 - Unaccounted scheduling/alignment overhead (decode total minus the four components above): mean=0.0s median=0.0s sum=0.006s (n=512)
 
+
+## MMA+SD + visual routing + attach-3-frames (64f)
+- Settings: frames=64, resize=N, hybrid=N, visual_routing=Y, verify_reject_bad_draft=N, reject_strategy=greedy+semantic
+- Paths:
+  - Run directory: `/nix/openeqa_work/open_eqa_runs/mma_sd_vr_attachframes3_full557_f64_20260801_193533`
+  - Results JSON (predictions, variant=`ours`): `/nix/openeqa_work/open_eqa_runs/mma_sd_vr_attachframes3_full557_f64_20260801_193533/mma_sd.json`
+  - `run.log`: `/nix/openeqa_work/open_eqa_runs/mma_sd_vr_attachframes3_full557_f64_20260801_193533/run.log`
+  - Per-question debug files: `/nix/openeqa_work/open_eqa_runs/mma_sd_vr_attachframes3_full557_f64_20260801_193533/openeqa_debug/`
+  - LLM-Match per-question scores (resumable cache): `/tmp/MMA2/MMA/public_evaluations/open_eqa/results/metrics/mma_sd_vr_attachframes3_full557_f64_20260801_193533-ours-deepseek-deepseek-v4-pro-metrics.json`
+
+**Substring-match accuracy**
+
+total=557 exact=103 hit=97 partial=66 miss=290 error=1 good=266/557
+
+**LLM-Judge score** (judge model: `deepseek-v4-pro`)
+
+mean=(2.862/5) normalized=46.6/100 n_judged=557/557 distribution={'1': 245, '2': 15, '3': 68, '4': 30, '5': 199}
+
+**Timing (per question, seconds)**
+
+- Total wall time (memorize + QA): mean=43.357s median=41.012s sum=24149.993s (n=557)
+- Episodic memory write ('memorize') phase: mean=1.696s median=0.0s sum=944.411s (n=557)
+- QA phase wall time: mean=41.662s median=40.352s sum=23205.582s (n=557)
+- Speculative decoding total (draft+align+target+verify, summed across rounds): mean=5.241s median=4.908s sum=2882.754s (n=550)
+- Draft model (2B) token generation: mean=1.541s median=1.333s sum=847.605s (n=550)
+- Target model (8B) forward pass: mean=3.678s median=2.999s sum=2022.701s (n=550)
+- Verification (accept/reject draft tokens): mean=0.023s median=0.017s sum=12.448s (n=550)
+- Memory RoPE realignment: mean=0.0s median=0.0s sum=0.0s (n=550)
+- Unaccounted scheduling/alignment overhead (decode total minus the four components above): mean=0.0s median=0.0s sum=0.007s (n=550)
+
+
+## Pure SD, no MMA (64f, resize)
+- Settings: frames=64, resize=Y, hybrid=--, visual_routing=--, verify_reject_bad_draft=--, reject_strategy=greedy+semantic
+- Paths:
+  - Run directory: `/nix/openeqa_work/open_eqa_runs/direct_sd_resize_hm3d557_f64_20260731_005416`
+  - Results JSON (predictions, variant=`direct_sd`): `/nix/openeqa_work/open_eqa_runs/direct_sd_resize_hm3d557_f64_20260731_005416/direct_sd.raw.json`
+  - `run.log`: `/nix/openeqa_work/open_eqa_runs/direct_sd_resize_hm3d557_f64_20260731_005416/run.log`
+  - Per-question debug files: `/nix/openeqa_work/open_eqa_runs/direct_sd_resize_hm3d557_f64_20260731_005416/openeqa_debug/`
+  - LLM-Match per-question scores (resumable cache): `/tmp/MMA2/MMA/public_evaluations/open_eqa/results/metrics/direct_sd_resize_hm3d557_f64_20260731_005416-direct_sd-deepseek-deepseek-v4-pro-metrics.json`
+
+**Substring-match accuracy**
+
+total=557 exact=86 hit=80 partial=75 miss=316 error=0 good=241/557
+
+**LLM-Judge score** (judge model: `deepseek-v4-pro`)
+
+mean=(2.686/5) normalized=42.1/100 n_judged=557/557 distribution={'1': 240, '2': 30, '3': 106, '4': 27, '5': 154}
+
+**Timing (per question, seconds)**
+
+- Speculative decoding, no MMA memory (draft+target, run_openeqa_direct_sd.py): mean=1.746s median=1.427s sum=972.415s (n=557)
+
