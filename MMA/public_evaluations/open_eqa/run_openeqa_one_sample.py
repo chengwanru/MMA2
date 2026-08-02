@@ -773,6 +773,13 @@ def _qa_direct_sd_send(
         response = client.request(request_data)
         stats = response.get("speculative_stats") or request_data.get("stats_out") or {}
         if isinstance(stats, dict):
+            # elapsed_sec (used in time_stats) excludes tokenize/image-processing;
+            # full_elapsed_sec/model_load_sec let a report reconstruct a genuinely
+            # comparable per-question wall-clock (see speculative_memory_client.request).
+            if response.get("full_elapsed_sec") is not None:
+                stats["full_elapsed_sec"] = response["full_elapsed_sec"]
+            if response.get("model_load_sec") is not None:
+                stats["model_load_sec"] = response["model_load_sec"]
             set_last_direct_sd_stats(stats)
             if stats.get("memories_after_routing") is not None:
                 print(
