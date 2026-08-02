@@ -164,7 +164,7 @@ GROUPS: List[Dict[str, Any]] = [
     {
         "name": "Pure SD, no MMA (16f, no resize)",
         "path": "/nix/openeqa_work/open_eqa_runs/direct_sd_novr_full557_f16_20260802_130351/direct_sd.raw.json",
-        "variant": "direct_sd",
+        "variant": "compare_sd",
         "settings": {
             "frames": 16, "resize": "N", "hybrid": "--", "visual_routing": "--",
             "vr_baddraft": "--", "reject_strategy": "greedy+semantic",
@@ -199,11 +199,28 @@ def _match_label(gold: str, pred: str) -> str:
     return "MISS"
 
 
+def _flatten_compare_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """run_openeqa_direct_sd.py --compare (the default unless --no-compare is
+    passed) writes one row per question with BOTH baseline_8b and
+    speculative_sd results nested inside. We only want the speculative_sd
+    (pure-SD, no-MMA) side -- flatten it to the same shape as a plain
+    "direct_sd" row (prediction/result at top level) so the rest of the
+    pipeline doesn't need to know the difference.
+    """
+    spec = row.get("speculative_sd") or {}
+    flat = dict(row)
+    flat["prediction"] = spec.get("prediction", "")
+    flat["result"] = spec
+    return flat
+
+
 def _load_rows(path: Path, variant: str) -> List[Dict[str, Any]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(payload, list):
         return payload
     if isinstance(payload, dict):
+        if variant == "compare_sd" and "compare" in payload:
+            return [_flatten_compare_row(r) for r in payload["compare"]]
         if variant in payload:
             return payload[variant]
         for key in ("ours", "baseline", "results"):
@@ -479,7 +496,7 @@ def render_group_md(group: Dict[str, Any], acc: Dict[str, Any], timing: Dict[str
     if "elapsed_sec" in timing:
         elapsed_label = (
             "Speculative decoding, no MMA memory (draft+target, run_openeqa_direct_sd.py)"
-            if group["variant"] == "direct_sd"
+            if group["variant"] in ("direct_sd", "compare_sd")
             else "Single VL forward pass (no MMA memory, no speculative decoding)"
         )
         lines.append(_fmt_stats(elapsed_label, timing["elapsed_sec"]))
@@ -743,10 +760,11 @@ def main() -> None:
             print(f"  SKIP: {path} not found", file=sys.stderr)
             continue
         rows = _load_rows(path, group["variant"])
-        # "baseline" = Direct-8B via the compare script; "direct_sd" = pure SD
-        # via run_openeqa_direct_sd.py. Both use the simple elapsed_sec shape
-        # (no MMA memorize/qa split, no speculative_stats debug), unlike "ours".
-        is_direct = group["variant"] in ("baseline", "direct_sd")
+        # "baseline" = Direct-8B via the compare script; "direct_sd"/"compare_sd"
+        # = pure SD via run_openeqa_direct_sd.py. All three use the simple
+        # elapsed_sec shape (no MMA memorize/qa split, no speculative_stats
+        # debug), unlike "ours".
+        is_direct = group["variant"] in ("baseline", "direct_sd", "compare_sd")
         acc = _substring_accuracy(rows)
         timing = _timing_summary(rows, is_direct)
         try:
