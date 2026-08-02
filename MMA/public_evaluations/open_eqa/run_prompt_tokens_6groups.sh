@@ -15,7 +15,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 
 STAMP="$(date +%Y%m%d_%H%M%S)"
 WORK_ROOT=/nix/openeqa_work
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export FRAMES_ROOT=/workspace/openeqa_data
 export MODEL_ROOT=/workspace/models/qwen3-vl
 export MMA_DRAFT_MODEL_PATH=/workspace/models/qwen3-vl/Qwen3-VL-2B-Instruct
