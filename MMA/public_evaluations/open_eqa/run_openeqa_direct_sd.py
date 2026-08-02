@@ -251,6 +251,8 @@ def _run_mode(
         out["full_elapsed_sec"] = round(float(response["full_elapsed_sec"]), 4)
     if response.get("model_load_sec") is not None:
         out["model_load_sec"] = round(float(response["model_load_sec"]), 4)
+    if response.get("prompt_tokens") is not None:
+        out["prompt_tokens"] = int(response["prompt_tokens"])
     if reject_strategy:
         out["reject_strategy"] = reject_strategy
     if mode == "speculative":

@@ -1213,6 +1213,10 @@ class SpeculativeMemoryClient(LLMClientBase):
             "full_elapsed_sec": full_elapsed_sec,
             "model_load_sec": model_load_sec,
             "new_tokens": int(new_ids.numel()),
+            # Full tokenized prompt length (text + image/video tokens after VL processing),
+            # i.e. actual input context size the model saw -- for reporting mean input tokens
+            # per question across a run.
+            "prompt_tokens": prompt_len,
         }
         if stats_out:
             response["speculative_stats"] = dict(stats_out)

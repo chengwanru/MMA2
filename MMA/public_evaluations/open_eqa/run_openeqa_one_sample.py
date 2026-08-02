@@ -780,6 +780,8 @@ def _qa_direct_sd_send(
                 stats["full_elapsed_sec"] = response["full_elapsed_sec"]
             if response.get("model_load_sec") is not None:
                 stats["model_load_sec"] = response["model_load_sec"]
+            if response.get("prompt_tokens") is not None:
+                stats["prompt_tokens"] = response["prompt_tokens"]
             set_last_direct_sd_stats(stats)
             if stats.get("memories_after_routing") is not None:
                 print(

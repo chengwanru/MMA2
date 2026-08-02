@@ -35,6 +35,33 @@ def _spec_stats_for_row(row: Dict[str, Any], variant: str) -> Optional[Dict[str,
     return None
 
 
+def _prompt_tokens_for_row(row: Dict[str, Any], variant: str) -> Optional[int]:
+    """Full tokenized input length (text + image/video tokens) the model actually saw."""
+    if variant == "ours":
+        spec = _spec_stats_for_row(row, variant)
+        if isinstance(spec, dict) and spec.get("prompt_tokens") is not None:
+            return int(spec["prompt_tokens"])
+        return None
+    for key in ("result", "baseline_8b", "speculative_sd"):
+        d = row.get(key)
+        if isinstance(d, dict) and d.get("prompt_tokens") is not None:
+            return int(d["prompt_tokens"])
+    return None
+
+
+def prompt_tokens_stats(rows: List[Dict[str, Any]], variant: str) -> Optional[Dict[str, Any]]:
+    vals = [v for v in (_prompt_tokens_for_row(r, variant) for r in rows) if v is not None]
+    if not vals:
+        return None
+    return {
+        "n": len(vals),
+        "n_total": len(rows),
+        "mean": round(sum(vals) / len(vals), 1),
+        "min": min(vals),
+        "max": max(vals),
+    }
+
+
 def acceptance_rate(rows: List[Dict[str, Any]], variant: str) -> Optional[Dict[str, Any]]:
     accepted_sum = 0
     proposed_sum = 0
@@ -84,6 +111,7 @@ def main() -> None:
         is_direct = group["variant"] in ("baseline", "direct_sd", "compare_sd")
         timing = _timing_summary(rows, is_direct)
         acc = acceptance_rate(rows, group["variant"])
+        prompt_tok = prompt_tokens_stats(rows, group["variant"])
 
         print("=" * 100)
         print(f"{group['name']}  (variant={group['variant']}, n_rows={len(rows)})")
@@ -110,6 +138,14 @@ def main() -> None:
                 print(f"  qa_full_elapsed_sec (tokenize+generate only, model load excluded): {timing['qa_full_elapsed_sec']}")
             if timing.get("qa_model_load_sec") is not None:
                 print(f"  qa_model_load_sec (one-time-per-subprocess, repeated every sample): {timing['qa_model_load_sec']}")
+        if prompt_tok is None:
+            print("  prompt_tokens: no data (predates prompt_tokens instrumentation -- re-run to get this)")
+        else:
+            print(
+                f"  prompt_tokens (full tokenized input incl. image/video tokens): "
+                f"mean={prompt_tok['mean']} min={prompt_tok['min']} max={prompt_tok['max']} "
+                f"({prompt_tok['n']}/{prompt_tok['n_total']} rows had data)"
+            )
         print()
 
 
