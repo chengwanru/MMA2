@@ -283,3 +283,63 @@ mean=(2.873/5) normalized=46.8/100 n_judged=557/557 distribution={'1': 239, '2':
 - Memory RoPE realignment: mean=0.0s median=0.0s sum=0.0s (n=553)
 - Unaccounted scheduling/alignment overhead (decode total minus the four components above): mean=0.0s median=0.0s sum=0.008s (n=553)
 
+
+## MMA+SD + visual routing (64f, resize)
+- Settings: frames=64, resize=Y, hybrid=N, visual_routing=Y, verify_reject_bad_draft=N, reject_strategy=greedy+semantic
+- Paths:
+  - Run directory: `/nix/openeqa_work/open_eqa_runs/mma_sd_vr_resize_full557_f64_20260801_193533`
+  - Results JSON (predictions, variant=`ours`): `/nix/openeqa_work/open_eqa_runs/mma_sd_vr_resize_full557_f64_20260801_193533/mma_sd.json`
+  - `run.log`: `/nix/openeqa_work/open_eqa_runs/mma_sd_vr_resize_full557_f64_20260801_193533/run.log`
+  - Per-question debug files: `/nix/openeqa_work/open_eqa_runs/mma_sd_vr_resize_full557_f64_20260801_193533/openeqa_debug/`
+  - LLM-Match per-question scores (resumable cache): `/tmp/MMA2/MMA/public_evaluations/open_eqa/results/metrics/mma_sd_vr_resize_full557_f64_20260801_193533-ours-deepseek-deepseek-v4-pro-metrics.json`
+
+**Substring-match accuracy**
+
+total=557 exact=105 hit=71 partial=60 miss=300 error=21 good=236/557
+
+**LLM-Judge score** (judge model: `deepseek-v4-pro`)
+
+mean=(2.688/5) normalized=42.2/100 n_judged=557/557 distribution={'1': 264, '2': 28, '3': 62, '4': 24, '5': 179}
+
+**Timing (per question, seconds)**
+
+- Total wall time (memorize + QA): mean=40.455s median=37.509s sum=22533.467s (n=557)
+- Episodic memory write ('memorize') phase: mean=1.718s median=0.0s sum=957.067s (n=557)
+- QA phase wall time: mean=38.737s median=36.391s sum=21576.4s (n=557)
+- Speculative decoding total (draft+align+target+verify, summed across rounds): mean=1.339s median=0.877s sum=691.139s (n=516)
+- Draft model (2B) token generation: mean=0.742s median=0.3s sum=383.061s (n=516)
+- Target model (8B) forward pass: mean=0.576s median=0.473s sum=297.192s (n=516)
+- Verification (accept/reject draft tokens): mean=0.021s median=0.016s sum=10.885s (n=516)
+- Memory RoPE realignment: mean=0.0s median=0.0s sum=0.0s (n=516)
+- Unaccounted scheduling/alignment overhead (decode total minus the four components above): mean=0.0s median=0.0s sum=0.007s (n=516)
+
+
+## MMA+SD + visual routing (16f)
+- Settings: frames=16, resize=N, hybrid=N, visual_routing=Y, verify_reject_bad_draft=N, reject_strategy=greedy+semantic
+- Paths:
+  - Run directory: `/nix/openeqa_work/open_eqa_runs/mma_sd_vr_full557_f16_20260801_193533`
+  - Results JSON (predictions, variant=`ours`): `/nix/openeqa_work/open_eqa_runs/mma_sd_vr_full557_f16_20260801_193533/mma_sd.json`
+  - `run.log`: `/nix/openeqa_work/open_eqa_runs/mma_sd_vr_full557_f16_20260801_193533/run.log`
+  - Per-question debug files: `/nix/openeqa_work/open_eqa_runs/mma_sd_vr_full557_f16_20260801_193533/openeqa_debug/`
+  - LLM-Match per-question scores (resumable cache): `/tmp/MMA2/MMA/public_evaluations/open_eqa/results/metrics/mma_sd_vr_full557_f16_20260801_193533-ours-deepseek-deepseek-v4-pro-metrics.json`
+
+**Substring-match accuracy**
+
+total=557 exact=96 hit=81 partial=61 miss=294 error=25 good=238/557
+
+**LLM-Judge score** (judge model: `deepseek-v4-pro`)
+
+mean=(2.619/5) normalized=40.5/100 n_judged=557/557 distribution={'1': 280, '2': 20, '3': 62, '4': 22, '5': 173}
+
+**Timing (per question, seconds)**
+
+- Total wall time (memorize + QA): mean=39.774s median=37.502s sum=22154.314s (n=557)
+- Episodic memory write ('memorize') phase: mean=0.862s median=0.0s sum=480.358s (n=557)
+- QA phase wall time: mean=38.912s median=36.585s sum=21673.956s (n=557)
+- Speculative decoding total (draft+align+target+verify, summed across rounds): mean=1.398s median=0.845s sum=716.023s (n=512)
+- Draft model (2B) token generation: mean=0.878s median=0.317s sum=449.467s (n=512)
+- Target model (8B) forward pass: mean=0.496s median=0.401s sum=254.168s (n=512)
+- Verification (accept/reject draft tokens): mean=0.024s median=0.017s sum=12.387s (n=512)
+- Memory RoPE realignment: mean=0.0s median=0.0s sum=0.0s (n=512)
+- Unaccounted scheduling/alignment overhead (decode total minus the four components above): mean=0.0s median=0.0s sum=0.006s (n=512)
+
