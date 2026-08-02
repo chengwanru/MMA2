@@ -152,6 +152,15 @@ GROUPS: List[Dict[str, Any]] = [
             "vr_baddraft": "N", "reject_strategy": "greedy+semantic",
         },
     },
+    {
+        "name": "Pure SD, no MMA (64f, resize)",
+        "path": "/nix/openeqa_work/open_eqa_runs/direct_sd_resize_hm3d557_f64_20260731_005416/direct_sd.raw.json",
+        "variant": "direct_sd",
+        "settings": {
+            "frames": 64, "resize": "Y", "hybrid": "--", "visual_routing": "--",
+            "vr_baddraft": "--", "reject_strategy": "greedy+semantic",
+        },
+    },
 ]
 
 
@@ -459,7 +468,12 @@ def render_group_md(group: Dict[str, Any], acc: Dict[str, Any], timing: Dict[str
         lines.append("no scores yet\n\n")
     lines.append("**Timing (per question, seconds)**\n\n")
     if "elapsed_sec" in timing:
-        lines.append(_fmt_stats("Single VL forward pass (no MMA memory, no speculative decoding)", timing["elapsed_sec"]))
+        elapsed_label = (
+            "Speculative decoding, no MMA memory (draft+target, run_openeqa_direct_sd.py)"
+            if group["variant"] == "direct_sd"
+            else "Single VL forward pass (no MMA memory, no speculative decoding)"
+        )
+        lines.append(_fmt_stats(elapsed_label, timing["elapsed_sec"]))
     else:
         lines.append(_fmt_stats("Total wall time (memorize + QA)", timing.get("total_sec")))
         lines.append(_fmt_stats("Episodic memory write ('memorize') phase", timing.get("memorize_sec")))
@@ -720,7 +734,10 @@ def main() -> None:
             print(f"  SKIP: {path} not found", file=sys.stderr)
             continue
         rows = _load_rows(path, group["variant"])
-        is_direct = group["variant"] == "baseline"
+        # "baseline" = Direct-8B via the compare script; "direct_sd" = pure SD
+        # via run_openeqa_direct_sd.py. Both use the simple elapsed_sec shape
+        # (no MMA memorize/qa split, no speculative_stats debug), unlike "ours".
+        is_direct = group["variant"] in ("baseline", "direct_sd")
         acc = _substring_accuracy(rows)
         timing = _timing_summary(rows, is_direct)
         try:
