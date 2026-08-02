@@ -52,12 +52,22 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--groups", default=None)
     ap.add_argument("--max-samples", type=int, default=15, help="max token-pair examples to print per group")
+    ap.add_argument(
+        "--path",
+        default=None,
+        help="Inspect an ad-hoc result file instead of the registered GROUPS "
+        "(e.g. a fresh small test run's mma_sd.json). Requires --variant.",
+    )
+    ap.add_argument("--variant", default="ours", help="Row variant for --path (default: ours)")
     args = ap.parse_args()
 
-    groups = [g for g in GROUPS if g["variant"] == "ours"]
-    if args.groups:
-        wanted = [w.strip().lower() for w in args.groups.split(",")]
-        groups = [g for g in groups if any(w in g["name"].lower() for w in wanted)]
+    if args.path:
+        groups = [{"name": args.path, "path": args.path, "variant": args.variant}]
+    else:
+        groups = [g for g in GROUPS if g["variant"] == "ours"]
+        if args.groups:
+            wanted = [w.strip().lower() for w in args.groups.split(",")]
+            groups = [g for g in groups if any(w in g["name"].lower() for w in wanted)]
 
     for group in groups:
         path = Path(group["path"])
