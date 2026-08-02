@@ -143,6 +143,15 @@ GROUPS: List[Dict[str, Any]] = [
             "vr_baddraft": "N", "reject_strategy": "greedy+semantic",
         },
     },
+    {
+        "name": "MMA+SD + visual routing + attach-3-frames (64f)",
+        "path": "/nix/openeqa_work/open_eqa_runs/mma_sd_vr_attachframes3_full557_f64_20260801_193533/mma_sd.json",
+        "variant": "ours",
+        "settings": {
+            "frames": 64, "resize": "N", "hybrid": "N", "visual_routing": "Y",
+            "vr_baddraft": "N", "reject_strategy": "greedy+semantic",
+        },
+    },
 ]
 
 
