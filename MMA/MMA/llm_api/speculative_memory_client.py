@@ -742,10 +742,19 @@ class SpeculativeMemoryClient(LLMClientBase):
         self._tokenizer = None
         self._config = None
         self.last_speculative_stats: Optional[Dict[str, Any]] = None
+        # Set once, on whichever request() call actually triggers _ensure_models's
+        # from-disk load. Every process in this pipeline is subprocess-per-sample
+        # (run_openeqa_eval.py spawns a fresh python process per question), so this
+        # cost is currently repeated on EVERY sample -- report it separately so a
+        # caller can subtract it out for a fair inference-only wall-clock compare
+        # against a warm, model-loaded-once process (e.g. Direct-8B's own loop).
+        self.last_model_load_sec: Optional[float] = None
 
     def _ensure_models(self) -> None:
         if self._target_model is not None:
             return
+        import time as _time
+        _load_t0 = _time.perf_counter()
         import torch
         from mma.speculative_memory import SpeculativeMemoryConfig, load_draft_model
         from mma.models.qwen3_vl import Qwen3VLForConditionalGeneration
@@ -885,6 +894,9 @@ class SpeculativeMemoryClient(LLMClientBase):
         if self._draft_model is not None:
             patch_model_generation_config(self._draft_model)
         patch_model_generation_config(self._target_model)
+        self.last_model_load_sec = round(_time.perf_counter() - _load_t0, 3)
+        if _vl_debug_enabled():
+            print(f"[vl_load] model_load_sec={self.last_model_load_sec}", flush=True)
 
     def build_request_data(
         self,
@@ -1045,7 +1057,17 @@ class SpeculativeMemoryClient(LLMClientBase):
         from mma.speculative_memory import generate_with_speculative_memory
         from mma.speculative_memory.generation_helpers import json_dumps_set_patch, safe_generate
 
+        # elapsed_sec below (unchanged, for backward compat) only wraps generate() --
+        # it excludes tokenize/image-processing and undercounts Direct-8B and MMA+SD
+        # equally, but by different absolute amounts depending on prompt/image size,
+        # which silently breaks any speedup comparison between them. full_elapsed_sec
+        # is the honest per-call cost: tokenize + device transfer + generate, model
+        # load excluded (reported separately via last_model_load_sec since it's a
+        # one-time-per-process cost, not a per-question cost).
+        full_t0 = time.perf_counter()
         self._ensure_models()
+        model_load_sec = self.last_model_load_sec
+        self.last_model_load_sec = None
         chat = request_data["chat"]
         memory_items = request_data.get("memory_items") or []
         local_rag = request_data.get("local_rag", False)
@@ -1167,6 +1189,7 @@ class SpeculativeMemoryClient(LLMClientBase):
 
         _sync_cuda()
         elapsed_sec = time.perf_counter() - t0
+        full_elapsed_sec = round(time.perf_counter() - full_t0, 4)
 
         prompt_len = int(prompt_ids.size(1))
         if vl_model_inputs and "input_ids" in vl_model_inputs:
@@ -1178,11 +1201,17 @@ class SpeculativeMemoryClient(LLMClientBase):
         else:
             generated_text = tokenizer.decode(new_ids, skip_special_tokens=True)
         if _vl_debug_enabled():
-            print(f"[vl_gen] generated_text={generated_text[:240]!r}", flush=True)
+            print(
+                f"[vl_gen] generated_text={generated_text[:240]!r} "
+                f"full_elapsed_sec={full_elapsed_sec} model_load_sec={model_load_sec}",
+                flush=True,
+            )
 
         response: Dict[str, Any] = {
             "generated_text": generated_text,
             "elapsed_sec": elapsed_sec,
+            "full_elapsed_sec": full_elapsed_sec,
+            "model_load_sec": model_load_sec,
             "new_tokens": int(new_ids.numel()),
         }
         if stats_out:

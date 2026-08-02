@@ -245,6 +245,12 @@ def _run_mode(
         "new_tokens": new_tokens,
         "tokens_per_sec": round(tok_s, 2),
     }
+    # elapsed_sec starts AFTER tokenize/image-processing (see speculative_memory_client.request);
+    # full_elapsed_sec/model_load_sec are additive fields for apples-to-apples wall-clock comparisons.
+    if response.get("full_elapsed_sec") is not None:
+        out["full_elapsed_sec"] = round(float(response["full_elapsed_sec"]), 4)
+    if response.get("model_load_sec") is not None:
+        out["model_load_sec"] = round(float(response["model_load_sec"]), 4)
     if reject_strategy:
         out["reject_strategy"] = reject_strategy
     if mode == "speculative":
@@ -361,11 +367,18 @@ def _compare_sample(image_paths: List[str], question: str, max_tokens: int) -> D
     _print_mode_result("8B baseline", baseline)
     _print_mode_result("SD speculative", speculative, speedup=speedup)
 
-    return {
+    out: Dict[str, Any] = {
         "baseline_8b": baseline,
         "speculative_sd": speculative,
         "speedup": round(speedup, 4),
     }
+    fb = baseline.get("full_elapsed_sec")
+    fs = speculative.get("full_elapsed_sec")
+    if fb is not None and fs is not None:
+        full_speedup = (fb / fs) if fs > 0 else 0.0
+        out["full_speedup"] = round(full_speedup, 4)
+        print(f"    full_speedup (tokenize+generate, 8B/SD) = {full_speedup:.3f}x", flush=True)
+    return out
 
 
 def _single_mode_sample(
@@ -533,14 +546,37 @@ def main() -> int:
             sum(r["speculative_sd"]["elapsed_sec"] for r in compare_rows) / len(compare_rows),
             4,
         )
-        print(
-            f"\n=== SUMMARY ===\n"
-            f"  mean_speedup (8B/SD): {summary['mean_speedup']:.3f}x\n"
-            f"  mean_acceptance_rate: {summary['mean_acceptance_rate']:.4f}\n"
-            f"  mean_baseline_sec: {summary['mean_baseline_sec']:.3f}\n"
+        full_rows = [
+            r
+            for r in compare_rows
+            if "full_elapsed_sec" in r["baseline_8b"] and "full_elapsed_sec" in r["speculative_sd"]
+        ]
+        summary_lines = [
+            "\n=== SUMMARY ===",
+            f"  mean_speedup (8B/SD, elapsed_sec, EXCLUDES tokenize/image-proc): {summary['mean_speedup']:.3f}x",
+            f"  mean_acceptance_rate: {summary['mean_acceptance_rate']:.4f}",
+            f"  mean_baseline_sec: {summary['mean_baseline_sec']:.3f}",
             f"  mean_speculative_sec: {summary['mean_speculative_sec']:.3f}",
-            flush=True,
-        )
+        ]
+        if full_rows:
+            summary["mean_full_speedup"] = round(
+                sum(r["full_speedup"] for r in full_rows) / len(full_rows), 4
+            )
+            summary["mean_full_baseline_sec"] = round(
+                sum(r["baseline_8b"]["full_elapsed_sec"] for r in full_rows) / len(full_rows), 4
+            )
+            summary["mean_full_speculative_sec"] = round(
+                sum(r["speculative_sd"]["full_elapsed_sec"] for r in full_rows) / len(full_rows), 4
+            )
+            summary_lines.extend(
+                [
+                    f"  mean_full_speedup (8B/SD, tokenize+generate, comparable to MMA qa_sec): "
+                    f"{summary['mean_full_speedup']:.3f}x",
+                    f"  mean_full_baseline_sec: {summary['mean_full_baseline_sec']:.3f}",
+                    f"  mean_full_speculative_sec: {summary['mean_full_speculative_sec']:.3f}",
+                ]
+            )
+        print("\n".join(summary_lines), flush=True)
 
     out_path = Path(args.output_file)
     out_path.parent.mkdir(parents=True, exist_ok=True)
