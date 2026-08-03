@@ -15,9 +15,18 @@
 | mma16_novr | `/nix/openeqa_work/open_eqa_runs/token_test_mma16_novr_20260802_234409` | 30 | 1927.0 | 403 | 2860 |
 | mma16_vr | `/nix/openeqa_work/open_eqa_runs/token_test_mma16_vr_20260802_234409` | 30 | 1927.0 | 403 | 2860 |
 
-Memory routing计数（VR组，来自`stats_out["memories_before_routing"]`/`["memories_after_routing"]`）：
+Memory routing计数（VR组，来自`stats_out["memories_before_routing"]`/`["memories_after_routing"]`，[decoding.py:452-453](../../../MMA/speculative_memory/decoding.py)）：
 - mma64_vr: mean_before=9.39, mean_after=1.29, budget=512.0 (n=28)
 - mma16_vr: mean_before=7.55, mean_after=1.31, budget=512.0 (n=29)
+
+**来源与计算方式：** 30题里逐题读取`memories_before_routing`/`memories_after_routing`两个字段，`None`的题（没有数据的题）剔除，剩余题目直接算术平均。以`mma64_vr`为例，原始逐题数值（30题，路由前/路由后）：
+
+```
+before: [10, None, 7, 10, 10, 4, 10, 10, 2, None, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]
+after:  [1, None, 1, 1, 1, 1, 1, 1, 1, None, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+```
+
+去掉2个None后剩28题：before总和263，263/28=9.393≈9.39；after总和36，36/28=1.286≈1.29，与脚本汇总输出一致（已人工核对）。
 
 派生比例：
 - 64f: Direct → MMA(无VR)：130748.1 → 2326.0（省98.2%）
