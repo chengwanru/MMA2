@@ -298,7 +298,7 @@ if [[ "${ARMS}" == "both" || "${ARMS}" == "mma" ]]; then
     --ours_config "${CFG}" \
     --limit "${LIMIT}" \
     --offset 0 \
-    --variants ours \
+    --variants "${OPENEQA_EVAL_VARIANTS:-ours}" \
     2>&1 | tee -a "${LOG}"
   mma_eval_exit=${PIPESTATUS[0]}
   set -e
