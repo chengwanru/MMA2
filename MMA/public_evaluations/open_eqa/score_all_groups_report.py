@@ -170,6 +170,34 @@ GROUPS: List[Dict[str, Any]] = [
             "vr_baddraft": "--", "reject_strategy": "greedy+semantic",
         },
     },
+    # --- Extra experiment (2026-09), rebuilt A800 environment, rebuttal P0 ---
+    {
+        "name": "Extra: Target-only baseline (64f, no resize, new env)",
+        "path": "/workspace/wanru/open_eqa_runs/p0_target_only_baseline_557_20260919_004517/mma_sd.json",
+        "variant": "ours",
+        "settings": {
+            "frames": 64, "resize": "N", "hybrid": "--", "visual_routing": "--",
+            "vr_baddraft": "--", "reject_strategy": "--",
+        },
+    },
+    {
+        "name": "Extra: MBSD (64f, no resize, new env)",
+        "path": "/workspace/wanru/open_eqa_runs/mbsd_557_env_check_20260919_121034/mma_sd.json",
+        "variant": "ours",
+        "settings": {
+            "frames": 64, "resize": "N", "hybrid": "N", "visual_routing": "N",
+            "vr_baddraft": "N", "reject_strategy": "greedy+semantic",
+        },
+    },
+    {
+        "name": "Extra: MMA2.0 (64f, no resize, new env)",
+        "path": "/workspace/wanru/open_eqa_runs/mma2_557_env_check_20260919_121036/mma_sd.json",
+        "variant": "ours",
+        "settings": {
+            "frames": 64, "resize": "N", "hybrid": "N", "visual_routing": "Y",
+            "vr_baddraft": "N", "reject_strategy": "greedy+semantic",
+        },
+    },
 ]
 
 
