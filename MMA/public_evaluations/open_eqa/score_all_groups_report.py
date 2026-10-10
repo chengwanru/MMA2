@@ -198,6 +198,25 @@ GROUPS: List[Dict[str, Any]] = [
             "vr_baddraft": "N", "reject_strategy": "greedy+semantic",
         },
     },
+    # --- Extra experiment (2026-10), real KV memory injection fix (transformers==5.0.0) ---
+    {
+        "name": "Extra: MBSD (64f, no resize, KV-injection fix)",
+        "path": "/root/wanru/mbsd_kvfix_557_v2/mma_sd.json",
+        "variant": "ours",
+        "settings": {
+            "frames": 64, "resize": "N", "hybrid": "N", "visual_routing": "N",
+            "vr_baddraft": "N", "reject_strategy": "greedy+semantic",
+        },
+    },
+    {
+        "name": "Extra: MMA2.0 (64f, no resize, KV-injection fix)",
+        "path": "/root/wanru/mma2_kvfix_557_v2/mma_sd.json",
+        "variant": "ours",
+        "settings": {
+            "frames": 64, "resize": "N", "hybrid": "N", "visual_routing": "Y",
+            "vr_baddraft": "N", "reject_strategy": "greedy+semantic",
+        },
+    },
 ]
 
 
