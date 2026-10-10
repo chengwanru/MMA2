@@ -633,7 +633,17 @@ def _load_key_pool(path: Path) -> List[tuple]:
     return entries
 
 
-def _wrap_with_key_rotation(base_cfg, *, entries: List[tuple]):
+def _estimate_tokens(question: str, answer: str, prediction: str, max_tokens: int) -> int:
+    """Rough chars/4 heuristic for prompt tokens, plus the completion cap.
+
+    Only used to enforce a soft per-key budget -- doesn't need to be exact,
+    just needs to not systematically underestimate by a large factor.
+    """
+    chars = len(question or "") + len(answer or "") + len(prediction or "") + 400  # template overhead
+    return chars // 4 + int(max_tokens or 0)
+
+
+def _wrap_with_key_rotation(base_cfg, *, entries: List[tuple], token_budget: Optional[int] = None):
     """Build a score_fn that advances to the next (key, base_url) pair in the
     pool on a failing call (quota exhausted, auth, transient network, wrong
     endpoint) and retries the same question, instead of counting toward
@@ -643,22 +653,42 @@ def _wrap_with_key_rotation(base_cfg, *, entries: List[tuple]):
     ones. Only re-raises (letting the normal consecutive-failure/abort logic
     in _score_group take over) once every entry in the pool has failed for
     this specific question. Returns (score_fn, cfg_for_preflight).
+
+    token_budget: if set, proactively rotates to the next key once the
+    current key's estimated cumulative usage (this process only) would
+    exceed the budget -- a safety rail, not a precise accounting.
     """
     import dataclasses
 
     state = {"idx": 0}
+    used = [0] * len(entries)
 
     def _cfg_for(idx: int):
         key, base_url = entries[idx]
         os.environ[base_cfg.api_key_env] = key
         return base_cfg if base_url is None else dataclasses.replace(base_cfg, base_url=base_url)
 
+    def _advance_past_budget(est: int) -> None:
+        if token_budget is None:
+            return
+        checked = 0
+        while used[state["idx"]] + est > token_budget and checked < len(entries):
+            print(
+                f"  [key_pool] entry #{state['idx'] + 1}/{len(entries)} hit token budget "
+                f"({used[state['idx']]}/{token_budget} est. tokens); switching key",
+                file=sys.stderr,
+            )
+            state["idx"] = (state["idx"] + 1) % len(entries)
+            checked += 1
+
     def wrapped(*, question, answer, prediction, extra_answers, verbose):
+        est = _estimate_tokens(question, answer, prediction, base_cfg.max_tokens)
+        _advance_past_budget(est)
         last_exc: Optional[Exception] = None
         for _ in range(len(entries)):
             cfg = _cfg_for(state["idx"])
             try:
-                return get_llm_match_score(
+                score = get_llm_match_score(
                     question=question,
                     answer=answer,
                     prediction=prediction,
@@ -666,6 +696,8 @@ def _wrap_with_key_rotation(base_cfg, *, entries: List[tuple]):
                     cfg=cfg,
                     verbose=verbose,
                 )
+                used[state["idx"]] += est
+                return score
             except Exception as exc:
                 last_exc = exc
                 state["idx"] = (state["idx"] + 1) % len(entries)
@@ -751,6 +783,14 @@ def main() -> None:
         "question in-process -- no manual --offset splitting across N processes "
         "needed. Ignored for --local-judge-model-path.",
     )
+    ap.add_argument(
+        "--key-token-budget",
+        type=int,
+        default=None,
+        help="With --key-pool-file: soft per-key cap on estimated cumulative tokens "
+        "(prompt chars/4 + max_tokens) for THIS process before proactively rotating "
+        "to the next key, even on success.",
+    )
     ap.add_argument("--env-file", type=Path, default=None)
     ap.add_argument("--metrics-dir", type=Path, default=_OPEN_EQA_DIR / "results" / "metrics")
     ap.add_argument("--dataset", type=Path, default=None)
@@ -811,7 +851,9 @@ def main() -> None:
                 f"Loaded {len(key_pool)} key(s) from {args.key_pool_file} "
                 f"({n_with_url} with a per-key base_url override); starting on entry #1"
             )
-            score_fn, preflight_cfg = _wrap_with_key_rotation(cfg, entries=key_pool)
+            score_fn, preflight_cfg = _wrap_with_key_rotation(
+                cfg, entries=key_pool, token_budget=args.key_token_budget
+            )
         else:
             preflight_cfg = cfg
 
