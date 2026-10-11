@@ -1,0 +1,3 @@
+{"method": "ar", "avg_generate_len": 52, "avg_decoding_time": 1.68, "avg_tokens_per_second": 31.0}
+{"method": "naive_sd", "avg_generate_len": 51, "avg_decoding_time": 2.72, "avg_tokens_per_second": 18.84, "avg_accept_length": 3.27}
+{"method": "specvlm", "avg_generate_len": 51, "avg_decoding_time": 2.71, "avg_tokens_per_second": 18.86, "avg_accept_length": 3.27}
